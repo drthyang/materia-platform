@@ -7,7 +7,7 @@
  * we validate against:
  *
  *   1. **diffpy PDFgetX3** — an INI-style `key = value` config block
- *      (`mode = xray`, `composition = Ga Nb4 Se8`, `qmax = 28`, `qmaxinst`,
+ *      (`mode = xray`, `composition = La Mn O3`, `qmax = 25`, `qmaxinst`,
  *      `rpoly`, `rstep`, …) followed by `#### start data` and a two-column
  *      `r  G(r)` table (properly normalized, O(1)).
  *   2. **Mantid** (POWGEN) — a SPEC-style header (`#Comment: neutron, Qmin=…,

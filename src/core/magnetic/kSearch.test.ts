@@ -49,9 +49,10 @@ describe("propagation-vector (k) search", () => {
     expect(kLabel([1 / 3, 1 / 3, 0])).toBe("(⅓ ⅓ 0)");
   });
 
-  it("recovers k = (½,0,0) on the bundled monoclinic cell (P2/c)", () => {
-    // A synthetic k = (½,0,0) order: magnetic satellites at half-integer h, integer k,l.
-    const cell: UnitCell = { a: 4.6757, b: 5.701, c: 4.9367, alpha: 90, beta: 89.312, gamma: 90 };
+  it("recovers a synthetic k = (½,0,0) on a monoclinic cell (MnWO₄, P2/c)", () => {
+    // A synthetic k = (½,0,0) order: magnetic satellites at half-integer h, integer k,l,
+    // on MnWO₄'s published cell (Macavei & Schulz 1993; src/examples/mnwo4.ts).
+    const cell: UnitCell = { a: 4.83, b: 5.7603, c: 4.994, alpha: 90, beta: 91.14, gamma: 90 };
     const d = (h: number, k: number, l: number): number => 1 / Math.sqrt(inverseDSquared(cell, h, k, l));
     const observed = [
       d(0.5, 0, 0), d(0.5, 1, 0), d(0.5, 0, 1), d(0.5, 1, 1), d(1.5, 0, 0), d(0.5, 2, 0), d(0.5, 1, -1),

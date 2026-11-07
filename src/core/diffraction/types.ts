@@ -276,7 +276,7 @@ export interface PdfPattern {
   readonly rpoly?: number;
   /** Grid step Δr in Å (redundant with the points, kept from the header). */
   readonly rstep?: number;
-  /** Sample composition string as written in the header, e.g. "Ga Nb4 Se8". */
+  /** Sample composition string as written in the header, e.g. "La Mn O3". */
   readonly composition?: string;
   /**
    * What the loaded file actually contained. "gr" = the G(r) itself; "sq"/"fq"

@@ -2,21 +2,20 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parsePdfData } from "@/parsers/pdfData";
-import { exampleStructure } from "@/examples/highEntropyWO4";
+import { parseCif } from "@/parsers/cif";
 import { pdfPage, pageView } from "@/app/pdfPage";
 import { buildPdfProblem, joinBlocks, terminationPlanFor, windowFor } from "@/core/workflow/pdf";
 import { applyParameters } from "@/core/workflow/apply";
 import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
 import { colocatedGroups, CompactPairs, PAIR_STORE_BUDGET_BYTES } from "@/core/pdf/pairEnumerator";
 import { PAIR_REACH_MARGIN } from "@/core/pdf/forwardModel";
-import { dataDir } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataDir, LOCAL_DATA } from "@/testSupport/data";
 
 /**
- * The user's measured G(r) on the bundled multi-element-site model (six
- * species on one site), where it is: the git-ignored data folder. The data
- * are unpublished: nothing here names the file or holds a number from it, and
- * the suite skips without it. What it pins are relations — the split pool's
+ * The user's measured G(r) on its own multi-element-site model (several
+ * species on one site, the dataset's refined structure), where they are: the
+ * git-ignored data folder. The data are unpublished: nothing here names the
+ * files or holds a number from them, and the suite skips without them. What it pins are relations — the split pool's
  * evaluation is the whole one bit for bit on the real grid, and the full
  * range's pair list fits its storage budget at under two bytes a pair (the
  * object list it replaces took about a hundred in a browser isolate).
@@ -32,9 +31,12 @@ function userPdf(): string | null {
   return gr ? join(dir, gr) : null;
 }
 const file = userPdf();
+/** The dataset's refined structure (docs/VALIDATION.md). */
+const cif = join(dataDir(LOCAL_DATA.magneticTof), "structure_100K.cif");
 
-describe.skipIf(!file)("the user's multi-element-site G(r), long range", () => {
+describe.skipIf(!file || !existsSync(cif))("the user's multi-element-site G(r), long range", () => {
   const pattern = () => parsePdfData(readFileSync(file!, "utf8"), { id: "user-pdf", filename: "user.gr" });
+  const exampleStructure = () => parseCif(readFileSync(cif, "utf8"), "local");
 
   it("splits into three blocks that join to the whole evaluation and its analytic columns, bit for bit (1.5–30 Å)", () => {
     const pat = pattern();

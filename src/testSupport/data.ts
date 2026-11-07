@@ -10,10 +10,45 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { isUnsetLocalPath, resolveLocalData, type LocalDataPaths } from "@/testSupport/localData";
+import type { LocalReferences } from "@/testSupport/localReferences";
 
 /** The data folder: `data/` in the checkout, or MATERIA_DATA_DIR (a worktree reads its main checkout's). */
 export const DATA_DIR = process.env.MATERIA_DATA_DIR ? resolve(process.env.MATERIA_DATA_DIR) : resolve(process.cwd(), "data");
+
+/**
+ * A git-ignored JSON file of the local data: the one `envVar` names, else
+ * `name` in the data folder, else `name` in the checkout's own `data/` (so a
+ * worktree pointed at another checkout's data can keep its own copy). Null
+ * when there is none.
+ */
+function localJson(envVar: string, name: string): unknown {
+  const candidates = [process.env[envVar], resolve(DATA_DIR, name), resolve(process.cwd(), "data", name)];
+  for (const file of candidates) {
+    if (!file || !existsSync(file)) continue;
+    try {
+      return JSON.parse(readFileSync(file, "utf8")) as unknown;
+    } catch (e) {
+      throw new Error(`${file}: not valid JSON (${(e as Error).message})`, { cause: e });
+    }
+  }
+  return null;
+}
+
+/**
+ * Where the owner's unpublished datasets sit in the data folder: read from
+ * `local-paths.json` (or the file MATERIA_LOCAL_PATHS names). Without it every
+ * name is a placeholder that no file has, and the tests that need one skip.
+ */
+export const LOCAL_DATA: LocalDataPaths = resolveLocalData(localJson("MATERIA_LOCAL_PATHS", "local-paths.json"));
+
+/**
+ * The reference values the data-gated tests compare with — numbers from the
+ * owner's own refinements of the unpublished datasets, kept out of the
+ * repository in `local-references.json` (or the file MATERIA_LOCAL_REFERENCES
+ * names). Null without it: the tests that need a value skip.
+ */
+export const LOCAL_REFERENCES: LocalReferences | null = localJson("MATERIA_LOCAL_REFERENCES", "local-references.json") as LocalReferences | null;
 
 /**
  * Datasets whose local folder name varies between checkouts. Tests, README and
@@ -22,7 +57,7 @@ export const DATA_DIR = process.env.MATERIA_DATA_DIR ? resolve(process.env.MATER
  * folder from silently skipping every test that needs it: a skip looks
  * identical to a pass in `npm test`.
  */
-const DIR_ALIASES: Record<string, readonly string[]> = {
+const DIR_ALIASES: Record<string, readonly string[]> = isUnsetLocalPath(LOCAL_DATA.xrd.dir) ? {} : {
   [LOCAL_DATA.xrd.dir]: [LOCAL_DATA.xrd.dir, ...LOCAL_DATA.xrd.aliases],
 };
 
@@ -59,7 +94,7 @@ export function dataPath(rel: string): string {
 }
 
 export function dataExists(rel: string): boolean {
-  return existsSync(dataPath(rel));
+  return !isUnsetLocalPath(rel) && existsSync(dataPath(rel));
 }
 
 export function readData(rel: string): string {

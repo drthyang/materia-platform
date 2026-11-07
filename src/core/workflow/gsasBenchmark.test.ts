@@ -5,8 +5,7 @@ import { buildStructureRefinement } from "@/core/workflow/structureRefinement";
 import { refine } from "@/core/refinement/engine";
 import { computeAgreementFactors, weightsFromSigma } from "@/core/refinement/factors";
 import { optimalScale } from "@/app/loadData";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 
@@ -27,7 +26,9 @@ import type { ParameterBinding, RefinementParameter } from "@/core/refinement/ty
 const DIR = LOCAL_DATA.xrd.dir;
 const CIF = `${DIR}/${LOCAL_DATA.xrd.structure}`;
 const REF = `${DIR}/${LOCAL_DATA.xrd.gsasFit}`;
-const has = dataExists(CIF) && dataExists(REF);
+/** The dataset's wavelength (data/local-references.json). */
+const XRD_REF = LOCAL_REFERENCES?.xrd;
+const has = !!XRD_REF && dataExists(CIF) && dataExists(REF);
 
 interface Row { x: number; yobs: number; yc: number; yb: number; sig: number }
 function loadRef(): Row[] {
@@ -69,8 +70,8 @@ describe.skipIf(!has)("benchmark vs GSAS-II good fit — the local X-ray dataset
       id: "gns",
       name: "local X-ray",
       xUnit: "twoTheta",
-      radiation: { kind: "xray", wavelength: 0.1665 },
-      wavelength: 0.1665,
+      radiation: { kind: "xray", wavelength: XRD_REF!.wavelength },
+      wavelength: XRD_REF!.wavelength,
       points: fit.map((r) => ({ x: r.x, yObs: r.yobs, sigma: r.sig })),
     };
     // Atom positions & ADP FIXED (as GSAS did). Refine scale + cubic cell a
@@ -130,8 +131,8 @@ describe.skipIf(!has)("benchmark vs GSAS-II good fit — the local X-ray dataset
       id: "gns",
       name: "local X-ray",
       xUnit: "twoTheta",
-      radiation: { kind: "xray", wavelength: 0.1665 },
-      wavelength: 0.1665,
+      radiation: { kind: "xray", wavelength: XRD_REF!.wavelength },
+      wavelength: XRD_REF!.wavelength,
       points: fit.map((r) => ({ x: r.x, yObs: r.yobs, sigma: r.sig })),
     };
     // GSAS-II's model shape: fixed atoms; refine scale + cell + Chebyshev

@@ -261,8 +261,8 @@ export function buildPdfProblem(
   interface CachedPairs { readonly key: string; readonly margin: number; readonly pairs: PairSource }
   let cached: CachedPairs | null = null;
   // A mixed site's species (same position, same ADP) pair once, through one
-  // representative carrying their summed weight: a third of the pairs for a
-  // six-cation site. Null when no atoms coincide, and the sum is per atom.
+  // representative carrying their summed weight: about a third of the pairs
+  // for a six-species site. Null when no atoms coincide, and the sum is per atom.
   let cachedGroups: ColocatedGroups | null = null;
   // The per-atom pairs at the same geometry, for a gradient request that tells
   // a group's atoms apart (built only then).

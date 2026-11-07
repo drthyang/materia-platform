@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { UnitCell } from "@/core/crystal/types";
 import type { ExpandedAtom } from "@/core/diffraction/structureFactor";
 import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
-import { exampleStructure } from "@/examples/highEntropyWO4";
+import { sharedSiteWolframite as exampleStructure } from "@/examples/mnwo4";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import {
   CompactPairs, colocatedGroups, enumeratePairs, pairArraySource, pairSourceFor, streamPairs,

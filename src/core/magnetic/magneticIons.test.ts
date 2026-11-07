@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { exampleStructure } from "@/examples/highEntropyWO4";
+import { sharedSiteWolframite } from "@/examples/mnwo4";
 import { magneticIonCandidates, siteIonId } from "@/core/magnetic/magneticIons";
 import type { StructureModel } from "@/core/crystal/types";
 
 describe("magnetic-ion detection", () => {
-  it("selects the magnetic 3d cations of the bundled structure and excludes Zn / W / O", () => {
-    const cands = magneticIonCandidates(exampleStructure());
+  it("selects the magnetic 3d cations of a shared-site wolframite and excludes Zn / W / O", () => {
+    const cands = magneticIonCandidates(sharedSiteWolframite());
     const labels = cands.map((c) => c.siteLabel).sort();
-    // Co, Fe, Ni, Mn, Cu are magnetic (in the ⟨j0⟩ table); Zn²⁺ (d¹⁰), W, O are not.
-    expect(labels).toEqual(["Co1", "Cu8", "Fe1", "Mn1", "Ni1"]);
+    // Mn, Fe, Co are magnetic (in the ⟨j0⟩ table); Zn²⁺ (d¹⁰), W, O are not.
+    expect(labels).toEqual(["Co1", "Fe1", "Mn1"]);
     expect(labels).not.toContain("Zn1");
     expect(labels).not.toContain("W1");
     expect(labels).not.toContain("O1");

@@ -2,8 +2,8 @@
 
 Pull request [#106](https://github.com/drthyang/materia-platform/pull/106),
 branch `claude/occupancy-hard-tie`, 2026-10-24 and 2026-10-25. The owner's
-decisions: the occupancies of a site shared by several species (the
-high-entropy tungstate's six cations on one site) sum to their total by a
+decisions: the occupancies of a site shared by several species (several
+cations on one site) sum to their total by a
 hard constraint, not a soft restraint, first on the PDF page and then on the
 powder page too; the total is 1 unless the user sets it lower for vacancies;
 a tied occupancy outside [0, 1] is warned of, never clamped; the eliminated
@@ -15,8 +15,8 @@ member stays the last in file order.
   occupancy row and held their sum by a pseudo-observation (`occ_sum_<site>`,
   σ 0.01). On the PDF page its weight was 10⁴ against G(r)'s unit weights, so
   its stiffness depended on the scale of G(r), and its target was the
-  starting sum: the bundled six-cation structure (6 × 0.167) was held at
-  1.002. The powder page did the same unless "Σ occ = 1" was switched on, and
+  starting sum: the bundled six-cation structure was held at its
+  starting sum, just above 1. The powder page did the same unless "Σ occ = 1" was switched on, and
   applied it only while one of the occupancies was free. Position and ADP
   were already one parameter each.
 - **The single-crystal page** has no shared-site Σ, and hard ties of its own:
@@ -47,7 +47,7 @@ member stays the last in file order.
 
 On synthetic (A)O in the CsCl type with invented occupancies
 (`core/workflow/pdfOccupancyTie.test.ts`, `app/powderOccupancyTie.test.ts`,
-`agent/sharedSiteConstraint.test.ts`) and the bundled tungstate's synthetic
+`agent/sharedSiteConstraint.test.ts`) and the bundled shared-site example's synthetic
 powder pattern:
 
 - **Σ equals the total at every evaluation**, within 1e-12: PDF, six species
@@ -91,7 +91,7 @@ shared site gets the same rows and refinement with the tie as without it.
 goldens pass unchanged; none was re-pinned. The local magnetic benchmark (25
 tests since M10) passes with its criteria and its `it.fails` as written; one
 observation in C5b is re-pinned, below. Its numbers moved: the model's last
-cation now starts at one minus the five others (Σ 1, not 1.002). With the tie
+cation now starts at one minus the others (Σ 1, not the starting sum). With the tie
 switched off in a scratch run, its output was identical to `main`'s, line for
 line, before and after the merge with M10, so the change comes only through
 that occupancy. The data are unpublished; the numbers are kept outside the
@@ -134,8 +134,8 @@ restraint and no tie, 10 of the 12 PDF tie tests fail.
 - On both pages a shared site's last occupancy row reads "= tied"
   (`= 1 - sum(…)`, or `= -1*occ_A+1` for two species) and cannot be freed; it
   shows its esd. Freeing the others refines the split; the sum is the total.
-- The starting model's sum is replaced by the total: the bundled tungstate's
-  1.002 becomes 1 (its last cation starts at 0.165). On the powder page this
+- The starting model's sum is replaced by the total: the bundled example's
+  sum becomes 1 (its last cation starts at one minus the others). On the powder page this
   applies even with the occupancies fixed, where the restraint did nothing.
 - A site with vacancies takes a total below 1 in the Occupancy group (or,
   for the Agent on the powder page, `set_site_ties` `totals`).

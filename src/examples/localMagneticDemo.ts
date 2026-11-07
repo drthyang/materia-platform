@@ -7,8 +7,10 @@
  * The data are UNPUBLISHED and never enter the repository or the public build.
  * Everything this demo needs is read at runtime from the git-ignored `data/`
  * folder, which the dev server exposes under `/data/…` (vite.config.ts,
- * `serveLocalData`, dev only):
+ * `serveLocalData`, dev only): first `local-paths.json`, which says where the
+ * dataset's folder is, then from that folder
  *
+ *   structure_100K.cif        the refined paramagnetic nuclear structure
  *   PG3_powder_6K.gsa         the ordered bank-3 histogram: the measurement of
  *                             the owner's reference refinement (and of the
  *                             benchmark's Mantid export)
@@ -24,13 +26,9 @@
  * all with the app's own pipeline. The demo opens on that last step's state.
  * Its landing card appears only when these files can be fetched; a deployed
  * site has none of them and shows no local demo.
- *
- * The nuclear structure itself (the refined paramagnetic CIF) is the one
- * already bundled in `highEntropyWO4.ts`.
  */
 
-import { HIGH_ENTROPY_CIF } from "@/examples/highEntropyWO4";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { resolveLocalData, type LocalDataPaths } from "@/testSupport/localData";
 import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
@@ -44,16 +42,29 @@ import type { Vec3 } from "@/core/math/types";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 
-/** Where the demo's files live under the (git-ignored) data folder. */
-export const LOCAL_MAGNETIC_DEMO_FILES = {
-  data: `${LOCAL_DATA.magneticTof}/PG3_powder_6K.gsa`,
-  instrument: `${LOCAL_DATA.magneticTof}/instrument_bank3.instprm`,
-  solution: LOCAL_DATA.magneticTofSolution,
-} as const;
+/** The demo's files, as paths in the (git-ignored) data folder, from `local-paths.json`'s names. */
+export interface LocalMagneticDemoFiles {
+  readonly structure: string;
+  readonly data: string;
+  readonly instrument: string;
+  readonly solution: string;
+}
 
-const STRUCTURE_ID = "awo4";
+/** Where the demo's files live under the data folder, given its `local-paths.json`. */
+export function localMagneticDemoFiles(paths: LocalDataPaths): LocalMagneticDemoFiles {
+  return {
+    structure: `${paths.magneticTof}/structure_100K.cif`,
+    data: `${paths.magneticTof}/PG3_powder_6K.gsa`,
+    instrument: `${paths.magneticTof}/instrument_bank3.instprm`,
+    solution: paths.magneticTofSolution,
+  };
+}
+
+/** The demo's History label, and its structure and pattern names: generic, as the data are unpublished. */
+export const LOCAL_MAGNETIC_DEMO_LABEL = "Local magnetic demo";
+const STRUCTURE_ID = "local-magnetic";
 const PATTERN_ID = `${STRUCTURE_ID}-powder`;
-const PATTERN_NAME = "AWO₄ POWGEN 6 K bank 3 (TOF) · local data";
+const PATTERN_NAME = "Local magnetic demo · POWGEN bank 3 (TOF) · local data";
 
 /** The solved magnetic structure, as `localMagneticDemoSolve.test.ts` writes it. */
 export interface LocalMagneticSolution {
@@ -62,7 +73,7 @@ export interface LocalMagneticSolution {
   readonly group: string;
   /** Its operations (Jones–Faithful xyz + time reversal), in the parent setting. */
   readonly ops: readonly { readonly xyz: string; readonly timeReversal: 1 | -1 }[];
-  /** The magnetic ion sites (co-located 3d cations; Zn²⁺ carries none). */
+  /** The magnetic ion sites (the co-located magnetic cations; a non-magnetic one carries none). */
   readonly ions: readonly string[];
   /** Chebyshev background terms the solve refined with (the session must match). */
   readonly backgroundTerms: number;
@@ -97,14 +108,14 @@ export interface LocalMagneticExample {
   readonly magneticWr: number;
 }
 
-/** Assemble the demo from the three files' text — pure, so tests can feed it from disk. */
-export function buildLocalMagneticExample(files: { data: string; instrument: string; solution: string }): LocalMagneticExample {
+/** Assemble the demo from the four files' text — pure, so tests can feed it from disk. */
+export function buildLocalMagneticExample(files: { structure: string; data: string; instrument: string; solution: string }): LocalMagneticExample {
   const solution = JSON.parse(files.solution) as LocalMagneticSolution;
   if (!Array.isArray(solution.free) || typeof solution.magneticWr !== "number") {
-    throw new Error(`${LOCAL_MAGNETIC_DEMO_FILES.solution} predates the moments-only solve: regenerate it (LOCAL_MAGNETIC_SOLVE=1 npx vitest run src/examples/localMagneticDemoSolve.test.ts)`);
+    throw new Error("The local demo's solution file predates the moments-only solve: regenerate it (LOCAL_MAGNETIC_SOLVE=1 npx vitest run src/examples/localMagneticDemoSolve.test.ts)");
   }
   const free = new Set(solution.free);
-  const structure: StructureModel = { ...parseCif(HIGH_ENTROPY_CIF, STRUCTURE_ID), name: "(Co,Cu,Fe,Mn,Ni,Zn)WO₄" };
+  const structure: StructureModel = parseCif(files.structure, STRUCTURE_ID);
   const instrument = parseInstrumentParameters(files.instrument);
   const pattern = parseGsasHistogramPattern(files.data, PATTERN_ID, PATTERN_NAME, { radiation: { kind: "neutron-tof" } });
   const ops: SymmetryOperation[] = solution.ops.map((o) => ({ ...parseSymmetryOperation(o.xyz), timeReversal: o.timeReversal }));
@@ -118,8 +129,8 @@ export function buildLocalMagneticExample(files: { data: string; instrument: str
     structure,
     pattern,
     instrument,
-    rawData: { name: LOCAL_MAGNETIC_DEMO_FILES.data.split("/").pop()!, text: files.data },
-    rawInstrument: { name: LOCAL_MAGNETIC_DEMO_FILES.instrument.split("/").pop()!, text: files.instrument },
+    rawData: { name: "PG3_powder_6K.gsa", text: files.data },
+    rawInstrument: { name: "instrument_bank3.instprm", text: files.instrument },
     k: solution.k,
     magneticSites: solution.ions,
     magnetic,
@@ -144,25 +155,44 @@ export function localMagneticDemoParams(nuclear: readonly RefinementParameter[],
   return [...nuclear.map((p) => ({ ...p, fixed: true })), ...ex.momentParams];
 }
 
-/** URL of one demo file on the dev server's `/data/` route. */
+/** URL of one file on the dev server's `/data/` route. */
 function dataUrl(rel: string): string {
   return `${import.meta.env.BASE_URL}data/${rel}`;
 }
 
+/** A data file's text, or null when the server has none (GitHub Pages answers unknown paths with an HTML 404 page). */
+async function fetchData(rel: string, json = false): Promise<string | null> {
+  try {
+    const res = await fetch(dataUrl(rel), { cache: "no-store" });
+    if (!res.ok) return null;
+    const text = await res.text();
+    return json && !text.trimStart().startsWith("{") ? null : text;
+  } catch {
+    return null;
+  }
+}
+
+/** The demo's files, from the data folder's `local-paths.json`; null without one. */
+async function demoFiles(): Promise<LocalMagneticDemoFiles | null> {
+  const text = await fetchData("local-paths.json", true);
+  if (text === null) return null;
+  try {
+    return localMagneticDemoFiles(resolveLocalData(JSON.parse(text)));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Whether the local files are reachable — true only on a dev server with the
- * data folder present. Decides whether the demo is offered at all.
+ * data folder (and its `local-paths.json`) present. Decides whether the demo
+ * is offered at all.
  */
 export async function localMagneticDemoAvailable(): Promise<boolean> {
-  try {
-    const res = await fetch(dataUrl(LOCAL_MAGNETIC_DEMO_FILES.solution), { method: "GET", cache: "no-store" });
-    if (!res.ok) return false;
-    // GitHub Pages answers unknown paths with an HTML 404 page; a real answer is JSON.
-    const text = await res.text();
-    return text.trimStart().startsWith("{");
-  } catch {
-    return false;
-  }
+  const files = await demoFiles();
+  if (!files) return false;
+  const [solution, structure] = await Promise.all([fetchData(files.solution, true), fetchData(files.structure)]);
+  return solution !== null && structure !== null;
 }
 
 let cached: Promise<LocalMagneticExample> | null = null;
@@ -171,17 +201,15 @@ let cached: Promise<LocalMagneticExample> | null = null;
 export function loadLocalMagneticExample(): Promise<LocalMagneticExample> {
   if (!cached) {
     cached = (async () => {
+      const files = await demoFiles();
+      if (!files) throw new Error("data/local-paths.json: not found");
       const get = async (rel: string): Promise<string> => {
-        const res = await fetch(dataUrl(rel), { cache: "no-store" });
-        if (!res.ok) throw new Error(`${rel}: HTTP ${res.status}`);
-        return res.text();
+        const text = await fetchData(rel);
+        if (text === null) throw new Error(`${rel}: not found`);
+        return text;
       };
-      const [data, instrument, solution] = await Promise.all([
-        get(LOCAL_MAGNETIC_DEMO_FILES.data),
-        get(LOCAL_MAGNETIC_DEMO_FILES.instrument),
-        get(LOCAL_MAGNETIC_DEMO_FILES.solution),
-      ]);
-      return buildLocalMagneticExample({ data, instrument, solution });
+      const [structure, data, instrument, solution] = await Promise.all([get(files.structure), get(files.data), get(files.instrument), get(files.solution)]);
+      return buildLocalMagneticExample({ structure, data, instrument, solution });
     })().catch((e: unknown) => {
       cached = null; // let a later attempt retry
       throw e;

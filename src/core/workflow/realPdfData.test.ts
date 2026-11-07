@@ -6,8 +6,7 @@
  * the committed PDFfit2 goldens (exact synthetic references).
  */
 import { describe, it, expect } from "vitest";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 import * as tools from "@/mcp/tools";
 import { buildPdfSpec } from "@/core/workflow/pdf";
 import type { PdfPattern } from "@/core/diffraction/types";
@@ -36,6 +35,9 @@ const XPDF_GR = `${LOCAL_DATA.xrayPdf.dir}/${LOCAL_DATA.xrayPdf.pattern}`;
 const XPDF_CIF = `${LOCAL_DATA.xrd.dir}/${LOCAL_DATA.xrd.structure}`;
 const GTS_GR = "GaTa4Se8_NOMAD/PDF/01_GTS_at_5K.gr";
 const GTS_CIF = "GaTa4Se8_NOMAD/GTS_5K.cif";
+/** The owner's PDFgui values for the local datasets (data/local-references.json). */
+const HEX_REF = LOCAL_REFERENCES?.hexPdf;
+const XPDF_REF = LOCAL_REFERENCES?.xrayPdf;
 
 const FCC: readonly [number, number, number][] = [[0, 0, 0], [0.5, 0.5, 0], [0.5, 0, 0.5], [0, 0.5, 0.5]];
 const NI_STRUCTURE: import("@/core/crystal/types").StructureModel = {
@@ -68,16 +70,17 @@ describe.skipIf(!dataExists(NI_GR))("REAL Ni standard (28-ID X-ray) — calibrat
   }, 300000);
 });
 
-describe.skipIf(!dataExists(HEX_GR) || !dataExists(HEX_CIF))("REAL local hexagonal neutron PDF (POWGEN) — vs PDFgui", () => {
-  it("staged fit lands near the PDFgui-refined cell (a 5.2722, c 4.2677)", async () => {
+describe.skipIf(!dataExists(HEX_GR) || !dataExists(HEX_CIF) || !HEX_REF)("REAL local hexagonal neutron PDF (POWGEN) — vs PDFgui", () => {
+  it("staged fit lands near the PDFgui-refined cell", async () => {
+    const ref = HEX_REF!;
     const { structure } = tools.parse_structure({ cif: readData(HEX_CIF) });
     const parsed = tools.parse_pdf_data({ text: readData(HEX_GR), filename: "hex.gr" });
     const pattern = truncate(parsed.pattern, 30);
     const model = tools.build_pdf_model({ structure, pattern });
     // POWGEN instrument constants from the user's PDFgui fit; δ2 free.
     const params = model.parameters.map((p) => {
-      if (p.id === "qdamp") return { ...p, value: 0.0155299 };
-      if (p.id === "qbroad") return { ...p, value: 0.0120727 };
+      if (p.id === "qdamp") return { ...p, value: ref.qdamp };
+      if (p.id === "qbroad") return { ...p, value: ref.qbroad };
       if (p.kind === "bIso" || p.id === "delta2") return { ...p, fixed: false };
       if (p.kind === "cellAngle") return { ...p, fixed: true };
       return p;
@@ -92,8 +95,8 @@ describe.skipIf(!dataExists(HEX_GR) || !dataExists(HEX_CIF))("REAL local hexagon
     // (δ2/ADP conventions differ between the fits — see the golden notes).
     const a = params.find((p) => p.id === "cell_a")!;
     const c = params.find((p) => p.id === "cell_c")!;
-    expect(Math.abs((refined.result.parameters[a.id] ?? 0) - 5.272188)).toBeLessThan(6e-3);
-    expect(Math.abs((refined.result.parameters[c.id] ?? 0) - 4.267749)).toBeLessThan(6e-3);
+    expect(Math.abs((refined.result.parameters[a.id] ?? 0) - ref.cell.a)).toBeLessThan(6e-3);
+    expect(Math.abs((refined.result.parameters[c.id] ?? 0) - ref.cell.c)).toBeLessThan(6e-3);
     expect(refined.result.agreement.rWeighted ?? 1).toBeLessThan(0.25);
   }, 300000);
 });
@@ -170,14 +173,14 @@ async function localFit(structure: object, pattern: PdfPattern, qdamp: number, q
   return rw;
 }
 
-describe.skipIf(!dataExists(XPDF_GR) || !dataExists(P213_CIF))("local X-ray PDF — cubic vs P2₁3 local fit (r = 2–10 Å, PDFgui settings)", () => {
+describe.skipIf(!dataExists(XPDF_GR) || !dataExists(P213_CIF) || !XPDF_REF)("local X-ray PDF — cubic vs P2₁3 local fit (r = 2–10 Å, PDFgui settings)", () => {
   it("distorted P2₁3 beats the cubic average, as in PDFgui", async () => {
     const pattern = trunc2(tools.parse_pdf_data({ text: readData(XPDF_GR), filename: "g.gr" }).pattern, 12);
     const cubic = tools.parse_structure({ cif: readData(XPDF_CIF) }).structure;
     const p213 = tools.parse_structure({ cif: readData(P213_CIF) }).structure;
     console.log(`[models] cubic ${cubic.spaceGroup.hermannMauguin} ${cubic.sites.length} sites · p213 ${p213.spaceGroup.hermannMauguin} ${p213.sites.length} sites`);
-    const rwCubic = await localFit(cubic, pattern, 0.0383, 0.0472, "local cubic 2–10");
-    const rwP213 = await localFit(p213, pattern, 0.0383, 0.0472, "local P213 2–10");
+    const rwCubic = await localFit(cubic, pattern, XPDF_REF!.qdamp, XPDF_REF!.qbroad, "local cubic 2–10");
+    const rwP213 = await localFit(p213, pattern, XPDF_REF!.qdamp, XPDF_REF!.qbroad, "local P213 2–10");
     expect(rwP213).toBeLessThan(rwCubic);
   }, 600000);
 });
@@ -202,7 +205,7 @@ describe.skipIf(!dataExists(GTS_GR) || !dataExists(P213_CIF))("GaTa4Se8 5K — T
 // --- Distortion-mode fitting (AMPLIMODES paradigm): decompose the P2_13 child
 // against the cubic F-43m parent and fit the FROZEN-MODE AMPLITUDE — one
 // order-parameter instead of 13 coordinates. ---
-describe.skipIf(!dataExists(XPDF_GR) || !dataExists(P213_CIF) || !dataExists(XPDF_CIF))("local X-ray PDF — frozen-mode amplitude fit (F-43m → P2_13)", () => {
+describe.skipIf(!dataExists(XPDF_GR) || !dataExists(P213_CIF) || !dataExists(XPDF_CIF) || !XPDF_REF)("local X-ray PDF — frozen-mode amplitude fit (F-43m → P2_13)", () => {
   it("one mode amplitude captures the distortion (vs 13 free positions)", async () => {
     const { buildDistortionModes, withDistortionModes } = await import("@/core/crystal/distortionModes");
     const parent = tools.parse_structure({ cif: readData(XPDF_CIF) }).structure;
@@ -217,8 +220,8 @@ describe.skipIf(!dataExists(XPDF_GR) || !dataExists(P213_CIF) || !dataExists(XPD
     const spec = buildPdfSpec(set.parentized, pattern);
     const swapped = withDistortionModes({ params: spec.params, bindings: spec.bindings }, set);
     const params = swapped.params.map((p) => {
-      if (p.id === "qdamp") return { ...p, value: 0.0383 };
-      if (p.id === "qbroad") return { ...p, value: 0.0472 };
+      if (p.id === "qdamp") return { ...p, value: XPDF_REF!.qdamp };
+      if (p.id === "qbroad") return { ...p, value: XPDF_REF!.qbroad };
       if (p.kind === "bIso" || p.id === "delta2") return { ...p, fixed: false };
       if (p.kind === "cellAngle") return { ...p, fixed: true };
       return p; // withDistortionModes leaves only the frozen (per-star) modes free
@@ -233,7 +236,7 @@ describe.skipIf(!dataExists(XPDF_GR) || !dataExists(P213_CIF) || !dataExists(XPD
     expect(["converged", "stalled"]).toContain(refined.result.status);
     // One amplitude must beat the CUBIC average — the frozen mode IS the local
     // distortion — and land near the full 13-coordinate fit.
-    expect(rw).toBeLessThan(0.0919);
+    expect(rw).toBeLessThan(XPDF_REF!.cubicRw);
     // The fitted amplitude agrees with the decomposition of the user's refined
     // P2_13 state to ~20 % (δ2/ADP trade-offs move it slightly).
     expect(Math.abs(amp - set.modes[0]!.observedAmplitude) / set.modes[0]!.observedAmplitude).toBeLessThan(0.2);

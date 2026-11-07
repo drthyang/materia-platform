@@ -3,54 +3,88 @@
  * git-ignored `data/` folder. Tests, docs and comments refer to them only by
  * the keys below ("the local magnetic TOF dataset", …).
  *
- * The folder and file names are those of the owner's local copies. They stay
- * here, in this one file, because renaming them would break the local folders;
- * whether to read them from the environment instead is the owner's call. No
- * data, and no number measured on them, is in the repository.
+ * No folder or file name of these datasets is in the repository. They are
+ * read at run time from `local-paths.json` (git-ignored, in the data folder):
+ * in Node by `testSupport/data.ts` (MATERIA_LOCAL_PATHS may name another
+ * file), in the dev server's page by the local demo, which fetches it from
+ * `/data/`. A name the file does not give stays a placeholder naming its key,
+ * a path that never exists, so every test that needs it skips.
  *
  * Pure (no Node imports), so the dev-only local demo can use it too.
  */
-export const LOCAL_DATA = {
-  /** A magnetic POWGEN TOF dataset: bank-3 patterns, calibrations, the refined structure, a reference mCIF and a PDF (layout in docs/VALIDATION.md). */
-  magneticTof: "AWO4",
+
+/** The shape of `data/local-paths.json`. Paths are from the data folder unless a comment says otherwise. */
+export interface LocalDataPaths {
+  /** A magnetic POWGEN TOF dataset's folder: bank-3 patterns, calibrations, the refined structure, a reference mCIF and a PDF (layout in docs/VALIDATION.md). */
+  readonly magneticTof: string;
   /** The local magnetic demo's solution, written by `localMagneticDemoSolve.test.ts`. */
-  magneticTofSolution: "AWO4/awo4_demo_solution.json",
-  /** A synchrotron X-ray powder dataset (28-ID): its structure, a pattern and a GSAS-II fit of it. */
-  xrd: {
-    dir: "GaNb4Se8_XRD",
+  readonly magneticTofSolution: string;
+  /** A synchrotron X-ray powder dataset (28-ID): its folder, and in it its structure, a pattern and a GSAS-II fit of it. */
+  readonly xrd: {
+    readonly dir: string;
     /** Other names the same local folder is kept under. */
-    aliases: ["GaNb4Se8_XRD_28ID"],
-    structure: "GaNb4Se8_100K.cif",
-    pattern: "GaNb4Se8_799_T_298.8K_gsas.dat",
-    gsasFit: "GaNb4Se8_goodfit_298K.csv",
-  },
-  /** An X-ray PDF dataset (28-ID) of the same compound: a low-temperature G(r) and a local model. */
-  xrayPdf: {
-    dir: "GaNb4Se8_PDF_Qmax_27",
-    pattern: "GaNb4Se8_101_T_base_5.8K_T_FC0.0K_Sample_X_5.78mm_DetZ_3674.0mm_new_masked_L1_U98_q.dat_bgsub_scale_0.28_shift_110.gr",
-    localModel: "P213_5p8K_extracted.cif",
-  },
+    readonly aliases: readonly string[];
+    readonly structure: string;
+    readonly pattern: string;
+    readonly gsasFit: string;
+  };
+  /** An X-ray PDF dataset (28-ID) of the same compound: its folder, and in it a low-temperature G(r) and a local model. */
+  readonly xrayPdf: { readonly dir: string; readonly pattern: string; readonly localModel: string };
   /** A room-temperature G(r) of the same X-ray PDF dataset. */
-  xrayPdfRoomT: "PDF/GaNb4Se8_28ID/GaNb4Se8_796_T_base_299.5K_T_FC0.0K_Sample_X_5.78mm_DetZ_3674.0mm_new_masked_L1_U98_q.dat_bgsub_scale_0.28_shift_110.gr",
-  /** A hexagonal magnetic POWGEN dataset: a GSAS-II magnetic refinement and a raw histogram. */
-  hexMagnetic: {
-    refinement: "FeCoSn/Co0p55/refinement/1p7K",
-    histogram: "FeCoSn/PG3_48278.gsa",
-  },
+  readonly xrayPdfRoomT: string;
+  /** A hexagonal magnetic POWGEN dataset: a GSAS-II magnetic refinement (folder) and a raw histogram. */
+  readonly hexMagnetic: { readonly refinement: string; readonly histogram: string };
   /** A neutron PDF of the hexagonal dataset: its G(r) and a starting structure. */
-  hexPdf: {
-    pattern: "FeCoSn_PDF/PG3_48288_PDF_1p7K_Q30.gr",
-    structure: "FeCoSn_PDF/Fe1Co9Sn_300K.cif",
-  },
+  readonly hexPdf: { readonly pattern: string; readonly structure: string };
   /** The same neutron G(r), as kept under the PDF folder. */
-  hexPdfCopy: "PDF/Fe1Co9Sn_PG3/PG3_48288_PDF_1p7K_Q30.gr",
+  readonly hexPdfCopy: string;
   /** PDFgui's G_calc for that G(r) (the owner's fit), as a golden. */
-  hexPdfGolden: "PDF/Fe1Co9Sn_PG3/golden/pdfgui_calc_1p7K_Q30.txt",
-  /** StoG's input and output for the hexagonal dataset's S(Q). */
-  hexStog: "StoG/199K",
-  /** GSAS-II reflection lists of three hexagonal phases of the same system. */
-  hexPhases: {
-    dir: "TwoPhases",
-    tags: ["CoSn_1", "CoSn_2", "CoSn"],
-  },
-} as const;
+  readonly hexPdfGolden: string;
+  /** StoG's input and output for the hexagonal dataset's S(Q) (a folder). */
+  readonly hexStog: string;
+  /** GSAS-II reflection lists of three hexagonal phases of the same system: the folder, and each phase's tag. */
+  readonly hexPhases: { readonly dir: string; readonly tags: readonly string[] };
+}
+
+const UNSET = "(unset in local-paths.json: ";
+
+/** The placeholder of a name `local-paths.json` does not give: it names its key, and no file has it. */
+export function unsetLocalPath(key: string): string {
+  return `${UNSET}${key})`;
+}
+
+/** Whether a path is (or contains) the placeholder of an unset name. */
+export function isUnsetLocalPath(path: string): boolean {
+  return path.includes(UNSET);
+}
+
+const record = (raw: unknown): Record<string, unknown> => (raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {});
+const text = (raw: unknown, key: string): string => (typeof raw === "string" && raw !== "" ? raw : unsetLocalPath(key));
+const texts = (raw: unknown): readonly string[] => (Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string" && x !== "") : []);
+
+/** The paths a parsed `local-paths.json` gives (null or {} when there is none), each missing one a placeholder. */
+export function resolveLocalData(raw: unknown): LocalDataPaths {
+  const j = record(raw);
+  const [xrd, xrayPdf, hexMagnetic, hexPdf, hexPhases] = [j.xrd, j.xrayPdf, j.hexMagnetic, j.hexPdf, j.hexPhases].map(record) as [
+    Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>,
+  ];
+  return {
+    magneticTof: text(j.magneticTof, "magneticTof"),
+    magneticTofSolution: text(j.magneticTofSolution, "magneticTofSolution"),
+    xrd: {
+      dir: text(xrd.dir, "xrd.dir"),
+      aliases: texts(xrd.aliases),
+      structure: text(xrd.structure, "xrd.structure"),
+      pattern: text(xrd.pattern, "xrd.pattern"),
+      gsasFit: text(xrd.gsasFit, "xrd.gsasFit"),
+    },
+    xrayPdf: { dir: text(xrayPdf.dir, "xrayPdf.dir"), pattern: text(xrayPdf.pattern, "xrayPdf.pattern"), localModel: text(xrayPdf.localModel, "xrayPdf.localModel") },
+    xrayPdfRoomT: text(j.xrayPdfRoomT, "xrayPdfRoomT"),
+    hexMagnetic: { refinement: text(hexMagnetic.refinement, "hexMagnetic.refinement"), histogram: text(hexMagnetic.histogram, "hexMagnetic.histogram") },
+    hexPdf: { pattern: text(hexPdf.pattern, "hexPdf.pattern"), structure: text(hexPdf.structure, "hexPdf.structure") },
+    hexPdfCopy: text(j.hexPdfCopy, "hexPdfCopy"),
+    hexPdfGolden: text(j.hexPdfGolden, "hexPdfGolden"),
+    hexStog: text(j.hexStog, "hexStog"),
+    hexPhases: { dir: text(hexPhases.dir, "hexPhases.dir"), tags: texts(hexPhases.tags) },
+  };
+}

@@ -29,8 +29,8 @@ describe("allowedPositionShifts", () => {
   it("frees the [1,1,1] mode for a general (x,x,x) site with x > 0.5", () => {
     // Regression: the periodic-distance check must wrap shifts of >1 cell, else
     // a coordinate > 0.5 spuriously counts extra stabilizer ops and over-fixes
-    // the site (e.g. Se at 16e (0.8845,0.8845,0.8845) in F-4̄3m).
-    const g = allowedPositionShifts(ops("x,y,z", "z,x,y", "y,z,x", "-x,-y,z", "y,x,z"), [0.8845, 0.8845, 0.8845]);
+    // the site (e.g. an atom at 16e (0.87,0.87,0.87) in F-4̄3m).
+    const g = allowedPositionShifts(ops("x,y,z", "z,x,y", "y,z,x", "-x,-y,z", "y,x,z"), [0.87, 0.87, 0.87]);
     expect(g.dimension).toBe(1);
     expect(g.basis[0]![0]).toBeCloseTo(1, 6);
     expect(g.basis[0]![1]).toBeCloseTo(1, 6);

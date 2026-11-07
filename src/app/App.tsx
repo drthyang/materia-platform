@@ -42,7 +42,7 @@ import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
-import { localMagneticDemoParams, localMagneticDemoAvailable, loadLocalMagneticExample } from "@/examples/localMagneticDemo";
+import { LOCAL_MAGNETIC_DEMO_LABEL, localMagneticDemoParams, localMagneticDemoAvailable, loadLocalMagneticExample } from "@/examples/localMagneticDemo";
 import { DEMOS, type DemoId } from "@/app/demos";
 import { hasUnsavedChanges, markOf, type ProjectMark } from "@/app/closeProject";
 import { CloseProjectDialog } from "@/app/ui/CloseProjectDialog";
@@ -668,7 +668,7 @@ export function App(): JSX.Element {
           setDemo("magnetic");
           setNotice(null);
           setMessage(`Loaded the local magnetic demo (POWGEN, ${ex.group}; the moments refined with the nuclear model held) — magnetic page.`);
-          requestStep("load", "AWO₄ 6 K magnetic demo", true, true);
+          requestStep("load", LOCAL_MAGNETIC_DEMO_LABEL, true, true);
         },
         (e: unknown) => {
           const msg = e instanceof Error ? e.message : String(e);

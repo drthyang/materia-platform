@@ -52,9 +52,8 @@ whole pattern; the moments then refine once more against it, with the scale (whi
 with their size) and the background. The atomic structure stays held: this tweaks the
 instrument's description, not the model the moments were measured against.
 
-- AWO₄ (a high-entropy wolframite) at 8 K on POWGEN, k = (½ 0 0), P2/c′: after the
-  moments-only refinement wR 9.78 %; the scale, background, every TOF α, β, σ term and the
-  zero refined together reached 8.57 % (GoF 12.6 → 11.0), the moments moving within their
-  esds (|M| 2.48 → 2.54 µB). Staged around the profile's correlations (α₁ ↔ β₀ 0.997,
-  β₀ ↔ zero 0.995) the same terms reached only 9.53 %: they describe one peak and must move
-  together.
+- A k ≠ 0 POWGEN TOF dataset: after the moments-only refinement, the scale, background,
+  every TOF α, β, σ term and the zero refined together cut wR by about an eighth (GoF too),
+  the moments moving within their esds. Staged around the profile's correlations (α₁ ↔ β₀
+  and β₀ ↔ zero both above 0.99) the same terms gained only a fifth as much: they describe
+  one peak and must move together.

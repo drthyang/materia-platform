@@ -91,8 +91,8 @@ export interface StructureRefinementOptions {
   readonly refineOccupancy?: boolean;
   /**
    * Tie the atomic **position** of atoms sharing one crystallographic site
-   * (identical fractional coordinates — a mixed/disordered site, e.g. the six 3d
-   * cations of the high-entropy tungstate). One symmetry-adapted position mode is
+   * (identical fractional coordinates — a mixed/disordered site, e.g. several
+   * 3d cations on one wolframite A site). One symmetry-adapted position mode is
    * emitted per shared site and bound to every member, so they move together and
    * never split. Default true — atoms literally at the same site must stay
    * coincident. Set false to refine each independently (rarely physical).
@@ -608,7 +608,7 @@ function positionsCoincide(a: Vec3, b: Vec3, tol = 1e-3): boolean {
 
 /**
  * Group atom sites that share a fractional position — a mixed/disordered
- * crystallographic site (e.g. the six 3d cations of the high-entropy tungstate).
+ * crystallographic site (e.g. several 3d cations on one wolframite A site).
  * With `tie = false` every site is its own group (independent parameters). The
  * group key is the first member's label, so ordered structures keep their
  * original parameter ids.
