@@ -27,6 +27,8 @@ const CHARS_PER_TOKEN_FLOOR = 2.5;
 const MAX_CHARS_PER_TOKEN = 3.8;
 /** Tokens kept free for a local model's reply and its thinking. */
 export const REPLY_RESERVE = 6144;
+/** The most tokens one reply may take (Claude's max_tokens): the reply reserve Claude's meter counts. */
+export const REPLY_CAP = 64000;
 /** The least room for a reply a request is sent with. */
 export const MIN_REPLY = 2048;
 /** The most an OpenAI-compatible reply is given (gpt-4o takes no more). */
@@ -67,7 +69,7 @@ export function runPolicy(config: ChatConfig, window: number | null): RunPolicy 
     stallStop: set.stallStop ?? sized,
     temperature: sized ? set.temperature ?? null : null,
     // OpenAI's own models take at most 16k (gpt-4o) to 32k tokens of reply: cap it there.
-    replyCap: config.transport === "openai-compatible" ? OPENAI_REPLY_CAP : 64000,
+    replyCap: config.transport === "openai-compatible" ? OPENAI_REPLY_CAP : REPLY_CAP,
     thinking: sized ? "model" : "adaptive",
   };
 }
@@ -92,7 +94,7 @@ const withoutThinking = (messages: readonly BetaMessageParam[]): BetaMessagePara
  * reply capped at the room left. When even the most pruned history does not
  * fit, a refusal instead: a prompt the server would cut is never sent.
  */
-export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: number, window: number, charsPerToken: number, replyCap = 64000): {
+export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: number, window: number, charsPerToken: number, replyCap = REPLY_CAP): {
   readonly messages: BetaMessageParam[];
   readonly chars: number;
   /** The characters every server surely reads: without the reasoning of earlier replies, which some drop. */
