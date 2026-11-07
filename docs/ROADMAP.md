@@ -219,7 +219,7 @@ powder or single-crystal data.
 4. Bond-length and angle tables in the report (M5).
 
 **Validation gate**
-- ⬜ With atoms fixed, as in GSAS-II's fit, wR closes toward 7.34%
+- ⬜ With atoms fixed, as in GSAS-II's fit, wR closes toward GSAS-II's
   ([`gsasBenchmark.test.ts`](../src/core/workflow/gsasBenchmark.test.ts)). The
   staged fit is already below it.
 - ✅ A displaced atom on a special position is recovered

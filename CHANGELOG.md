@@ -1395,8 +1395,8 @@ release fixes bugs.
 
 - **A shared site's occupancies sum to exactly its total, on the powder and
   PDF pages.** They were separate free rows held by a soft Σ restraint (σ
-  0.01, its target the starting sum: 1.002 for the bundled high-entropy
-  tungstate, or 1 with the powder page's "Σ occ = 1"). Now the site's last
+  0.01, its target the starting sum: above 1 for the bundled six-cation
+  example, or 1 with the powder page's "Σ occ = 1"). Now the site's last
   member follows the total minus the others: `= -1*occ_A+1` for two species
   (the complement tie the single-crystal page makes), `= 1 - sum(occ_A,
   occ_B, …)` for more, a new form of tie. The others refine; the last is

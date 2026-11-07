@@ -32,7 +32,7 @@ O1 O2- 0.2985 0.2985 0 1${b ? " 0.0070" : ""}
 O2 O2- 0.3075 0.3075 0.3400 1${b ? " 0.0076" : ""}
 `;
 
-/** Cr₂WO₆ with Fe sharing the Cr site (one B for both) and no oxidation states: the local magnetic demo's shape. */
+/** Cr₂WO₆ with Fe sharing the Cr site (one B for both) and no oxidation states: a shared site beside a lone heavy cation. */
 export const SHARED_CIF = `data_shared
 _cell_length_a 4.5753
 _cell_length_b 4.5753
@@ -49,7 +49,7 @@ _atom_site_fract_y
 _atom_site_fract_z
 _atom_site_occupancy
 _atom_site_U_iso_or_equiv
-W1 W 0 0 0 1 0.0184
+W1 W 0 0 0 1 0.0150
 Cr1 Cr 0 0 0.3330 0.5 0.0050
 Fe1 Fe 0 0 0.3330 0.5 0.0050
 O1 O 0.2985 0.2985 0 1 0.0070

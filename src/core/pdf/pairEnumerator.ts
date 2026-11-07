@@ -82,7 +82,7 @@ function dotv(a: Vec3, b: Vec3): number {
 
 /**
  * Atoms at exactly the same position with exactly the same ADP: the species of
- * a mixed or shared site, such as the six cations on one wolframite A site.
+ * a mixed or shared site, such as several cations on one wolframite A site.
  * Their pairs differ only in the species weight, and the pair term is bilinear
  * in the weights, so a pair sum may run over one representative per group
  * carrying the group's summed weight (`groupedWeights`) — for a site shared by six

@@ -19,7 +19,7 @@ const base = process.env.VITE_BASE ?? "/materia-platform/";
 
 /**
  * Dev-only static server for the git-ignored `data/` folder, so the app can
- * `fetch` the real (local-only) datasets — e.g. the POWGEN high-entropy pattern —
+ * `fetch` the real (local-only) datasets — e.g. the local magnetic demo's files —
  * at runtime during development. Not applied to production builds (`apply:
  * "serve"`), so a deployed static site simply falls back to bundled structures.
  * Matches `…/data/<path>` anywhere in the URL (robust to the configured base) and

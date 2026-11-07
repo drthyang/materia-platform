@@ -95,7 +95,7 @@ folder skip when it is absent (CI, fresh clones).
 | Parallel-Jacobian pool ≡ serial (bit-identical trajectory) | unit | ✅ `core/refinement/engineParallel.test.ts` |
 | Analytic Jacobian columns (occupancy, B_iso) vs central FD | unit (F1.1) | ✅ `core/workflow/analyticJacobian.test.ts` |
 | Staged controller guards (re-fix degenerate additions; re-fix the newcomer behind an inflated esd) | unit (F1.4) | ✅ `core/refinement/stagedGuards.test.ts` |
-| Staged TOF fit keeps its profile stage when the zero trades with the cell (synthetic, bundled tungstate model) | integration (F1.4) | ✅ `core/workflow/stagedTofProfile.test.ts` |
+| Staged TOF fit keeps its profile stage when the zero trades with the cell (synthetic, published MnWO₄) | integration (F1.4) | ✅ `core/workflow/stagedTofProfile.test.ts` |
 | Robust starting values (envelope background + zero sanity) | unit (F1.3) | ✅ `core/workflow/startingValues.test.ts` |
 | Next-parameter sensitivity ranking | unit (F1.5) | ✅ `core/workflow/nextParameters.test.ts` |
 | GPU \|F\|²-injection seam is bit-identical to the CPU sum | unit | ✅ `core/workflow/structureFactorInjection.test.ts` |
@@ -130,11 +130,24 @@ Golden inputs live in two places:
 
 The owner's local magnetic TOF dataset (POWGEN) is unpublished, as are the
 other local datasets the data-gated tests read. They stay in the git-ignored
-`data/`, and the repository refers to them only by generic names. Their folder
-names are kept in one place, `src/testSupport/localData.ts`; this folder is
-`LOCAL_DATA.magneticTof`. No run number, original file name or calibration
-name appears. To run its tests, copy each file into that folder under its name
-here (one flat folder). A test whose files are missing skips. The powder
+`data/`, and the repository refers to them only by generic names: no folder
+or file name of theirs, and no number refined on them, is in the repository.
+
+- `data/local-paths.json` gives each dataset's folder and file names, under
+  the keys of `LocalDataPaths` (`src/testSupport/localData.ts`); this folder
+  is `magneticTof`. MATERIA_LOCAL_PATHS may name another file.
+- `data/local-references.json` holds the reference values the data-gated
+  tests compare with (the owner's refined cells, occupancies, moments, k,
+  calibrations, PDFgui terms), under the keys of `LocalReferences`
+  (`src/testSupport/localReferences.ts`). MATERIA_LOCAL_REFERENCES may name
+  another file.
+- MATERIA_DATA_DIR points the tests at another checkout's `data/` (a
+  worktree); the two JSON files are looked up there, then in this
+  checkout's own `data/`.
+
+A name the paths file does not give, or a block the references file lacks,
+skips the tests that need it, as missing files do. To run this dataset's
+tests, copy each file into its folder under its name here (one flat folder). The powder
 patterns keep the instrument's `PG3_` prefix (it names POWGEN, not a run), so
 the app's file-name hint opens them on the POWGEN background default.
 
@@ -145,7 +158,7 @@ the app's file-name hint opens them on the POWGEN background default.
 | `PG3_powder_100K.gsa` | The paramagnetic bank-3 POWGEN histogram, GSAS `.gsa`, on the same bank as `PG3_powder_6K.gsa` | `realLocalMagnetic.test.ts` |
 | `PG3_powder_100K.dat` | The paramagnetic bank-3 POWGEN pattern, Mantid `XYDATA` export | `realPowderTOF.test.ts` |
 | `PG3_powder_bank1.gsa`, `PG3_powder_bank2.gsa` | A POWGEN histogram of bank 1 and of bank 2, GSAS `.gsa` | `realLocalTofBanks.test.ts` |
-| `structure_100K.cif` | The refined paramagnetic nuclear structure (P2/c), the model also bundled in `examples/highEntropyWO4.ts` | every test above but the demo's |
+| `structure_100K.cif` | The refined paramagnetic nuclear structure; the local demo loads it from here (nothing of it is bundled) | every test above |
 | `magnetic_8K.mcif` | The owner's refined magnetic structure of that measurement (Jana mCIF, doubled cell) | `realLocalMagneticBenchmark.test.ts` (reference block) |
 | `instrument_bank1.instprm`, `instrument_bank2.instprm`, `instrument_bank3.instprm` | The GSAS-II TOF calibration of each bank's frame (bank 3 for the patterns above) | `realLocalMagneticBenchmark.test.ts` (all three), the bank-3 file everywhere else |
 | `instrument_bank3_jana.instprm` | The same bank-3 calibration as written for JANA | `realPowderTOF.test.ts` |

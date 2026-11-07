@@ -28,8 +28,8 @@ reasoning behind them, for when a question needs them.
 
 ## Stage 1: positions, the profile and the asymmetry
 
-- **Positions are a quick pass.** On the GaNb4Se8 test the positions moved wR only
-  18.4→17.6%, then the profile took it to 7.6% — normal.
+- **Positions are a quick pass.** On a synchrotron X-ray test the positions moved wR by
+  under a point, then the profile more than halved it — normal.
 - **Peak asymmetry.** On PbSO₄ (D1A) switching on the axial divergence (S/L, H/L) took wR
   from 12% to 6%.
 - **The profile before the positions.** Fluorapatite on a Cu tube: lines 1.7× the
@@ -56,8 +56,8 @@ than the ordered model said: the two elements exchange.
 
 ## A GoF below 1 (the acceptance bar)
 
-The GaNb4Se8 run landed GoF ≈ 0.46 — a good fit, but with generous σ's: the esds are
-optimistic, and the weighting or the free-parameter count is what to check.
+A synchrotron X-ray run landed GoF near 0.5 — a good fit, but with generous σ's: the esds
+are optimistic, and the weighting or the free-parameter count is what to check.
 
 ## Lab X-ray data (Stage 0, step 1)
 
