@@ -68,9 +68,9 @@ describe("correlation check", () => {
   });
 
   it("refines the TOF peak-shape terms together, as GSAS-II refines an instrument's profile; each against anything else still stops", () => {
-    // AWO₄ at 8 K on POWGEN, the profile freed with the moments held (the probe's own numbers): the
-    // guard refused α₁ ↔ β₀, β₀ ↔ zero and σ₀² ↔ σ_q², and the staged way round them reached 9.53 %
-    // where the joint fit the scientist ran by hand reached 8.57 %.
+    // On a local POWGEN dataset, the profile freed with the moments held: the guard refused
+    // α₁ ↔ β₀, β₀ ↔ zero and σ₀² ↔ σ_q², and the staged way round them ended above the joint fit
+    // the scientist ran by hand.
     const tof = [param("scale", "scale"), param("bkg0", "background"), param("tof_alpha1", "tofProfile"), param("tof_beta0", "tofProfile"), param("tof_sig0", "tofProfile"), param("tof_sigQ", "tofProfile"), param("zero", "zeroShift"), param("cell_a", "cellLength"), param("B_O1", "bIso")];
     const check = readCorrelations(probe([
       ["tof_alpha1", "tof_beta0", 0.997, 0.99],

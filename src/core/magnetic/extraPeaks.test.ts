@@ -53,7 +53,7 @@ describe("detectExtraPeaks (magnetic residual)", () => {
 });
 
 describe("detectExtraPeaks with the file's σ and no fraction floor (the magnetic step, 2026-10-31)", () => {
-  // AWO₄ at 8 K: a 130σ nuclear misfit at 1.424 Å set an 8 % floor that hid the magnetic lines beside it.
+  // On a local POWGEN dataset one strong nuclear misfit set a floor that hid the magnetic lines beside it.
   const d = Array.from({ length: 3000 }, (_, i) => 1 + i * 0.001);
   const line = (at: number, h: number) => (x: number) => h * Math.exp(-(((x - at) / 0.004) ** 2));
   const misfit = line(1.424, 13000);

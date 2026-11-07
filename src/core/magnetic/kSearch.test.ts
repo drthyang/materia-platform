@@ -49,15 +49,14 @@ describe("propagation-vector (k) search", () => {
     expect(kLabel([1 / 3, 1 / 3, 0])).toBe("(⅓ ⅓ 0)");
   });
 
-  it("recovers k = (½,0,0) on the real AWO₄ monoclinic cell (P2/c, β≈89.3°)", () => {
-    // AWO₄ high-entropy tungstate orders antiferromagnetically with k = (½,0,0):
-    // magnetic satellites sit at half-integer h, integer k,l.
-    const awo4: UnitCell = { a: 4.6757, b: 5.701, c: 4.9367, alpha: 90, beta: 89.312, gamma: 90 };
-    const d = (h: number, k: number, l: number): number => 1 / Math.sqrt(inverseDSquared(awo4, h, k, l));
+  it("recovers k = (½,0,0) on the bundled monoclinic cell (P2/c)", () => {
+    // A synthetic k = (½,0,0) order: magnetic satellites at half-integer h, integer k,l.
+    const cell: UnitCell = { a: 4.6757, b: 5.701, c: 4.9367, alpha: 90, beta: 89.312, gamma: 90 };
+    const d = (h: number, k: number, l: number): number => 1 / Math.sqrt(inverseDSquared(cell, h, k, l));
     const observed = [
       d(0.5, 0, 0), d(0.5, 1, 0), d(0.5, 0, 1), d(0.5, 1, 1), d(1.5, 0, 0), d(0.5, 2, 0), d(0.5, 1, -1),
     ];
-    const result = searchPropagationVector(awo4, observed, { tolerance: 0.01 });
+    const result = searchPropagationVector(cell, observed, { tolerance: 0.01 });
     expect(result[0]!.k).toEqual([0.5, 0, 0]);
     expect(result[0]!.matched).toBe(observed.length);
     // The true k must beat the other two zone-boundary axes on matched count.

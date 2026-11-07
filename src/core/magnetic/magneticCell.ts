@@ -18,7 +18,7 @@
  * parent translations inside the box are its centring and anti-centring
  * translations). This is what names a candidate at k ≠ 0: the parent-cell
  * operations alone describe a type-I or type-III group of the PARENT lattice,
- * which is not the group of the structure (the AWO₄-type P2/c at k = (½,0,0)
+ * which is not the group of the structure (a P2/c structure at k = (½,0,0)
  * is P_a2/c, BNS 13.70, not "P2/c′").
  *
  * A two-arm k (2k not in the reciprocal lattice) gives complex phases: the

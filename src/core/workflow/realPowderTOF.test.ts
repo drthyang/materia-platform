@@ -8,14 +8,13 @@ import { siteMultiplicity } from "@/core/crystal/symmetry";
 import { dSpacing } from "@/core/crystal/unitCell";
 import { powderCurves } from "@/core/workflow/powder";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import type { RefinementParameter } from "@/core/refinement/types";
 
 /**
- * Real POWGEN time-of-flight neutron data (100 K) on the high-entropy tungstate
- * (Co,Cu,Fe,Mn,Ni,Zn)WO₄ — wolframite-type, monoclinic P2/c, with six 3d cations
- * disordered on one site at occ ≈ 1/6 each. This is the app's default dataset
- * (its structure bundled in examples/highEntropyWO4.ts), replacing the
- * self-consistent Mn₃Ga synthetic demo as the primary real-data check.
+ * Real POWGEN time-of-flight neutron data, the paramagnetic pattern of the
+ * local magnetic TOF dataset (`LOCAL_DATA.magneticTof`, unpublished;
+ * monoclinic P2/c, several cations disordered on one site).
  *
  * TOF profile refinement is not in the engine yet (roadmap M1), so the pattern is
  * exercised **view-only** here: parsing, indexing, and a crash-free calculation
@@ -23,7 +22,7 @@ import type { RefinementParameter } from "@/core/refinement/types";
  * git-ignored data/ folder is absent.
  */
 
-const DIR = "AWO4";
+const DIR = LOCAL_DATA.magneticTof;
 const CIF = `${DIR}/structure_100K.cif`;
 const GSAS = `${DIR}/instrument_bank3.instprm`;
 const JANA = `${DIR}/instrument_bank3_jana.instprm`;
@@ -32,7 +31,7 @@ const has = dataExists(CIF) && dataExists(DAT);
 
 const CATIONS = ["Co1", "Fe1", "Ni1", "Mn1", "Cu8", "Zn1"];
 
-describe.skipIf(!has)("real powder TOF — POWGEN high-entropy (Co,Cu,Fe,Mn,Ni,Zn)WO₄", () => {
+describe.skipIf(!has)("real powder TOF — the local POWGEN dataset, paramagnetic", () => {
   it("parses the P2/c structure with six disordered cations on one 2f site", () => {
     const s = parseCif(readData(CIF), "powgen");
     expect(s.spaceGroup.operations.length).toBe(4);

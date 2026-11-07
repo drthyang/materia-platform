@@ -12,31 +12,30 @@ import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { refine } from "@/core/refinement/engine";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import type { RefinementParameter } from "@/core/refinement/types";
 import type { StructureModel } from "@/core/crystal/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 
 /**
- * Golden-data validation against the user's GSAS-II refinement of
- * Fe₀.₄₆Co₀.₅₄Sn (kagome CoSn-type) at 1.7 K — data/FeCoSn/Co0p55/refinement/1p7K/:
+ * Golden-data validation against the user's GSAS-II refinement of the local
+ * hexagonal magnetic dataset (`LOCAL_DATA.hexMagnetic`, unpublished):
  *
- *  - `Pc6mcc_Mz.cif` — the refined magnetic structure: BNS P_c 6/m c c (the
- *    c-doubled gray group, 48 ops, anti-translation (0,0,½)′), a CO-LOCATED
- *    Fe/Co site at (½,0,0) (occupancy disorder on the kagome site, site
- *    symmetry mm′m′), both moments tied to (0, 0, 0.57(7)) µ_B, plus both Sn
+ *  - `Pc6mcc_Mz.cif` — the refined magnetic structure: a c-doubled gray BNS
+ *    group with an anti-translation (0,0,½)′, a CO-LOCATED pair of species on
+ *    one site (occupancy disorder), both moments tied along c, plus the other
  *    sites and anisotropic ADPs.
- *  - `PWDR_1p7K_Bank2.fxye` + `.instprm` — the POWGEN histogram
- *    (Combined1p7K_48274And_48282-2.gsa Bank 2) and Bank-2 calibration
- *    extracted from `1p7K_v3.gpx`; `gsas2_mag_refl.txt` — GSAS-II's magnetic
- *    reflection list at its converged state (moment 0.5475 µ_B, occ
- *    Co 0.543/Fe 0.457, metallic Co⁰/Fe⁰ ⟨j0⟩; wR = 14.49%).
+ *  - `PWDR_1p7K_Bank2.fxye` + `.instprm` — the POWGEN histogram and its
+ *    bank's calibration, extracted from the GSAS-II project; `gsas2_mag_refl.txt`
+ *    — GSAS-II's magnetic reflection list at its converged state (metallic
+ *    ⟨j0⟩).
  *
  * Against Mn₃Ga this exercises the complementary paths: c-axis moments, a
  * gray anti-translation BNS lattice, tieSameSite (one tied moment parameter
  * across two co-located species with different form factors — GSAS-II's
  * `AMz` constraint), and anisotropic ADPs. Skips when data/ is absent.
  */
-const DIR = "FeCoSn/Co0p55/refinement/1p7K";
+const DIR = LOCAL_DATA.hexMagnetic.refinement;
 const hasCif = dataExists(`${DIR}/Pc6mcc_Mz.cif`);
 const hasData = hasCif && dataExists(`${DIR}/PWDR_1p7K_Bank2.fxye`) && dataExists(`${DIR}/PWDR_1p7K_Bank2.instprm`);
 
@@ -49,7 +48,7 @@ const GPX = {
 
 /** mCIF structure+model shifted onto the .gpx converged state. */
 function loadGpxState(): { structure: StructureModel; magnetic: MagneticModel } {
-  const { structure, magnetic } = parseMagneticCif(readData(`${DIR}/Pc6mcc_Mz.cif`), "fecosn1p7");
+  const { structure, magnetic } = parseMagneticCif(readData(`${DIR}/Pc6mcc_Mz.cif`), "hex");
   return {
     structure: {
       ...structure,
@@ -67,8 +66,8 @@ function loadGpxState(): { structure: StructureModel; magnetic: MagneticModel } 
   };
 }
 
-describe.skipIf(!hasCif)("FeCoSn 1.7K golden — magnetic symmetry vs GSAS-II", () => {
-  const load = () => parseMagneticCif(readData(`${DIR}/Pc6mcc_Mz.cif`), "fecosn1p7");
+describe.skipIf(!hasCif)("local hexagonal golden — magnetic symmetry vs GSAS-II", () => {
+  const load = () => parseMagneticCif(readData(`${DIR}/Pc6mcc_Mz.cif`), "hex");
 
   it("parses the gray BNS group P_c 6/m c c (48 ops, half with time reversal)", () => {
     const { structure } = load();
@@ -119,15 +118,14 @@ describe.skipIf(!hasCif)("FeCoSn 1.7K golden — magnetic symmetry vs GSAS-II", 
   });
 });
 
-describe.skipIf(!dataExists(`${DIR}/gsas2_mag_refl.txt`) || !hasCif)("FeCoSn 1.7K golden — per-reflection |F_M|² vs GSAS-II", () => {
+describe.skipIf(!dataExists(`${DIR}/gsas2_mag_refl.txt`) || !hasCif)("local hexagonal golden — per-reflection |F_M|² vs GSAS-II", () => {
   // GSAS-II magnetic reflection list (h k l mult d Fcsq, (10⁻¹² cm)² → ×100)
   // at the .gpx converged state. Every symmetry-forbidden reflection must be
-  // zero; allowed ones agree closely. Four weak high-cos²α satellites
-  // ((103), (105), (203), (205)-type) sit 12–29% above GSAS-II's Fc — the same
-  // reflections where GSAS-II's own Fo/Fc disagree by 2–3× (magnetic
-  // RF² = 28%) — so the gate is: zeros exact, ≥ 80% of allowed within ±8%,
+  // zero; allowed ones agree closely. A few weak high-cos²α satellites sit
+  // above GSAS-II's Fc — the same reflections where GSAS-II's own Fo/Fc
+  // disagree severalfold — so the gate is: zeros exact, ≥ 80% of allowed within ±8%,
   // median within 5%.
-  it("matches GSAS-II: all 43 zeros exact, allowed reflections to ~3% median", () => {
+  it("matches GSAS-II: every zero exact, the allowed reflections close in median", () => {
     const { structure, magnetic } = loadGpxState();
     const rows = readData(`${DIR}/gsas2_mag_refl.txt`).trim().split("\n").map((ln) => ln.trim().split(/\s+/).map(Number));
     expect(rows).toHaveLength(68);
@@ -148,7 +146,7 @@ describe.skipIf(!dataExists(`${DIR}/gsas2_mag_refl.txt`) || !hasCif)("FeCoSn 1.7
     // 2026-07-17) moved one borderline reflection from 1.076 to 1.083 — a
     // 0.7 % shift that crossed this arbitrary ±8 % band. The distribution is
     // otherwise unchanged (median and worst-case gates below are unaffected);
-    // FeCoSn's near-axial tensors are largely invariant under its hexagonal ops.
+    // The near-axial tensors are largely invariant under its hexagonal ops.
     const within8 = ratios.filter((r) => r > 0.92 && r < 1.08).length;
     expect(within8).toBeGreaterThanOrEqual(17);
     const median = [...ratios].sort((a, b) => a - b)[Math.floor(ratios.length / 2)]!;
@@ -158,17 +156,17 @@ describe.skipIf(!dataExists(`${DIR}/gsas2_mag_refl.txt`) || !hasCif)("FeCoSn 1.7
   });
 });
 
-describe.skipIf(!hasData)("FeCoSn 1.7K golden — moment refinement against the POWGEN histogram", () => {
+describe.skipIf(!hasData)("local hexagonal golden — moment refinement against the POWGEN histogram", () => {
   // GSAS-II's fit window (µs) from the .gpx Limits.
   const TOF_MIN = 17659.77;
   const TOF_MAX = 108530.0;
 
-  it("refines the tied Fe/Co moment to the golden 0.55 µ_B ∥ c", { timeout: 120000 }, () => {
+  it("refines the tied moment of the co-located site to the golden value ∥ c", { timeout: 120000 }, () => {
     const { structure } = loadGpxState();
     const inst = parseInstrumentParameters(readData(`${DIR}/PWDR_1p7K_Bank2.instprm`));
-    const full = parseGsasHistogramPattern(readData(`${DIR}/PWDR_1p7K_Bank2.fxye`), "pg1p7", "FeCoSn 1.7K", { radiation: { kind: "neutron-tof" } });
+    const full = parseGsasHistogramPattern(readData(`${DIR}/PWDR_1p7K_Bank2.fxye`), "pg-hex", "local hexagonal", { radiation: { kind: "neutron-tof" } });
     const pattern = { ...full, points: full.points.filter((p) => p.x >= TOF_MIN && p.x <= TOF_MAX) };
-    expect(pattern.points.length).toBeGreaterThan(2000); // GSAS-II fit 2272 observations
+    expect(pattern.points.length).toBeGreaterThan(2000); // GSAS-II's fit has more
 
     const spec = buildPowderSpec(structure, pattern, inst, true, 6, {});
     const build = buildMagneticModel(structure, [0, 0, 0], ["Co1_0", "Fe1_1"], structure.spaceGroup.operations);
@@ -198,17 +196,17 @@ describe.skipIf(!hasData)("FeCoSn 1.7K golden — moment refinement against the 
       ...modes.map((p) => ({ ...p, value: from?.[p.id] ?? value, initialValue: value, fixed })),
     ];
 
-    // Stage the full fit from a deliberately wrong seed (1.5 µ_B ≈ 3× golden):
+    // Stage the full fit from a deliberately wrong seed (about 3× the golden moment):
     // the refinement must find the golden moment on its own.
     const stage1 = wrOf(withMoment(1.5, true));
     const fit = wrOf(withMoment(1.5, false, stage1.values));
 
-    // The magnetic signal is weak (~0.55 µ_B on the mixed kagome site;
-    // GSAS-II magnetic RF² = 28%) and the whole-pattern wR is dominated by the
-    // unmodelled uniaxial size/mustrain + λ-dependent absorption of the GSAS-II
-    // two-phase fit (theirs: 14.49%; our single-phase isotropic model: ~27%).
-    // So the magnetic discrimination is gated on the PURE-magnetic (201)
-    // satellite (l odd ⇒ nuclear-forbidden) at TOF ≈ 49.9 ms: with the golden
+    // The magnetic signal is weak (a small moment on the mixed site) and the
+    // whole-pattern wR is dominated by the unmodelled uniaxial size/mustrain +
+    // λ-dependent absorption of the GSAS-II two-phase fit (ours is single-phase
+    // and isotropic, so its wR is well above GSAS-II's). So the magnetic
+    // discrimination is gated on a PURE-magnetic satellite (l odd ⇒
+    // nuclear-forbidden): with the golden
     // moment that peak must be explained; with zero moment it must not.
     const atFit = (value: number): RefinementParameter[] =>
       withMoment(value, true, fit.values).map((p) => ({ ...p, fixed: true, ...(p.kind === "momentMode" ? { value } : {}) }));
@@ -239,8 +237,8 @@ describe.skipIf(!hasData)("FeCoSn 1.7K golden — moment refinement against the 
     expect(chiGolden).toBeLessThan(chiZero * 0.95);
     expect(chiFit).toBeLessThanOrEqual(chiGolden);
 
-    // The refined moment reproduces the golden structure: GSAS-II converged at
-    // 0.5475 µ_B; the mCIF states 0.57(7). A global sign flip is
+    // The refined moment reproduces the golden structure (GSAS-II's converged
+    // moment and the mCIF's). A global sign flip is
     // diffraction-equivalent.
     const m = Math.abs(fit.values[momentId] ?? 0);
     expect(m).toBeGreaterThan(0.40);

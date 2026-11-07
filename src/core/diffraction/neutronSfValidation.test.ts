@@ -5,12 +5,13 @@ import { parseCif } from "@/parsers/cif";
 import { nuclearStructureFactorSquared } from "@/core/diffraction/structureFactor";
 import { dSpacing } from "@/core/crystal/unitCell";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 
 /**
  * Validate the nuclear structure factor against GSAS-II reflection lists (Fc²)
  * from real POWGEN neutron refinements, as a broad check of the structure-factor
  * computation (special-position handling, neutron scattering lengths, diverse
- * crystal systems) beyond the single GaNb4Se8 case.
+ * crystal systems) beyond the single local X-ray case.
  *
  * These GSAS refinements are multi-phase: each reflection list holds a separate
  * block per phase. `scripts/extract_reflections.py` (text export) and
@@ -23,8 +24,8 @@ import { dataExists, readData } from "@/testSupport/data";
  *   • MnO 600 K   — cubic rocksalt Fm-3m, built inline as 8 atoms in P1.
  *   • Mn₃Ga 200 K — orthorhombic Cmcm and monoclinic P2₁/m, from CIF (a second
  *     temperature, plus C-centering and a monoclinic β≠90 metric).
- *   • FeCoSn 100 K — three CoSn-type P6/mmm phases (Fe₁Co₉Sn is compositionally
- *     inhomogeneous), built inline; tests 3-element scattering (Sn/Co/Fe) and a
+ *   • The local hexagonal dataset (`LOCAL_DATA.hexPhases`) — three CoSn-type
+ *     P6/mmm phases (the sample is compositionally inhomogeneous), built inline; tests 3-element scattering (Sn/Co/Fe) and a
  *     mixed Co/Fe occupancy on the 3f site. Reflection list from the .gpx.
  *
  * GSAS reports neutron b in 10⁻¹² cm; our tables use fm (10× larger), so our
@@ -137,7 +138,7 @@ describe.skipIf(!hasMnO)("neutron |F|² vs GSAS-II — MnO 600 K rocksalt (Fm-3m
   });
 });
 
-// ---- FeCoSn 100 K: three CoSn-type P6/mmm phases (built inline, orbits in P1) --
+// ---- The local hexagonal dataset: three CoSn-type P6/mmm phases (built inline, orbits in P1) --
 // The CoSn (B35) structure: Sn on 1a (0,0,0) + 2d (⅓,⅔,½), (Co,Fe) on 3f
 // (½,0,0). Fe₁Co₉Sn is compositionally inhomogeneous, so the refinement models
 // three phases with slightly different c and Fe fraction. We expand each Wyckoff
@@ -180,14 +181,14 @@ const COSN_PHASES: readonly CoSnPhase[] = [
   { tag: "CoSn_2", a: 5.27591, c: 4.28106, uSn1: 0.02109, uSn2: 0.03113, uM: 0.03324, occCo: 0.950, occFe: 0.050 },
   { tag: "CoSn", a: 5.27655, c: 4.24970, uSn1: 0.00159, uSn2: 0.00045, uM: 0.00585, occCo: 1.000, occFe: 0.000 },
 ];
-const hasCoSn = COSN_PHASES.every((p) => dataExists(`TwoPhases/reflections_${p.tag}.csv`));
+const hasCoSn = COSN_PHASES.every((p) => dataExists(`${LOCAL_DATA.hexPhases.dir}/reflections_${p.tag}.csv`));
 
-describe.skipIf(!hasCoSn)("neutron |F|² vs GSAS-II — FeCoSn 100 K (three CoSn-type P6/mmm phases)", () => {
+describe.skipIf(!hasCoSn)("neutron |F|² vs GSAS-II — the local hexagonal dataset (three CoSn-type P6/mmm phases)", () => {
   for (const p of COSN_PHASES) {
     it(`${p.tag} (Fe ${(p.occFe * 100).toFixed(0)}%): nuclear |F|² is a flat multiple of GSAS Fc²`, () => {
       // Only 19 reflections per phase (POWGEN bank 3), so anchor on all
       // meaningfully-strong reflections rather than a fixed top-N.
-      assertFlatRatio(cosnModel(p), loadRefl(`TwoPhases/reflections_${p.tag}.csv`), `FeCoSn ${p.tag}`);
+      assertFlatRatio(cosnModel(p), loadRefl(`${LOCAL_DATA.hexPhases.dir}/reflections_${p.tag}.csv`), `local ${p.tag}`);
     });
   }
 });

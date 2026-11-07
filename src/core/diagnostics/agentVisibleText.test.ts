@@ -59,7 +59,7 @@ function agentVisibleText(): Record<string, unknown> {
       zeroAdpFix(o2, 0, { chosenBy: "agent-auto", reason: "both are the oxide's oxygens" }),
       zeroAdpFix(w1, 1, { chosenBy: "agent-auto" }),
     ];
-    out.awo4Like = {
+    out.wAndOAtZero = {
       proposals: ps.map(proposalText),
       fixes: fixes.map(fixText),
       stepLabels: [zeroAdpStepLabel(o2, 0), zeroAdpStepLabel(o2, 1), zeroAdpStepLabel(w1, 0, "agent-auto"), zeroAdpStepLabel(w1, 1, "user")],

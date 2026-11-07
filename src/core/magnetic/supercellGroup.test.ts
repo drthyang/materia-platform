@@ -84,8 +84,8 @@ describe("magneticCellGroup — the Shubnikov group of an explicit magnetic supe
 });
 
 describe("mCIF of a k ≠ 0 structure is written in the magnetic cell's own group and round-trips", () => {
-  it("AWO₄ (P2/c, k = ½ 0 0): 4 representatives × 2 centerings, 9-site asymmetric unit, identical re-expansion", () => {
-    const structure = parseCif(HIGH_ENTROPY_CIF, "awo4");
+  it("the bundled P2/c structure (k = ½ 0 0): 4 representatives × 2 centerings, 9-site asymmetric unit, identical re-expansion", () => {
+    const structure = parseCif(HIGH_ENTROPY_CIF, "bundled");
     const ions = magneticIonCandidates(structure).map((i) => i.siteLabel);
     const k: Vec3 = [0.5, 0, 0];
     const reps = latticeRepresentatives(magneticSubgroupLattice(structure.spaceGroup.operations, k));

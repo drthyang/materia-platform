@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Extract per-phase reflection lists directly from a GSAS-II .gpx project.
 
-Some POWGEN refinements (e.g. data/TwoPhases/Fe1Co9Sn) were never exported to a
+Some POWGEN refinements (e.g. a local multi-phase one under data/) were never exported to a
 `fitted_results_hkl.dat`; the Fo²/Fc² reflection list lives only in the binary
 .gpx (a Python pickle). This reads the pickle without a GSAS-II install by
 stubbing the custom GSASII* classes (the RefList we want is a plain numpy array),
@@ -10,7 +10,7 @@ and writes `reflections_<phase>.csv` (columns h,k,l,m,d,Fo2,Fc2) next to the .gp
 so `neutronSfValidation.test.ts` consumes both identically.
 
 Usage:
-    python3 scripts/extract_gpx_reflections.py data/TwoPhases/Fe1Co9Sn_100K_TwoPhases.gpx
+    python3 scripts/extract_gpx_reflections.py data/<folder>/<project>.gpx
 
 GSAS-II RefList columns (powder): 0..2 h,k,l · 3 mult · 4 d-space · 5 pos · 6 sig
 · 7 gam · 8 |Fo|² · 9 |Fc|² · 10 phase · 11 Icorr · … We keep h,k,l,mult,d,Fo²,Fc².

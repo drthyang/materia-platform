@@ -1,36 +1,36 @@
 /**
- * LOCAL-ONLY magnetic demo — the high-entropy tungstate (Co,Cu,Fe,Mn,Ni,Zn)WO₄
- * ("AWO₄", wolframite-type P2/c) on POWGEN time-of-flight neutron data at 6 K,
- * below its antiferromagnetic ordering: k = (½,0,0) satellites at half-integer
- * h that the paramagnetic 100 K pattern does not have.
+ * LOCAL-ONLY magnetic demo — the local magnetic TOF dataset
+ * (`LOCAL_DATA.magneticTof`) on POWGEN time-of-flight neutron data below its
+ * magnetic ordering: k ≠ 0 satellites that the paramagnetic pattern does not
+ * have.
  *
  * The data are UNPUBLISHED and never enter the repository or the public build.
  * Everything this demo needs is read at runtime from the git-ignored `data/`
  * folder, which the dev server exposes under `/data/…` (vite.config.ts,
  * `serveLocalData`, dev only):
  *
- *   data/AWO4/PG3_powder_6K.gsa         the ordered bank-3 histogram: the
- *                                       measurement of the owner's reference
- *                                       refinement (and of the benchmark's
- *                                       8 K Mantid export)
- *   data/AWO4/instrument_bank3.instprm  its bank's calibration
- *   data/AWO4/awo4_demo_solution.json   the solved structure
+ *   PG3_powder_6K.gsa         the ordered bank-3 histogram: the measurement of
+ *                             the owner's reference refinement (and of the
+ *                             benchmark's Mantid export)
+ *   instrument_bank3.instprm  its bank's calibration
+ *   the solution file         the solved structure
  *
  * (The whole folder's layout is in docs/VALIDATION.md.)
  *
- * The solution file is written by `awo4MagneticSolve.test.ts` (run with
- * AWO4_SOLVE=1): staged nuclear refinement → residual k-search → every
+ * The solution file is written by `localMagneticDemoSolve.test.ts` (run with
+ * LOCAL_MAGNETIC_SOLVE=1): staged nuclear refinement → residual k-search → every
  * candidate magnetic group ranked → the magnetic refinement, with only the
  * magnetic parameters free and the nuclear model held at its refined values,
  * all with the app's own pipeline. The demo opens on that last step's state.
  * Its landing card appears only when these files can be fetched; a deployed
- * site has none of them and shows no AWO₄ demo.
+ * site has none of them and shows no local demo.
  *
- * The nuclear structure itself (the 100 K refined CIF) is the one already
- * bundled in `highEntropyWO4.ts`.
+ * The nuclear structure itself (the refined paramagnetic CIF) is the one
+ * already bundled in `highEntropyWO4.ts`.
  */
 
 import { HIGH_ENTROPY_CIF } from "@/examples/highEntropyWO4";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
@@ -45,18 +45,18 @@ import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 
 /** Where the demo's files live under the (git-ignored) data folder. */
-export const AWO4_DEMO_FILES = {
-  data: "AWO4/PG3_powder_6K.gsa",
-  instrument: "AWO4/instrument_bank3.instprm",
-  solution: "AWO4/awo4_demo_solution.json",
+export const LOCAL_MAGNETIC_DEMO_FILES = {
+  data: `${LOCAL_DATA.magneticTof}/PG3_powder_6K.gsa`,
+  instrument: `${LOCAL_DATA.magneticTof}/instrument_bank3.instprm`,
+  solution: LOCAL_DATA.magneticTofSolution,
 } as const;
 
 const STRUCTURE_ID = "awo4";
 const PATTERN_ID = `${STRUCTURE_ID}-powder`;
 const PATTERN_NAME = "AWO₄ POWGEN 6 K bank 3 (TOF) · local data";
 
-/** The solved magnetic structure, as `awo4MagneticSolve.test.ts` writes it. */
-export interface Awo4Solution {
+/** The solved magnetic structure, as `localMagneticDemoSolve.test.ts` writes it. */
+export interface LocalMagneticSolution {
   readonly k: Vec3;
   /** Chosen magnetic group (maximal subgroup among the tied best fits). */
   readonly group: string;
@@ -75,7 +75,7 @@ export interface Awo4Solution {
   readonly magneticWr: number;
 }
 
-export interface Awo4MagneticExample {
+export interface LocalMagneticExample {
   readonly structure: StructureModel;
   readonly pattern: PowderPattern;
   readonly instrument: InstrumentParameters;
@@ -98,10 +98,10 @@ export interface Awo4MagneticExample {
 }
 
 /** Assemble the demo from the three files' text — pure, so tests can feed it from disk. */
-export function buildAwo4MagneticExample(files: { data: string; instrument: string; solution: string }): Awo4MagneticExample {
-  const solution = JSON.parse(files.solution) as Awo4Solution;
+export function buildLocalMagneticExample(files: { data: string; instrument: string; solution: string }): LocalMagneticExample {
+  const solution = JSON.parse(files.solution) as LocalMagneticSolution;
   if (!Array.isArray(solution.free) || typeof solution.magneticWr !== "number") {
-    throw new Error(`${AWO4_DEMO_FILES.solution} predates the moments-only solve: regenerate it (AWO4_SOLVE=1 npx vitest run src/examples/awo4MagneticSolve.test.ts)`);
+    throw new Error(`${LOCAL_MAGNETIC_DEMO_FILES.solution} predates the moments-only solve: regenerate it (LOCAL_MAGNETIC_SOLVE=1 npx vitest run src/examples/localMagneticDemoSolve.test.ts)`);
   }
   const free = new Set(solution.free);
   const structure: StructureModel = { ...parseCif(HIGH_ENTROPY_CIF, STRUCTURE_ID), name: "(Co,Cu,Fe,Mn,Ni,Zn)WO₄" };
@@ -118,8 +118,8 @@ export function buildAwo4MagneticExample(files: { data: string; instrument: stri
     structure,
     pattern,
     instrument,
-    rawData: { name: AWO4_DEMO_FILES.data.split("/").pop()!, text: files.data },
-    rawInstrument: { name: AWO4_DEMO_FILES.instrument.split("/").pop()!, text: files.instrument },
+    rawData: { name: LOCAL_MAGNETIC_DEMO_FILES.data.split("/").pop()!, text: files.data },
+    rawInstrument: { name: LOCAL_MAGNETIC_DEMO_FILES.instrument.split("/").pop()!, text: files.instrument },
     k: solution.k,
     magneticSites: solution.ions,
     magnetic,
@@ -140,7 +140,7 @@ export function buildAwo4MagneticExample(files: { data: string; instrument: stri
  * magnetic refinement, the moments measured against the nuclear model as a
  * fixed reference — so Refine from it refines the moments alone.
  */
-export function awo4DemoParams(nuclear: readonly RefinementParameter[], ex: Pick<Awo4MagneticExample, "momentParams">): RefinementParameter[] {
+export function localMagneticDemoParams(nuclear: readonly RefinementParameter[], ex: Pick<LocalMagneticExample, "momentParams">): RefinementParameter[] {
   return [...nuclear.map((p) => ({ ...p, fixed: true })), ...ex.momentParams];
 }
 
@@ -153,9 +153,9 @@ function dataUrl(rel: string): string {
  * Whether the local files are reachable — true only on a dev server with the
  * data folder present. Decides whether the demo is offered at all.
  */
-export async function awo4MagneticDemoAvailable(): Promise<boolean> {
+export async function localMagneticDemoAvailable(): Promise<boolean> {
   try {
-    const res = await fetch(dataUrl(AWO4_DEMO_FILES.solution), { method: "GET", cache: "no-store" });
+    const res = await fetch(dataUrl(LOCAL_MAGNETIC_DEMO_FILES.solution), { method: "GET", cache: "no-store" });
     if (!res.ok) return false;
     // GitHub Pages answers unknown paths with an HTML 404 page; a real answer is JSON.
     const text = await res.text();
@@ -165,10 +165,10 @@ export async function awo4MagneticDemoAvailable(): Promise<boolean> {
   }
 }
 
-let cached: Promise<Awo4MagneticExample> | null = null;
+let cached: Promise<LocalMagneticExample> | null = null;
 
 /** Fetch the local files and assemble the demo (memoized). */
-export function loadAwo4MagneticExample(): Promise<Awo4MagneticExample> {
+export function loadLocalMagneticExample(): Promise<LocalMagneticExample> {
   if (!cached) {
     cached = (async () => {
       const get = async (rel: string): Promise<string> => {
@@ -177,11 +177,11 @@ export function loadAwo4MagneticExample(): Promise<Awo4MagneticExample> {
         return res.text();
       };
       const [data, instrument, solution] = await Promise.all([
-        get(AWO4_DEMO_FILES.data),
-        get(AWO4_DEMO_FILES.instrument),
-        get(AWO4_DEMO_FILES.solution),
+        get(LOCAL_MAGNETIC_DEMO_FILES.data),
+        get(LOCAL_MAGNETIC_DEMO_FILES.instrument),
+        get(LOCAL_MAGNETIC_DEMO_FILES.solution),
       ]);
-      return buildAwo4MagneticExample({ data, instrument, solution });
+      return buildLocalMagneticExample({ data, instrument, solution });
     })().catch((e: unknown) => {
       cached = null; // let a later attempt retry
       throw e;

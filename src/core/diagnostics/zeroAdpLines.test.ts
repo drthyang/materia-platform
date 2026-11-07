@@ -37,7 +37,7 @@ function plain(line: ShortLine, long: string): void {
 }
 
 /** W1 and O2 on 0: O2 has a same-element partner (O1), W1 only another cation (Cr1). */
-function awo4Like(): { o2: ZeroAdpProposal; w1: ZeroAdpProposal } {
+function wAndOAtZero(): { o2: ZeroAdpProposal; w1: ZeroAdpProposal } {
   const v = { B_W1: 0, B_Cr1: 0.4, B_O1: 0.62, B_O2: 0 };
   const { params, bindings } = rows(single, v);
   const ps = zeroAdpProposals({ parameters: params, bindings, result: result(v, { B_W1: 0.03, B_Cr1: 0.04, B_O1: 0.05, B_O2: 0.05 }, ["B_W1", "B_O2"]), structures: [cwo] });
@@ -46,7 +46,7 @@ function awo4Like(): { o2: ZeroAdpProposal; w1: ZeroAdpProposal } {
 
 describe("an open proposal, in one line", () => {
   it("names the B and every option in brief, the ties by what they share; the warning behind the \"?\"", () => {
-    const { o2, w1 } = awo4Like();
+    const { o2, w1 } = wAndOAtZero();
     const a = zeroAdpProposalLine(o2);
     expect(a.text).toBe("B(O2) is at its 0 bound: tie it to B(O1) (same element) or hold it at 0.600 Å²");
     expect(a.caution).toBeUndefined();
@@ -72,7 +72,7 @@ describe("an open proposal, in one line", () => {
   });
 
   it("each option in brief beside its Apply, its esd kept; the option's sentence behind the \"?\"", () => {
-    const { o2, w1 } = awo4Like();
+    const { o2, w1 } = wAndOAtZero();
     expect(o2.options.map((o) => zeroAdpOptionLine(o).text)).toEqual(["Tie to B(O1) = 0.62(5) Å² (same element)", "Hold at 0.600 Å² (starting value)"]);
     const tie = zeroAdpOptionLine(w1.options[0]!);
     expect(tie.text).toBe("Tie to B(Cr1) = 0.40(4) Å² (same 6-O coordination, different cation)");
@@ -83,7 +83,7 @@ describe("an open proposal, in one line", () => {
 
 describe("the cross-site caution", () => {
   it("rides along as a caution (the page's ⚠, the report's suffix), never as a parenthetical in the line", () => {
-    const { w1 } = awo4Like();
+    const { w1 } = wAndOAtZero();
     expect(zeroAdpOptionLine(w1.options[0]!).caution).toBe("a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible");
     const line = zeroAdpProposalLine(w1);
     expect(line.caution).toBe("A different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible.");
@@ -98,7 +98,7 @@ describe("the cross-site caution", () => {
 
 describe("a fix in force, in one line", () => {
   it("a tie: the B it hit, its leader's value with its esd, what the two share; the options not taken and the whole account behind the \"?\"", () => {
-    const { o2, w1 } = awo4Like();
+    const { o2, w1 } = wAndOAtZero();
     const fix = zeroAdpFix(o2, 0);
     const line = zeroAdpFixLine(fix);
     expect(line.text).toBe("B(O2) hit 0 → tied to B(O1) = 0.62(5) Å² (same element); not measured on its own");
@@ -113,7 +113,7 @@ describe("a fix in force, in one line", () => {
   });
 
   it("the tied value is the leader's as it stands: the last fit's with its esd, else the row's", () => {
-    const { o2 } = awo4Like();
+    const { o2 } = wAndOAtZero();
     const fix = zeroAdpFix(o2, 0);
     const refit = { parameters: { B_O1: 0.587 }, esd: { B_O1: 0.031 } } as unknown as RefinementResult;
     expect(zeroAdpFixLine(fix, { result: refit }).text).toContain("tied to B(O1) = 0.59(3) Å²");
@@ -122,7 +122,7 @@ describe("a fix in force, in one line", () => {
   });
 
   it("a held value: the starting value, not measured; the tie not taken behind the \"?\"", () => {
-    const { o2 } = awo4Like();
+    const { o2 } = wAndOAtZero();
     const fix = zeroAdpFix(o2, 1);
     const line = zeroAdpFixLine(fix);
     expect(line.text).toBe("B(O2) hit 0 → held at 0.600 Å² (starting value); not measured");
@@ -131,7 +131,7 @@ describe("a fix in force, in one line", () => {
   });
 
   it("who chose it: the Agent in auto mode says so in the line, its reason behind the \"?\"", () => {
-    const { o2 } = awo4Like();
+    const { o2 } = wAndOAtZero();
     const fix = zeroAdpFix(o2, 0, { chosenBy: "agent-auto", reason: "both are the oxide's oxygens" });
     const line = zeroAdpFixLine(fix);
     expect(line.text).toBe("B(O2) hit 0 → tied to B(O1) = 0.62(5) Å² (same element); not measured on its own; the Agent's choice (auto mode)");
@@ -169,13 +169,13 @@ describe("a shared site and several phases", () => {
     ]);
     expect(zeroAdpFixLine(zeroAdpFix(ps[1]!, 0)).text).toBe("Cr2WO6-b: B(O1) hit 0 → tied to B(O2) = 0.70(5) Å² (same element); not measured on its own");
     // One phase: no prefix.
-    expect(awo4Like().o2.phase).toBeUndefined();
+    expect(wAndOAtZero().o2.phase).toBeUndefined();
   });
 });
 
 describe("the report's limitation for a B left on 0", () => {
   it("says why its value cannot be quoted, the warning in full for the appendix", () => {
-    const { o2 } = awo4Like();
+    const { o2 } = wAndOAtZero();
     const line = zeroAdpOpenLimitation(o2);
     expect(line.text).toBe("B(O2) refined to 0 with no option applied: its esd means nothing");
     expect(line.detail[0]).toMatch(/^B\(O2\) refined to 0 Å² \(its lower bound\)\. 2 options, none applied until you choose one: .* Not applied: the B is reported on its bound, where its esd means nothing\.$/);

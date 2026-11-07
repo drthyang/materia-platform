@@ -6,6 +6,7 @@ import { enumeratePairs, cartesianAdpTensor } from "@/core/pdf/pairEnumerator";
 import { computeGofR, makeRGrid, type PdfModelParams } from "@/core/pdf/forwardModel";
 import { uIsoFromBIso } from "@/core/crystal/adp";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 
 const IDENTITY_OP = { rotation: IDENTITY3, translation: [0, 0, 0] as const, xyz: "x,y,z" };
 
@@ -99,10 +100,10 @@ describe("computeGofR — physics self-consistency", () => {
   });
 });
 
-// ---- Golden: reproduce PDFgui/PDFFIT-1.4.0 G_calc for Fe0.1Co0.9Sn 1.7K ----
-const GOLD = "PDF/Fe1Co9Sn_PG3/golden/pdfgui_calc_1p7K_Q30.txt";
+// ---- Golden: reproduce PDFgui/PDFFIT-1.4.0 G_calc for the local hexagonal neutron PDF ----
+const GOLD = LOCAL_DATA.hexPdfGolden;
 
-function feCoSnRefined(): StructureModel {
+function hexRefined(): StructureModel {
   const cell: UnitCell = { a: 5.272188, b: 5.272188, c: 4.267749, alpha: 90, beta: 90, gamma: 120 };
   const aniso = (u: [number, number, number, number, number, number]) => ({ kind: "anisotropic" as const, uAniso: u });
   const sites: AtomSite[] = [
@@ -132,7 +133,7 @@ function pearson(a: number[], b: number[]): number {
   return num / Math.sqrt(da * db);
 }
 
-describe.skipIf(!dataExists(GOLD))("golden: PDFgui G_calc for Fe0.1Co0.9Sn 1.7K (Q30, neutron)", () => {
+describe.skipIf(!dataExists(GOLD))("golden: PDFgui G_calc for the local hexagonal neutron PDF (Q30)", () => {
   // Loaded lazily (memoized): a skipped suite still runs this callback at
   // collection time, so top-level readData/computeGofR would fail (and cost)
   // on machines/CI without the git-ignored data/ folder.
@@ -146,7 +147,7 @@ describe.skipIf(!dataExists(GOLD))("golden: PDFgui G_calc for Fe0.1Co0.9Sn 1.7K 
       const [r, g] = l.trim().split(/\s+/).map(Number);
       if (Number.isFinite(r) && Number.isFinite(g)) { goldR.push(r!); goldG.push(g!); }
     }
-    const model = feCoSnRefined();
+    const model = hexRefined();
     const atoms = expandStructureAtoms(model);
     const rGrid = Float64Array.from(goldR);
     const params: PdfModelParams = {

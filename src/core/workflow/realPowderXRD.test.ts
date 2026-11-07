@@ -10,11 +10,13 @@ import { computeAgreementFactors, weightsFromSigma, excludedPointMask, applyExcl
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { optimalScale } from "@/app/loadData";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 
 /**
- * Real synchrotron XRD from NSLS-II 28ID: GaNb4Se8, F-4̄3m, a≈10.4 Å, 96 ops,
- * a Q-axis pattern (0.009–16.3 Å⁻¹) with 227 masked points, and a 100 K model
- * refined against 298.8 K data (so the cell is genuinely wrong at the start).
+ * Real synchrotron XRD from NSLS-II 28ID: the local X-ray dataset
+ * (`LOCAL_DATA.xrd`, unpublished), F-4̄3m, 96 ops, a pattern with masked points,
+ * and a low-temperature model refined against room-temperature data (so the
+ * cell is genuinely wrong at the start).
  *
  * Unlike the self-consistent synthetic demo, this cannot converge to wR≈0 — it's
  * a real regression harness for engine robustness (no divergence), the reflection
@@ -22,15 +24,15 @@ import { dataExists, readData } from "@/testSupport/data";
  * background. Skips when the git-ignored data/ folder is absent.
  */
 
-const DIR = "GaNb4Se8_XRD";
-const CIF = `${DIR}/GaNb4Se8_100K.cif`;
-const DAT = `${DIR}/GaNb4Se8_799_T_298.8K_gsas.dat`;
+const DIR = LOCAL_DATA.xrd.dir;
+const CIF = `${DIR}/${LOCAL_DATA.xrd.structure}`;
+const DAT = `${DIR}/${LOCAL_DATA.xrd.pattern}`;
 const INSTPRM = `${DIR}/xrd_instrum.instprm`;
 const has = dataExists(CIF) && dataExists(DAT);
-const requiresGaNb4Se8 = process.env.GANB4SE8_REQUIRED === "1";
-if (requiresGaNb4Se8 && !has) {
+const requiresLocalXrd = process.env.LOCAL_XRD_REQUIRED === "1";
+if (requiresLocalXrd && !has) {
   throw new Error(
-    `GaNb4Se8 regression data is required. Expected data/${CIF} and data/${DAT}.`,
+    `The local X-ray regression data are required. Expected data/${CIF} and data/${DAT}.`,
   );
 }
 
@@ -48,11 +50,11 @@ function loadPattern(): { structure: ReturnType<typeof parseCif>; pattern: Powde
   const points = rows
     .filter((r) => Number.isFinite(r[0]) && Number.isFinite(r[1]))
     .map(([x, i]) => ({ x: x!, yObs: i!, sigma: i! > 0 ? Math.sqrt(i!) + 1 : 1 }));
-  // The GSAS .dat abscissa is 2θ in degrees (short synchrotron wavelength ≈
-  // 0.1665 Å): the observed peaks index on F-4̄3m a≈10.4 as (111) at 1.585°,
-  // (400) at 3.662°, etc. — NOT Q. Treating it as Q collapses the scale to 0.
+  // The GSAS .dat abscissa is 2θ in degrees (a short synchrotron wavelength):
+  // the observed peaks index on the F-4̄3m cell in 2θ — NOT Q. Treating it as Q
+  // collapses the scale to 0.
   const pattern: PowderPattern = {
-    id: "gns-powder", name: "GaNb4Se8", xUnit: "twoTheta",
+    id: "gns-powder", name: "local X-ray", xUnit: "twoTheta",
     radiation: { kind: "xray", wavelength: wl }, wavelength: wl, points,
   };
   return { structure, pattern };
@@ -118,7 +120,7 @@ function wRof(structure: ReturnType<typeof parseCif>, pattern: PowderPattern, pa
   return 100 * (a.rWeighted ?? 0);
 }
 
-describe.skipIf(!has)("real powder XRD — GaNb4Se8 (NSLS-II 28ID synchrotron)", () => {
+describe.skipIf(!has)("real powder XRD — the local X-ray dataset (NSLS-II 28ID synchrotron)", () => {
   it("loads as X-ray 2θ-data on a large F-4̄3m cell with masked points", () => {
     const { structure, pattern } = loadPattern();
     expect(structure.spaceGroup.operations.length).toBe(96);
@@ -160,7 +162,7 @@ describe.skipIf(!has)("real powder XRD — GaNb4Se8 (NSLS-II 28ID synchrotron)",
     expect(elapsed).toBeLessThan(8000);
     // Remaining gap to <15% is profile (Caglioti U,V,W), zero-shift, and
     // anisotropic ADP — the roadmap's next items.
-    console.log(`GaNb4Se8: wR ${wRstart.toFixed(1)}% → ${wRend.toFixed(1)}% · a=${result.parameters.acubic!.toFixed(4)} · scale=${result.parameters.scale!.toExponential(2)} · ${result.status} · ${elapsed} ms`);
+    console.log(`local X-ray: wR ${wRstart.toFixed(1)}% → ${wRend.toFixed(1)}% · a=${result.parameters.acubic!.toFixed(4)} · scale=${result.parameters.scale!.toExponential(2)} · ${result.status} · ${elapsed} ms`);
   });
 
   it("staged structure refinement: instrument profile, ADPs, and symmetry positions", () => {
@@ -227,7 +229,7 @@ describe.skipIf(!has)("real powder XRD — GaNb4Se8 (NSLS-II 28ID synchrotron)",
     expect(wRend).toBeLessThan(wRstart);
     expect(wRend).toBeLessThan(12);
     expect(elapsed).toBeLessThan(15000);
-    console.log(`GaNb4Se8 staged: wR ${wRstart.toFixed(1)}%→${wRend.toFixed(1)}% · Rp=${(100 * af.rFactor).toFixed(1)}% Rexp=${(100 * (af.rExpected ?? 0)).toFixed(1)}% GoF=${af.goodnessOfFit?.toFixed(1)} · ${posModes.length} pos modes · ${us.length} Uani modes · W ${(inst.w ?? 0).toFixed(2)}→${get("profW").value.toFixed(2)} · ${elapsed}ms`);
+    console.log(`local X-ray staged: wR ${wRstart.toFixed(1)}%→${wRend.toFixed(1)}% · Rp=${(100 * af.rFactor).toFixed(1)}% Rexp=${(100 * (af.rExpected ?? 0)).toFixed(1)}% GoF=${af.goodnessOfFit?.toFixed(1)} · ${posModes.length} pos modes · ${us.length} Uani modes · W ${(inst.w ?? 0).toFixed(2)}→${get("profW").value.toFixed(2)} · ${elapsed}ms`);
   });
 
   it("restrained occupancy refinement stays chemically plausible on real data", () => {
@@ -259,6 +261,6 @@ describe.skipIf(!has)("real powder XRD — GaNb4Se8 (NSLS-II 28ID synchrotron)",
     expect(occ.every((p) => p.value > 0.85 && p.value <= 1)).toBe(true);
     expect(out.parameters.every((p) => Number.isFinite(p.value))).toBe(true);
     expect(elapsed).toBeLessThan(20000);
-    console.log(`GaNb4Se8 restrained occupancy: ${occ.map((p) => `${p.id}=${p.value.toFixed(3)}`).join(" ")} · ${elapsed}ms`);
+    console.log(`local X-ray restrained occupancy: ${occ.map((p) => `${p.id}=${p.value.toFixed(3)}`).join(" ")} · ${elapsed}ms`);
   });
 });

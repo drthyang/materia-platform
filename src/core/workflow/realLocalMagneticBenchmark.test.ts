@@ -30,11 +30,12 @@ import type { PowderPattern } from "@/core/diffraction/types";
 import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { Vec3 } from "@/core/math/types";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import { withZeroAdpProposal, zeroAdpProposals } from "@/core/diagnostics/zeroAdp";
 
 /**
- * BENCHMARK — magnetic refinement of the high-entropy tungstate AWO₄
- * ((Co,Cu,Fe,Mn,Ni,Zn)WO₄, P2/c) on the 8 K bank-3 POWGEN pattern, read
+ * BENCHMARK — magnetic refinement of the local magnetic TOF dataset
+ * (`LOCAL_DATA.magneticTof`) on its ordered bank-3 POWGEN pattern, read
  * from its Mantid XYDATA export (`PG3_powder_8K.dat`). The data are UNPUBLISHED:
  * they are read from the git-ignored data/ folder only, and this file holds no
  * number derived from them — only the criteria. Skips when the files are absent.
@@ -68,7 +69,7 @@ import { withZeroAdpProposal, zeroAdpProposals } from "@/core/diagnostics/zeroAd
  * red and the benchmark record must be revisited — never loosen the criterion.
  */
 
-const DIR = "AWO4";
+const DIR = LOCAL_DATA.magneticTof;
 /** The data file's name, as the loaders are given it (the layout is in docs/VALIDATION.md). */
 const DATA_NAME = "PG3_powder_8K.dat";
 const DATA = `${DIR}/${DATA_NAME}`;
@@ -164,7 +165,7 @@ interface Bench {
 
 async function runBenchmark(): Promise<Bench> {
   const cif = readData(CIF);
-  const { structure } = parse_structure({ cif, id: "awo4" });
+  const { structure } = parse_structure({ cif, id: "local" });
   const inst = parse_instrument({ text: readData(INST.B3) });
   if (inst.kind !== "tof") throw new Error("the B3 .instprm should be TOF");
   const pattern = parse_powder_data({ text: readData(DATA), filename: DATA_NAME, instrument: inst }).pattern;
@@ -192,7 +193,7 @@ async function runBenchmark(): Promise<Bench> {
   const at = <T,>(xs: readonly T[]) => window.map((i) => xs[i]!);
   const detected = detectExtraPeaks(at(dArr), at(curves.yObs), at(curves.yCalc), { pointSigma: at(sigma), minSignificance: 3, limit: 24 });
   const refined = applyParameters(structure, spec.bindings, Object.fromEntries(nuclear.map((p) => [p.id, p.value]))).model;
-  const nucRefl = generateReflections(refined.cell, refined.spaceGroup, 0.9, 25).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "AWO4" }));
+  const nucRefl = generateReflections(refined.cell, refined.spaceGroup, 0.9, 25).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "nuclear" }));
   const rows = peakRows(annotateExtraPeaks(detected, nucRefl), PEAK_CRITERIA, {});
   const kRanking = searchK(structure, rows);
 
@@ -248,7 +249,7 @@ async function runBenchmark(): Promise<Bench> {
   const apex = (y: ArrayLike<number>, d: number) => Math.max(...window.filter((i) => Math.abs(dArr[i]! / d - 1) <= 0.003).map((i) => curves.yObs[i]! - y[i]!));
   const model = applyParameters(structure, spec.bindings, values).model;
   const reflections = [
-    ...generateReflections(model.cell, model.spaceGroup, 0.9, 25).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "AWO4" })),
+    ...generateReflections(model.cell, model.spaceGroup, 0.9, 25).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "nuclear" })),
     ...satellitePositions(model.cell, K, 0.9, D_MAX + 1).map((r) => ({ d: r.d, hkl: r.hkl, phaseLabel: "magnetic" })),
   ];
 
@@ -270,7 +271,7 @@ function report(b: Bench): void {
   const v = (id: string) => b.nuclear.find((p) => p.id === id)!;
   const pm = (p: RefinementParameter, n = 5) => `${p.value.toFixed(n)}(${(p.esd ?? NaN).toPrecision(2)})`;
   const ag = (r: RefinementResult) => `wR ${(100 * (r.agreement.rWeighted ?? NaN)).toFixed(3)}% GoF ${(r.agreement.goodnessOfFit ?? NaN).toFixed(2)}`;
-  console.log(`[awo4-bench] nuclear ${ag(b.nuclearResult)} · a ${pm(v("cell_a"))} b ${pm(v("cell_b"))} c ${pm(v("cell_c"))} β ${pm(v("cell_beta"), 4)} · at bounds ${b.nuclearResult.diagnostics?.atBounds.map((x) => x.parameterId).join(",") || "none"}`);
+  console.log(`[local-bench] nuclear ${ag(b.nuclearResult)} · a ${pm(v("cell_a"))} b ${pm(v("cell_b"))} c ${pm(v("cell_c"))} β ${pm(v("cell_beta"), 4)} · at bounds ${b.nuclearResult.diagnostics?.atBounds.map((x) => x.parameterId).join(",") || "none"}`);
   const cellRows = ["a", "b", "c"].map((x) => {
     const ref = cifValue(b.cif, `_cell_length_${x}`);
     const p = v(`cell_${x}`);
@@ -281,21 +282,21 @@ function report(b: Bench): void {
     const len = lengthA(b.structure.cell, b.bindings.find((x) => x.parameterId === p.id)!.axis!);
     return `${p.id} ${(Math.abs(p.value) * len).toFixed(3)} Å (tol ${(POSITION_TOL_A + 3 * (p.esd ?? 0) * len).toFixed(3)})`;
   });
-  console.log(`[awo4-bench] cell vs 100 K CIF: ${cellRows.join(" · ")} · position shifts: ${shifts.join(" · ")}`);
-  console.log(`[awo4-bench] free nuclear rows: ${b.nuclear.filter((p) => !p.fixed).map((p) => `${p.id} ${p.value.toPrecision(6)}±${(p.esd ?? NaN).toPrecision(2)}`).join(" | ")}`);
-  console.log(`[awo4-bench] peaks: ${b.rows.map((r) => `${r.d.toFixed(3)}(${(r.significance ?? NaN).toFixed(1)}σ${r.nearNuclear ? ` nuc ${r.nearNuclear.hkl}` : ""}${r.included ? " ✓" : ""})`).join(" ")}`);
-  console.log(`[awo4-bench] k: ${b.kRanking.slice(0, 5).map((c) => `${c.label} ${c.matched}/${c.total} rmsd ${c.rmsd.toFixed(4)} score ${c.score.toFixed(3)}`).join(" | ")}`);
+  console.log(`[local-bench] cell vs 100 K CIF: ${cellRows.join(" · ")} · position shifts: ${shifts.join(" · ")}`);
+  console.log(`[local-bench] free nuclear rows: ${b.nuclear.filter((p) => !p.fixed).map((p) => `${p.id} ${p.value.toPrecision(6)}±${(p.esd ?? NaN).toPrecision(2)}`).join(" | ")}`);
+  console.log(`[local-bench] peaks: ${b.rows.map((r) => `${r.d.toFixed(3)}(${(r.significance ?? NaN).toFixed(1)}σ${r.nearNuclear ? ` nuc ${r.nearNuclear.hkl}` : ""}${r.included ? " ✓" : ""})`).join(" ")}`);
+  console.log(`[local-bench] k: ${b.kRanking.slice(0, 5).map((c) => `${c.label} ${c.matched}/${c.total} rmsd ${c.rmsd.toFixed(4)} score ${c.score.toFixed(3)}`).join(" | ")}`);
   for (const [i, r] of b.reps.entries()) {
     const e = b.ranking[r.candidate.id];
     const std = r.candidate.standard ?? r.settingMatch?.identity;
     const label = std ? `${formatMagneticSymbol(std.bnsSymbol)} (BNS ${std.bnsNumber})` : r.candidate.label;
-    console.log(`[awo4-bench]   ${r.candidate.id === b.best.id ? "★" : b.tied.includes(r.candidate.id) ? "=" : " "} ${label} index ${r.index} · ${b.dims[i]} moment comps · ${e?.status ?? "not fitted"} · wR ${e?.wR != null ? (100 * e.wR).toFixed(3) : "—"}% · |M| ${e?.magnitudes[0]?.value.toFixed(2) ?? "—"}`);
+    console.log(`[local-bench]   ${r.candidate.id === b.best.id ? "★" : b.tied.includes(r.candidate.id) ? "=" : " "} ${label} index ${r.index} · ${b.dims[i]} moment comps · ${e?.status ?? "not fitted"} · wR ${e?.wR != null ? (100 * e.wR).toFixed(3) : "—"}% · |M| ${e?.magnitudes[0]?.value.toFixed(2) ?? "—"}`);
   }
   const esd = b.magneticFit.esd ?? {};
-  console.log(`[awo4-bench] magnetic refinement (moments only, nuclear held) ${ag(b.magneticFit)} · ${b.magneticFit.status} · |M| ${b.moment.value.toFixed(3)}(${b.moment.esd.toFixed(3)}) µB (bound ${b.ionBound.toFixed(2)}) · amplitudes ${b.momentIds.map((id) => `${id} ${b.values[id]!.toFixed(3)}±${(esd[id] ?? NaN).toFixed(3)}`).join(" ")} · max shift/esd ${b.magneticFit.diagnostics?.maxShiftOverEsd.toExponential(2)} · at bounds ${b.magneticFit.diagnostics?.atBounds.map((x) => x.parameterId).join(",") || "none"} · |ρ|≥0.95 ${JSON.stringify(b.magneticFit.diagnostics?.highCorrelations ?? [])}`);
-  console.log(`[awo4-bench] magnetic-peak residual after/before: ${b.after.map((a, i) => (a / b.before[i]!).toFixed(2)).join(" ")}`);
+  console.log(`[local-bench] magnetic refinement (moments only, nuclear held) ${ag(b.magneticFit)} · ${b.magneticFit.status} · |M| ${b.moment.value.toFixed(3)}(${b.moment.esd.toFixed(3)}) µB (bound ${b.ionBound.toFixed(2)}) · amplitudes ${b.momentIds.map((id) => `${id} ${b.values[id]!.toFixed(3)}±${(esd[id] ?? NaN).toFixed(3)}`).join(" ")} · max shift/esd ${b.magneticFit.diagnostics?.maxShiftOverEsd.toExponential(2)} · at bounds ${b.magneticFit.diagnostics?.atBounds.map((x) => x.parameterId).join(",") || "none"} · |ρ|≥0.95 ${JSON.stringify(b.magneticFit.diagnostics?.highCorrelations ?? [])}`);
+  console.log(`[local-bench] magnetic-peak residual after/before: ${b.after.map((a, i) => (a / b.before[i]!).toFixed(2)).join(" ")}`);
   const post = postResidual(b);
-  console.log(`[awo4-bench] after the magnetic refinement: ${post.reading} · unexplained ${post.unexplained.map((p) => `${p.d.toFixed(3)} (${p.sigmas?.toFixed(0)}σ)`).join(", ") || "none"}`);
+  console.log(`[local-bench] after the magnetic refinement: ${post.reading} · unexplained ${post.unexplained.map((p) => `${p.d.toFixed(3)} (${p.sigmas?.toFixed(0)}σ)`).join(", ") || "none"}`);
 }
 
 function postResidual(b: Bench) {
@@ -306,7 +307,7 @@ function postResidual(b: Bench) {
   });
 }
 
-describe.skipIf(!has)("AWO₄ 8 K benchmark — the file and its frame (POWGEN bank 3, Mantid XYDATA)", () => {
+describe.skipIf(!has)("local magnetic benchmark — the file and its frame (POWGEN bank 3, Mantid XYDATA)", () => {
   it("C1: reads the Mantid XYDATA export as a log-binned TOF pattern with σ", () => {
     const text = readData(DATA);
     const { detected, pattern } = parse_powder_data({ text, filename: DATA_NAME });
@@ -340,7 +341,7 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — the file and its frame (POWGEN b
 let pending: Promise<Bench> | undefined;
 const benchmark = (): Promise<Bench> => (pending ??= runBenchmark());
 
-describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and the magnetic model", () => {
+describe.skipIf(!has)("local magnetic benchmark — nuclear vs the 100 K CIF, k, and the magnetic model", () => {
   let b: Bench;
   beforeAll(async () => {
     b = await benchmark();
@@ -429,7 +430,7 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
     for (const o of w1.options.filter((x) => x.rule === "A")) expect(o.caution).toMatch(/^a different cation \(W.* vs .*\): check it is physically sensible$/);
     // Computing a proposal changes no row.
     expect(rows.filter((p) => p.kind === "bIso").every((p) => p.value === b.values[p.id])).toBe(true);
-    console.log(`[awo4-bench] B at 0: ${proposals.map((p) => `${p.parameterId} → ${p.options.map((o, i) => `${i + 1}) ${o.rank} ${o.rule === "A" ? `tie ${o.leader}` : `hold ${o.value!.toFixed(3)}`} [${o.label}]`).join(" ")}`).join(" | ")}`);
+    console.log(`[local-bench] B at 0: ${proposals.map((p) => `${p.parameterId} → ${p.options.map((o, i) => `${i + 1}) ${o.rank} ${o.rule === "A" ? `tie ${o.leader}` : `hold ${o.value!.toFixed(3)}`} [${o.label}]`).join(" ")}`).join(" | ")}`);
   });
 
   // With options applied (what the user gets on Apply), the nuclear model refined again — the B's are
@@ -453,7 +454,7 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
       const held = applied.map((p) => ({ ...p, value: again.parameters[p.id] ?? p.value, fixed: true }));
       const mag = refine(buildMagneticPowderProblem(b.structure, b.build.magnetic, b.pattern, [...held, ...moments], [...b.bindings, ...b.build.bindings], b.profile, b.fitRange), { maxIterations: 20 });
       const m = applyMagneticMoments(b.build.magnetic, b.build.bindings, { ...Object.fromEntries(held.map((p) => [p.id, p.value])), ...mag.parameters }).moments[0]!;
-      console.log(`[awo4-bench] ${name}, nuclear again: ${ag(again)} (was ${ag(b.nuclearResult)}) · ${again.status} · B ${applied.filter((p) => p.kind === "bIso").map((p) => `${p.id} ${(again.parameters[p.id] ?? p.value).toFixed(3)}${again.esd?.[p.id] ? `±${again.esd[p.id]!.toFixed(3)}` : p.expression ? ` (${p.expression})` : " (held)"}`).join(" ")} · at bounds ${[...bounded].join(",") || "none"} · then the moments, nuclear held: ${ag(mag)} (was ${ag(b.magneticFit)}) · |M| ${Math.hypot(...momentCartesian(b.structure.cell, m)).toFixed(3)} µB`);
+      console.log(`[local-bench] ${name}, nuclear again: ${ag(again)} (was ${ag(b.nuclearResult)}) · ${again.status} · B ${applied.filter((p) => p.kind === "bIso").map((p) => `${p.id} ${(again.parameters[p.id] ?? p.value).toFixed(3)}${again.esd?.[p.id] ? `±${again.esd[p.id]!.toFixed(3)}` : p.expression ? ` (${p.expression})` : " (held)"}`).join(" ")} · at bounds ${[...bounded].join(",") || "none"} · then the moments, nuclear held: ${ag(mag)} (was ${ag(b.magneticFit)}) · |M| ${Math.hypot(...momentCartesian(b.structure.cell, m)).toFixed(3)} µB`);
       return { again, bounded };
     };
     const preferred = (p: (typeof proposals)[number]) => p.options.findIndex((o) => o.rank === "preferred");
@@ -626,7 +627,7 @@ interface AppFit {
   readonly magnetic: MagneticModel;
 }
 
-describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference refinement (magnetic_8K.mcif)", () => {
+describe.skipIf(!hasRef)("local magnetic benchmark — against the owner's reference refinement (magnetic_8K.mcif)", () => {
   let b: Bench;
   let ref: Reference;
   /** The default pipeline's magnetic refinement (2+ ⟨j0⟩, the app's default). */
@@ -636,7 +637,7 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
   beforeAll(async () => {
     b = await benchmark();
     const text = readData(REF);
-    const { structure, magnetic } = parse_structure({ cif: text, id: "awo4-ref" });
+    const { structure, magnetic } = parse_structure({ cif: text, id: "local-ref" });
     if (!magnetic) throw new Error(`${REF}: read with no magnetic model`);
     const n = (["a", "b", "c"] as const).map((x) => Math.round(structure.cell[x] / b.structure.cell[x])) as [number, number, number];
     ref = { text, structure, magnetic, n, sus: momentSus(text), ions: referenceIons(text) };
@@ -693,11 +694,11 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
       const app = appSide(f);
       const r = refSide(f.model.cell);
       const r0 = refSide(ref.structure.cell);
-      console.log(`[awo4-ref] ${name}: moments-only wR ${(100 * (f.result.agreement.rWeighted ?? NaN)).toFixed(3)}% GoF ${(f.result.agreement.goodnessOfFit ?? NaN).toFixed(2)} · ${f.result.status} · |M| app ${app.size.toFixed(3)}(${app.sizeSu.toFixed(3)}) ref ${r.size.toFixed(3)}(${r.sizeSu.toFixed(3)}) µB [mCIF metric ${r0.size.toFixed(4)}] · φ app ${app.phi.toFixed(2)}(${app.phiSu.toFixed(2)})° ref ${r.phi.toFixed(2)}(${r.phiSu.toFixed(2)})° [mCIF metric ${r0.phi.toFixed(3)}] · Δ|M| ${(app.size - r.size).toFixed(3)} (2σ ${(2 * Math.hypot(app.sizeSu, r.sizeSu)).toFixed(3)}) · Δφ ${axisDelta(app.phi, r.phi).toFixed(2)}° (2σ ${(2 * Math.hypot(app.phiSu, r.phiSu)).toFixed(2)}°) · comps ${f.magnetic.moments.find((m) => m.siteLabel === label())!.components.map((x) => x.toFixed(3)).join(",")} · ff ${f.build.magnetic.moments.map((m) => m.formFactorId).join(",")}`);
+      console.log(`[local-ref] ${name}: moments-only wR ${(100 * (f.result.agreement.rWeighted ?? NaN)).toFixed(3)}% GoF ${(f.result.agreement.goodnessOfFit ?? NaN).toFixed(2)} · ${f.result.status} · |M| app ${app.size.toFixed(3)}(${app.sizeSu.toFixed(3)}) ref ${r.size.toFixed(3)}(${r.sizeSu.toFixed(3)}) µB [mCIF metric ${r0.size.toFixed(4)}] · φ app ${app.phi.toFixed(2)}(${app.phiSu.toFixed(2)})° ref ${r.phi.toFixed(2)}(${r.phiSu.toFixed(2)})° [mCIF metric ${r0.phi.toFixed(3)}] · Δ|M| ${(app.size - r.size).toFixed(3)} (2σ ${(2 * Math.hypot(app.sizeSu, r.sizeSu)).toFixed(3)}) · Δφ ${axisDelta(app.phi, r.phi).toFixed(2)}° (2σ ${(2 * Math.hypot(app.phiSu, r.phiSu)).toFixed(2)}°) · comps ${f.magnetic.moments.find((m) => m.siteLabel === label())!.components.map((x) => x.toFixed(3)).join(",")} · ff ${f.build.magnetic.moments.map((m) => m.formFactorId).join(",")}`);
     }
     // A note only: the mCIF's cell is not a reference (the owner: it may not be accurate).
     const cells = (["a", "b", "c"] as const).map((x, i) => `${x} ${((like.model.cell[x] / (ref.structure.cell[x] / ref.n[i]!) - 1) * 1e4).toFixed(2)}e-4`);
-    console.log(`[awo4-ref] note, mCIF cell (not a reference) vs the app's 8 K cell: ${cells.join(" ")} Δβ ${(like.model.cell.beta - ref.structure.cell.beta).toFixed(4)}°`);
+    console.log(`[local-ref] note, mCIF cell (not a reference) vs the app's 8 K cell: ${cells.join(" ")} Δβ ${(like.model.cell.beta - ref.structure.cell.beta).toFixed(4)}°`);
   }
 
   it("R0a: the reference mCIF reads as a magnetic structure: every atom of its cell, an anti-centring, the moments", () => {

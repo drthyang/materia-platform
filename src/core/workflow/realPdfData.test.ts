@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import * as tools from "@/mcp/tools";
 import { buildPdfSpec } from "@/core/workflow/pdf";
 import type { PdfPattern } from "@/core/diffraction/types";
@@ -29,10 +30,10 @@ function report(name: string, refined: Awaited<ReturnType<typeof tools.refine_pd
 }
 
 const NI_GR = "Ni_PDF_data/Ni_cryostat_Feb_PDF_20210210-140444_f64884_0001_dark_corrected_img_L1_U97_percentile_masked_q.gr";
-const FCS_GR = "FeCoSn_PDF/PG3_48288_PDF_1p7K_Q30.gr";
-const FCS_CIF = "FeCoSn_PDF/Fe1Co9Sn_300K.cif";
-const GANB_GR = "GaNb4Se8_PDF_Qmax_27/GaNb4Se8_101_T_base_5.8K_T_FC0.0K_Sample_X_5.78mm_DetZ_3674.0mm_new_masked_L1_U98_q.dat_bgsub_scale_0.28_shift_110.gr";
-const GANB_CIF = "GaNb4Se8_XRD/GaNb4Se8_100K.cif";
+const HEX_GR = LOCAL_DATA.hexPdf.pattern;
+const HEX_CIF = LOCAL_DATA.hexPdf.structure;
+const XPDF_GR = `${LOCAL_DATA.xrayPdf.dir}/${LOCAL_DATA.xrayPdf.pattern}`;
+const XPDF_CIF = `${LOCAL_DATA.xrd.dir}/${LOCAL_DATA.xrd.structure}`;
 const GTS_GR = "GaTa4Se8_NOMAD/PDF/01_GTS_at_5K.gr";
 const GTS_CIF = "GaTa4Se8_NOMAD/GTS_5K.cif";
 
@@ -67,10 +68,10 @@ describe.skipIf(!dataExists(NI_GR))("REAL Ni standard (28-ID X-ray) — calibrat
   }, 300000);
 });
 
-describe.skipIf(!dataExists(FCS_GR) || !dataExists(FCS_CIF))("REAL Fe0.1Co0.9Sn 1.7K (POWGEN neutron) — vs PDFgui", () => {
+describe.skipIf(!dataExists(HEX_GR) || !dataExists(HEX_CIF))("REAL local hexagonal neutron PDF (POWGEN) — vs PDFgui", () => {
   it("staged fit lands near the PDFgui-refined cell (a 5.2722, c 4.2677)", async () => {
-    const { structure } = tools.parse_structure({ cif: readData(FCS_CIF) });
-    const parsed = tools.parse_pdf_data({ text: readData(FCS_GR), filename: "fecosn.gr" });
+    const { structure } = tools.parse_structure({ cif: readData(HEX_CIF) });
+    const parsed = tools.parse_pdf_data({ text: readData(HEX_GR), filename: "hex.gr" });
     const pattern = truncate(parsed.pattern, 30);
     const model = tools.build_pdf_model({ structure, pattern });
     // POWGEN instrument constants from the user's PDFgui fit; δ2 free.
@@ -85,9 +86,9 @@ describe.skipIf(!dataExists(FCS_GR) || !dataExists(FCS_CIF))("REAL Fe0.1Co0.9Sn 
       structure, pattern, parameters: params, bindings: model.bindings,
       restraints: model.restraints, staged: true, fitRange: { min: 1.7, max: 28 }, maxIterations: 40,
     });
-    report("FeCoSn 1.7K", refined, params);
+    report("local hexagonal", refined, params);
     expect(refined.result.status).toBe("converged");
-    // PDFgui refined a = 5.272188, c = 4.267749 on this data; agree to < 6 mÅ
+    // PDFgui's refined a and c on this data (the owner's fit); agree to < 6 mÅ
     // (δ2/ADP conventions differ between the fits — see the golden notes).
     const a = params.find((p) => p.id === "cell_a")!;
     const c = params.find((p) => p.id === "cell_c")!;
@@ -97,11 +98,11 @@ describe.skipIf(!dataExists(FCS_GR) || !dataExists(FCS_CIF))("REAL Fe0.1Co0.9Sn 
   }, 300000);
 });
 
-describe.skipIf(!dataExists(GANB_GR) || !dataExists(GANB_CIF))("REAL GaNb4Se8 5.8K (28-ID X-ray)", () => {
+describe.skipIf(!dataExists(XPDF_GR) || !dataExists(XPDF_CIF))("REAL local X-ray PDF (28-ID)", () => {
   it("cubic (100 K) model against the base-T frame", async () => {
-    const { structure } = tools.parse_structure({ cif: readData(GANB_CIF) });
-    console.log(`[GaNb4Se8 model] ${structure.spaceGroup.hermannMauguin ?? "?"} · a=${structure.cell.a} · ${structure.sites.length} sites`);
-    const parsed = tools.parse_pdf_data({ text: readData(GANB_GR), filename: "ganb.gr" });
+    const { structure } = tools.parse_structure({ cif: readData(XPDF_CIF) });
+    console.log(`[local X-ray model] ${structure.spaceGroup.hermannMauguin ?? "?"} · a=${structure.cell.a} · ${structure.sites.length} sites`);
+    const parsed = tools.parse_pdf_data({ text: readData(XPDF_GR), filename: "xpdf.gr" });
     const pattern = truncate(parsed.pattern, 30);
     const model = tools.build_pdf_model({ structure, pattern });
     const params = model.parameters.map((p) => {
@@ -114,7 +115,7 @@ describe.skipIf(!dataExists(GANB_GR) || !dataExists(GANB_CIF))("REAL GaNb4Se8 5.
       structure, pattern, parameters: params, bindings: model.bindings,
       restraints: model.restraints, staged: true, fitRange: { min: 1.5, max: 27 }, maxIterations: 40,
     });
-    report("GaNb4Se8 5.8K", refined, params);
+    report("local X-ray PDF", refined, params);
     expect(refined.result.status).toBe("converged");
     expect(refined.result.agreement.rWeighted ?? 1).toBeLessThan(0.2);
   }, 600000);
@@ -143,9 +144,9 @@ describe.skipIf(!dataExists(GTS_GR) || !dataExists(GTS_CIF))("REAL GaTa4Se8 5K (
 });
 
 // --- Local-structure head-to-head: cubic average vs the distorted P2_13 model
-// (extracted from the user's PDFgui P213.ddp refined 5.8 K state; their
-// protocol: r = 2-10 A, qdamp 0.0383, qbroad 0.0472, PDFgui Rw 8.88%). ---
-const P213_CIF = "GaNb4Se8_PDF_Qmax_27/P213_5p8K_extracted.cif";
+// (extracted from the user's PDFgui refined state; their protocol: r = 2-10 A,
+// their qdamp and qbroad). ---
+const P213_CIF = `${LOCAL_DATA.xrayPdf.dir}/${LOCAL_DATA.xrayPdf.localModel}`;
 
 const trunc2 = (p: PdfPattern, rMax: number): PdfPattern => ({ ...p, points: p.points.filter((q) => q.r <= rMax) });
 
@@ -169,14 +170,14 @@ async function localFit(structure: object, pattern: PdfPattern, qdamp: number, q
   return rw;
 }
 
-describe.skipIf(!dataExists(GANB_GR) || !dataExists(P213_CIF))("GaNb4Se8 5.8K — cubic vs P2₁3 local fit (r = 2–10 Å, PDFgui settings)", () => {
-  it("distorted P2₁3 beats the cubic average; target: PDFgui Rw 8.88%", async () => {
-    const pattern = trunc2(tools.parse_pdf_data({ text: readData(GANB_GR), filename: "g.gr" }).pattern, 12);
-    const cubic = tools.parse_structure({ cif: readData(GANB_CIF) }).structure;
+describe.skipIf(!dataExists(XPDF_GR) || !dataExists(P213_CIF))("local X-ray PDF — cubic vs P2₁3 local fit (r = 2–10 Å, PDFgui settings)", () => {
+  it("distorted P2₁3 beats the cubic average, as in PDFgui", async () => {
+    const pattern = trunc2(tools.parse_pdf_data({ text: readData(XPDF_GR), filename: "g.gr" }).pattern, 12);
+    const cubic = tools.parse_structure({ cif: readData(XPDF_CIF) }).structure;
     const p213 = tools.parse_structure({ cif: readData(P213_CIF) }).structure;
     console.log(`[models] cubic ${cubic.spaceGroup.hermannMauguin} ${cubic.sites.length} sites · p213 ${p213.spaceGroup.hermannMauguin} ${p213.sites.length} sites`);
-    const rwCubic = await localFit(cubic, pattern, 0.0383, 0.0472, "GaNb cubic 2–10");
-    const rwP213 = await localFit(p213, pattern, 0.0383, 0.0472, "GaNb P213 2–10");
+    const rwCubic = await localFit(cubic, pattern, 0.0383, 0.0472, "local cubic 2–10");
+    const rwP213 = await localFit(p213, pattern, 0.0383, 0.0472, "local P213 2–10");
     expect(rwP213).toBeLessThan(rwCubic);
   }, 600000);
 });
@@ -201,10 +202,10 @@ describe.skipIf(!dataExists(GTS_GR) || !dataExists(P213_CIF))("GaTa4Se8 5K — T
 // --- Distortion-mode fitting (AMPLIMODES paradigm): decompose the P2_13 child
 // against the cubic F-43m parent and fit the FROZEN-MODE AMPLITUDE — one
 // order-parameter instead of 13 coordinates. ---
-describe.skipIf(!dataExists(GANB_GR) || !dataExists(P213_CIF) || !dataExists(GANB_CIF))("GaNb4Se8 5.8K — frozen-mode amplitude fit (F-43m → P2_13)", () => {
+describe.skipIf(!dataExists(XPDF_GR) || !dataExists(P213_CIF) || !dataExists(XPDF_CIF))("local X-ray PDF — frozen-mode amplitude fit (F-43m → P2_13)", () => {
   it("one mode amplitude captures the distortion (vs 13 free positions)", async () => {
     const { buildDistortionModes, withDistortionModes } = await import("@/core/crystal/distortionModes");
-    const parent = tools.parse_structure({ cif: readData(GANB_CIF) }).structure;
+    const parent = tools.parse_structure({ cif: readData(XPDF_CIF) }).structure;
     const p213 = tools.parse_structure({ cif: readData(P213_CIF) }).structure;
     const set = buildDistortionModes(parent, p213);
     console.log(`[modes] ${set.parameters.length} modes over ${p213.sites.length} sites · A_total=${set.totalAmplitude.toFixed(4)} Å · A1=${set.modes[0]!.observedAmplitude.toFixed(4)} Å · unpaired: ${set.unpaired.join(",") || "none"}`);
@@ -212,7 +213,7 @@ describe.skipIf(!dataExists(GANB_GR) || !dataExists(P213_CIF) || !dataExists(GAN
     expect(set.parameters).toHaveLength(13);
     expect(set.totalAmplitude).toBeGreaterThan(0.05);
 
-    const pattern = trunc2(tools.parse_pdf_data({ text: readData(GANB_GR), filename: "g.gr" }).pattern, 12);
+    const pattern = trunc2(tools.parse_pdf_data({ text: readData(XPDF_GR), filename: "g.gr" }).pattern, 12);
     const spec = buildPdfSpec(set.parentized, pattern);
     const swapped = withDistortionModes({ params: spec.params, bindings: spec.bindings }, set);
     const params = swapped.params.map((p) => {
@@ -230,8 +231,8 @@ describe.skipIf(!dataExists(GANB_GR) || !dataExists(P213_CIF) || !dataExists(GAN
     const amp = refined.result.parameters["mode_1"] ?? 0;
     console.log(`[mode fit] ${refined.result.status} · Rw(2–10 Å)=${(rw * 100).toFixed(2)}% · A1=${amp.toFixed(4)} Å (obs ${set.modes[0]!.observedAmplitude.toFixed(4)}) · free=${params.filter((p) => !p.fixed && !p.expression).length}`);
     expect(["converged", "stalled"]).toContain(refined.result.status);
-    // One amplitude must beat the CUBIC average (9.19 %) — the frozen mode IS
-    // the local distortion — and land near the full 13-coordinate fit (7.98 %).
+    // One amplitude must beat the CUBIC average — the frozen mode IS the local
+    // distortion — and land near the full 13-coordinate fit.
     expect(rw).toBeLessThan(0.0919);
     // The fitted amplitude agrees with the decomposition of the user's refined
     // P2_13 state to ~20 % (δ2/ADP trade-offs move it slightly).

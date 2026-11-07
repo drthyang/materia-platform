@@ -3,7 +3,7 @@
  * decentring distortions on a structure (decentringModes.ts), through their
  * interfaces: the lattice against the t-lattice and the isotropy subgroups,
  * the decentring decomposition's dimension count, an activation to P2₁3 on
- * the GaTa₄Se₈ demo (F-43m, the parent of GaNb₄Se₈'s local P2₁3), and the
+ * the GaTa₄Se₈ demo (F-43m), and the
  * √f relation between MATERIA's amplitude and ISODISTORT's A_s and A_p.
  */
 import { describe, it, expect } from "vitest";
@@ -89,7 +89,7 @@ describe("decentring distortions on a structure", () => {
     expect(act.child.cell).toEqual(GATA4SE8.cell);
     expect(act.child.spaceGroup.operations).toHaveLength(12);
     // Ga 4a → 4a; Ta, Se1, Se2 16e → 4a + 12b each: seven child sites, 1 + 3·(1 + 3) = 13
-    // coordinates — the 13 of the GaNb₄Se₈ P2₁3 refinement (realPdfData.test.ts).
+    // coordinates — the 13 of the local P2₁3 refinement (realPdfData.test.ts).
     expect(act.child.sites).toHaveLength(7);
     const modes = act.modeSet.modes;
     expect(modes).toHaveLength(13);

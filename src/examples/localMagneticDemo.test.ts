@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { AWO4_DEMO_FILES, awo4DemoParams, buildAwo4MagneticExample, type Awo4Solution } from "@/examples/awo4Magnetic";
+import { LOCAL_MAGNETIC_DEMO_FILES, localMagneticDemoParams, buildLocalMagneticExample, type LocalMagneticSolution } from "@/examples/localMagneticDemo";
 import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { operationKey } from "@/core/crystal/symmetry";
 import { momentCartesian } from "@/core/magnetic/moment";
@@ -14,26 +14,26 @@ import type { SymmetryOperation } from "@/core/crystal/types";
 const sig = (ops: readonly SymmetryOperation[]): string =>
   [...new Set(ops.map((o) => `${operationKey(o)}|${o.timeReversal ?? 1}`))].sort().join(" ");
 
-const has = Object.values(AWO4_DEMO_FILES).every((rel) => dataExists(rel));
+const has = Object.values(LOCAL_MAGNETIC_DEMO_FILES).every((rel) => dataExists(rel));
 
 /**
- * The LOCAL AWO₄ magnetic demo must stay coherent with the machinery that
- * produced it (`awo4MagneticSolve.test.ts`): a real histogram, a k = (½,0,0)
+ * The LOCAL magnetic demo must stay coherent with the machinery that
+ * produced it (`localMagneticDemoSolve.test.ts`): a real histogram, a k ≠ 0
  * model whose group is a candidate the magnetic page enumerates, moment rows
  * whose ids the page's builder regenerates, and a session that reopens on the
  * solved fit — the magnetic refinement, moments only with the nuclear model
  * held. Data-gated: the files live only in the git-ignored data/
  * folder (unpublished data), so this skips on CI and fresh clones.
  */
-describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () => {
+describe.skipIf(!has)("local magnetic demo (POWGEN, k ≠ 0)", () => {
   // Built lazily: vitest evaluates a skipped describe's body to collect its
   // tests, so reading the (absent) files here would throw on CI.
-  let built: ReturnType<typeof buildAwo4MagneticExample> | null = null;
-  const example = (): ReturnType<typeof buildAwo4MagneticExample> =>
-    (built ??= buildAwo4MagneticExample({
-      data: readData(AWO4_DEMO_FILES.data),
-      instrument: readData(AWO4_DEMO_FILES.instrument),
-      solution: readData(AWO4_DEMO_FILES.solution),
+  let built: ReturnType<typeof buildLocalMagneticExample> | null = null;
+  const example = (): ReturnType<typeof buildLocalMagneticExample> =>
+    (built ??= buildLocalMagneticExample({
+      data: readData(LOCAL_MAGNETIC_DEMO_FILES.data),
+      instrument: readData(LOCAL_MAGNETIC_DEMO_FILES.instrument),
+      solution: readData(LOCAL_MAGNETIC_DEMO_FILES.solution),
     }));
 
   it("reads the bank-3 histogram and the TOF calibration", () => {
@@ -67,8 +67,8 @@ describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () 
     expect(magneticIonCandidates(ex.structure).map((i) => i.siteLabel)).toEqual(ex.magneticSites);
     const carried = ex.magnetic.moments.filter((m) => m.components.some((c) => c !== 0));
     expect(carried.map((m) => m.siteLabel).sort()).toEqual([...ex.magneticSites].sort());
-    const solved = (JSON.parse(readData(AWO4_DEMO_FILES.solution)) as { moment?: number }).moment;
-    expect(solved, "the solution's moment: regenerate the solution (AWO4_SOLVE=1)").toBeDefined();
+    const solved = (JSON.parse(readData(LOCAL_MAGNETIC_DEMO_FILES.solution)) as { moment?: number }).moment;
+    expect(solved, "the solution's moment: regenerate the solution (LOCAL_MAGNETIC_SOLVE=1)").toBeDefined();
     const spinOnly: Record<string, number> = { Mn: 5, Fe: 4, Co: 3, Ni: 2, Cu: 1 };
     const spins = carried.map((m) => spinOnly[ex.structure.sites.find((s) => s.label === m.siteLabel)!.element]!);
     const bound = spins.reduce((a, b) => a + b, 0) / spins.length;
@@ -96,9 +96,9 @@ describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () 
     for (const id of ["scale", "cell_beta", "tof_sig0", "B_Co1", "pos_O2_2"]) {
       expect(base.powderParams.find((p) => p.id === id)?.value).toBeCloseTo(ex.refinedParams[id]!, 6);
     }
-    const params = awo4DemoParams(base.powderParams, ex);
+    const params = localMagneticDemoParams(base.powderParams, ex);
     const bindings = [...base.powderBindings, ...ex.momentBindings];
-    const solution = JSON.parse(readData(AWO4_DEMO_FILES.solution)) as Awo4Solution;
+    const solution = JSON.parse(readData(LOCAL_MAGNETIC_DEMO_FILES.solution)) as LocalMagneticSolution;
     const free = params.filter((p) => !p.fixed).map((p) => p.id);
     expect(free.length).toBeGreaterThan(0);
     expect([...free].sort()).toEqual([...solution.free].sort());

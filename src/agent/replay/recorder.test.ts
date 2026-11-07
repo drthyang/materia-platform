@@ -55,7 +55,7 @@ describe("run recorder", () => {
   it("names a recording as a replay of a live run by its model; a scripted replay stays labelled scripted", () => {
     expect(replayOfLabel("local-live-claude-sonnet-5-5-20261026-101500")).toBe("Claude Sonnet 5.5");
     expect(replayLabel(replayOfLabel("local-live-claude-sonnet-5-5-20261026-101500"))).toBe("Claude Sonnet 5.5 · replay of a live run");
-    expect(replayOfLabel("local-awo4-magnetic")).toBe(scriptedLabel("local-awo4-magnetic"));
-    expect(replayLabel(replayOfLabel("local-awo4-magnetic"))).toMatch(/a scripted replay, not a live run$/);
+    expect(replayOfLabel("local-magnetic")).toBe(scriptedLabel("local-magnetic"));
+    expect(replayLabel(replayOfLabel("local-magnetic"))).toMatch(/a scripted replay, not a live run$/);
   });
 });

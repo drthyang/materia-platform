@@ -1238,7 +1238,7 @@ release fixes bugs.
   where the joint fit reaches 8.57 %.
 
 - **The local AWO₄ magnetic demo refines the moments alone, the nuclear model
-  held.** Its solve (`awo4MagneticSolve.test.ts`, `AWO4_SOLVE=1`) no longer
+  held.** Its solve (`localMagneticDemoSolve.test.ts`, `LOCAL_MAGNETIC_SOLVE=1`) no longer
   ends on a joint nuclear + magnetic fit. Its last step, the owner's rule for
   the magnetic refinement, frees only the magnetic parameters: the chosen
   group's moments, and k's components where the little group lets k move
@@ -1250,7 +1250,7 @@ release fixes bugs.
   solution file records the free rows (`free`) and the wR of that step
   (`magneticWr`, which replaces `jointWr`). The demo refuses an older solution
   file and asks for it to be regenerated. The data-gated 8 K benchmark
-  (`realAwo4Benchmark.test.ts`) follows the same rule: its last step refines
+  (`realLocalMagneticBenchmark.test.ts`) follows the same rule: its last step refines
   the ★ group's moments with the staged nuclear model held, the B-at-0 checks
   read the nuclear fit, and C9 asks that step to hold every nuclear row and
   end no higher than the ranking's fit, where it asked a joint fit to end

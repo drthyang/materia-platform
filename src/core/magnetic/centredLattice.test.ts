@@ -194,7 +194,7 @@ describe("centred-lattice helpers", () => {
     const seen = identityCopies.map(({ c }) => c.map((v) => v.toFixed(3)).join(",")).sort();
     expect(seen).toEqual(["0.000,0.000,0.000", "0.000,0.500,0.500", "0.500,0.000,0.500", "0.500,0.500,0.000"]);
     // The offset is the op's own translation minus its representative's, so a
-    // glide/screw part is never mistaken for a centring: P2/c (AWO₄) has none.
+    // glide/screw part is never mistaken for a centring: P2/c has none.
     const p2c = buildSpaceGroup(13).operations;
     expect(centringOffsets(p2c).every((c) => c[0] === 0 && c[1] === 0 && c[2] === 0)).toBe(true);
     expect(centringTranslations(p2c)).toEqual([]);

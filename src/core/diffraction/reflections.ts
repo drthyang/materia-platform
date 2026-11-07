@@ -119,8 +119,8 @@ export class ReflectionLimitError extends ModelDomainError {
  * `options.absences: false` keeps systematically-absent families in the list
  * (still grouped, with their Laue multiplicity). The NUCLEAR extinction rules
  * come from the spatial ops' translations, but they do not bind the MAGNETIC
- * structure factor: in a gray anti-translation lattice (e.g. BNS P_c 6/mcc,
- * FeCoSn 1.7 K) the (0,0,½)′ op looks like a nuclear centring, yet every
+ * structure factor: in a gray anti-translation lattice (e.g. BNS P_c 6/mcc)
+ * the (0,0,½)′ op looks like a nuclear centring, yet every
  * magnetic satellite lives exactly at those l-odd "absent" positions —
  * filtering them silently deletes the entire magnetic signal.
  *

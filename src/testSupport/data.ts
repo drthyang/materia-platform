@@ -10,6 +10,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { LOCAL_DATA } from "@/testSupport/localData";
 
 /** The data folder: `data/` in the checkout, or MATERIA_DATA_DIR (a worktree reads its main checkout's). */
 export const DATA_DIR = process.env.MATERIA_DATA_DIR ? resolve(process.env.MATERIA_DATA_DIR) : resolve(process.cwd(), "data");
@@ -17,13 +18,12 @@ export const DATA_DIR = process.env.MATERIA_DATA_DIR ? resolve(process.env.MATER
 /**
  * Datasets whose local folder name varies between checkouts. Tests, README and
  * docs use the canonical name (the key); a local copy may sit under any listed
- * alias — the GaNb4Se8 synchrotron set is commonly kept under its NSLS-II
- * beamline name, `GaNb4Se8_XRD_28ID`. Resolving the name here is what keeps a
- * differently-named local folder from silently skipping every test that needs
- * it: a skip looks identical to a pass in `npm test`.
+ * alias. Resolving the name here is what keeps a differently-named local
+ * folder from silently skipping every test that needs it: a skip looks
+ * identical to a pass in `npm test`.
  */
 const DIR_ALIASES: Record<string, readonly string[]> = {
-  GaNb4Se8_XRD: ["GaNb4Se8_XRD", "GaNb4Se8_XRD_28ID"],
+  [LOCAL_DATA.xrd.dir]: [LOCAL_DATA.xrd.dir, ...LOCAL_DATA.xrd.aliases],
 };
 
 /**

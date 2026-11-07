@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import {
   parseGsasHistogram,
   parseGsasHistogramPattern,
@@ -220,10 +221,10 @@ describe("gsasHistogram detection + binning math", () => {
 });
 
 // ---- Validation against the real local POWGEN .gsa files (git-ignored) -------
-const REAL = "FeCoSn/PG3_48278.gsa";
+const REAL = LOCAL_DATA.hexMagnetic.histogram;
 const hasReal = dataExists(REAL);
 
-describe.skipIf(!hasReal)("real .gsa — POWGEN FeCoSn (SLOG FXYE, bank 2)", () => {
+describe.skipIf(!hasReal)("real .gsa — a local POWGEN histogram (SLOG FXYE, bank 2)", () => {
   const text = hasReal ? readData(REAL) : "";
 
   it("parses the full histogram: nchan points, TOF µs, strictly increasing", () => {

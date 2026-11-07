@@ -114,7 +114,7 @@ describe("detectDataFormat — x-unit priority chain", () => {
   it("preserves X-ray radiation from a GSAS-II PXC instrument file", () => {
     const d = detectDataFormat({
       text: "1.5,100\n1.6,120\n1.7,110",
-      filename: "GaNb4Se8_799_T_298.8K_gsas.dat",
+      filename: "sample_gsas.dat",
       instrument: { kind: "constantWavelength", radiationKind: "xray", wavelength: 0.1665 },
     });
     expect(d.xUnit).toBe("twoTheta");

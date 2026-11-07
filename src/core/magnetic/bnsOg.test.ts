@@ -36,7 +36,7 @@ describe("bundled BNS/OG table", () => {
     for (let n = 1; n <= 230; n++) expect(parents.has(n)).toBe(true);
   });
 
-  it("stores P_a2/c (13.70), the AWO₄-type ground state at k = (½,0,0), with its OG symbol", () => {
+  it("stores P_a2/c (13.70), a P2/c ground state at k = (½,0,0), with its OG symbol", () => {
     const row = MAGNETIC_GROUP_TABLE.find((r) => r[1] === "13.70")!;
     expect(row.slice(0, 6)).toEqual([4, "13.70", "P_a2/c", "13.6.82", "P_2a2/c", 13]);
     expect(row[8]).toBe("1/2,0,0");

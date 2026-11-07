@@ -92,7 +92,7 @@ describe("isotropy subgroups by the image method", () => {
     for (const x of cubic) expect([x.domainStates, x.orientationStates]).toEqual([4, 4]);
   });
 
-  it("F-43m X: P2₁3 (index 8 = 2·4) from the six-dimensional irrep — GaNb₄Se₈'s local symmetry", () => {
+  it("F-43m X: P2₁3 (index 8 = 2·4) from the six-dimensional irrep", () => {
     const { stars } = analyse(216);
     const six = stars[1]!.iso.find(({ p }) => p.dim === 6)!;
     const p213 = six.a.subgroups.find((x) => x.identity.number === 198)!;

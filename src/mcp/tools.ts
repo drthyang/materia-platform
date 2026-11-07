@@ -579,7 +579,7 @@ export function simulate_pattern(args: {
  * The reflection list: unique hkl families with d-spacing and multiplicity for
  * a structure, optionally with the instrument-frame position (2θ or TOF µs).
  * `absences: false` keeps nuclear-extinct families — where AFM magnetic
- * satellites live (see the FeCoSn golden case).
+ * satellites live (see the local hexagonal golden case).
  */
 export function reflection_list(args: {
   structure: StructureModel;

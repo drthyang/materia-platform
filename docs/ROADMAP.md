@@ -225,7 +225,7 @@ planned.
 - A commensurate single-k search that ranks candidates by matched satellite
   positions ([`kSearch.ts`](../src/core/magnetic/kSearch.ts)).
 - On real AWO₄ 6 K neutron data, the difference from the paramagnetic pattern
-  yields k = (½,0,0) ([`realAwo4Magnetic.test.ts`](../src/core/workflow/realAwo4Magnetic.test.ts)).
+  yields k = (½,0,0) ([`realLocalMagnetic.test.ts`](../src/core/workflow/realLocalMagnetic.test.ts)).
 - Each k is classed as zero, self-conjugate or two-arm; an irrational k runs
   through the whole M4 path ([`propagation.ts`](../src/core/magnetic/propagation.ts)).
 
@@ -291,7 +291,7 @@ each M3 candidate, then rank candidates by fit and physical plausibility.
   and explains a residual on nuclear positions as k = 0.
 - **AWO₄ 6 K demo (LOCAL ONLY):** opens on the solved k = (½,0,0), P2/c′
   structure, its moments refined with the nuclear model held. Its data are unpublished, stay in the git-ignored `data/` folder
-  and never enter the public build ([`awo4Magnetic.ts`](../src/examples/awo4Magnetic.ts)).
+  and never enter the public build ([`localMagneticDemo.ts`](../src/examples/localMagneticDemo.ts)).
 
 **Next** (items 1–4 are Track B phases in
 [PLAN_SUBGROUPS_AND_INCOMMENSURATE.md](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md))
