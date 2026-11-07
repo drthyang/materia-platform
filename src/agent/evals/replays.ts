@@ -180,7 +180,7 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
     bad: [
       { text: "I can't act on the magnetic analysis step: open the Magnetic tab and run the k-search there." },
     ],
-    catches: ["calls search_propagation_vector", "sets k = (0, 0, 0.5) on the magnetic step", "chooses the magnetic group G1", "calls refine_moments"],
+    catches: ["calls search_propagation_vector", "sets k = (0, 0, 0.5) on the magnetic step", "chooses the magnetic group G1", "refines the moments with the nuclear model held"],
   },
   "awo4-user-flow": {
     good: [
