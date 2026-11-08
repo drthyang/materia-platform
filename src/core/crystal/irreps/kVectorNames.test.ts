@@ -45,11 +45,11 @@ describe("k-vector names, by Bravais lattice", () => {
     expect(nameOf(221, [0.25, 0.125, 0])).toBeNull(); // a plane
     expect(nameOf(215, [0.5, 0.5, 0])).toBe("M");
     expect(nameOf(195, [0, 0, 0.25])).toBe("Δ (line)");
-    // Pm-3 (m-3): (u, u, 0) lies in the mirror plane z = 0 and is no line of symmetry there.
-    expect(nameOf(200, [0.25, 0.25, 0])).toBeNull();
+    // Pm-3 (m-3): (u, u, 0) lies in the mirror plane z = 0, and keeps the holohedry's label.
+    expect(nameOf(200, [0.25, 0.25, 0])).toBe("Σ (line)");
   });
 
-  it("cF (Fm-3m, F-43m): Γ X L W K U, lines Δ Λ Σ; the issue's Δ (0,0,½) on F-43m", () => {
+  it("cF (Fm-3m, F-43m): Γ X L W K U, lines Δ Λ Σ Q; the issue's Δ (0,0,½) and Σ (0,½,½) on F-43m", () => {
     for (const sg of [225, 216]) {
       expect(nameOf(sg, [0, 0, 1])).toBe("X");
       expect(nameOf(sg, [1, 1, 0])).toBe("X"); // ≡ (0, 0, 1) modulo the F reciprocal lattice
@@ -60,9 +60,11 @@ describe("k-vector names, by Bravais lattice", () => {
       expect(nameOf(sg, [0, 0, 0.5])).toBe("Δ (line)");
       expect(nameOf(sg, [0.25, 0.25, 0.25])).toBe("Λ (line)");
     }
+    // The issue's Σ (0, ½, ½) on F-43m: CDML's labels hold in every class of the lattice (in Td the line lies in the mirror plane (u, u, w)).
     expect(nameOf(225, [0, 0.5, 0.5])).toBe("Σ (line)");
-    // In F-43m (u, u, 0) has the little co-group m of the whole mirror plane (u, u, w): no line of symmetry there.
-    expect(nameOf(216, [0, 0.5, 0.5])).toBeNull();
+    expect(nameOf(216, [0, 0.5, 0.5])).toBe("Σ (line)");
+    // The X–W line is not named (Bradley & Cracknell's Z is not CDML's label; the oracle, 2026-11-08).
+    expect(nameOf(225, [0.25, 1, 0])).toBeNull();
     // F-43m has no inversion: −Λ is another star, left unnamed (not guessed).
     expect(nameOf(216, [-0.25, -0.25, -0.25])).toBeNull();
     expect(nameOf(225, [-0.25, -0.25, -0.25])).toBe("Λ (line)");
@@ -71,7 +73,7 @@ describe("k-vector names, by Bravais lattice", () => {
     expect(nameOf("F d -3 m:2", [0.5, 1, 0])).toBe("W");
   });
 
-  it("cI (Im-3m): Γ H N P, lines Δ Σ Λ D", () => {
+  it("cI (Im-3m): Γ H N P, lines Δ Σ Λ D G", () => {
     expect(nameOf(229, [0, 0, 1])).toBe("H");
     expect(nameOf(229, [0.5, 0.5, 0])).toBe("N");
     expect(nameOf(229, [0.5, 0.5, 0.5])).toBe("P");
@@ -79,6 +81,7 @@ describe("k-vector names, by Bravais lattice", () => {
     expect(nameOf(229, [0.25, 0.25, 0])).toBe("Σ (line)");
     expect(nameOf(229, [0.25, 0.25, 0.25])).toBe("Λ (line)");
     expect(nameOf(229, [0.5, 0.5, 0.25])).toBe("D (line)");
+    expect(nameOf(229, [0.25, 0.75, 0])).toBe("G (line)");
     // I-43m has no inversion and no 2-fold along [1-10]: −P is another star, left unnamed.
     expect(nameOf(217, [0.5, 0.5, 0.5])).toBe("P");
     expect(nameOf(217, [-0.5, -0.5, -0.5])).toBeNull();
@@ -97,7 +100,7 @@ describe("k-vector names, by Bravais lattice", () => {
     }
   });
 
-  it("oP (Pnma, and Pbnm brought to Pnma's axes): Γ X Y Z S U T R", () => {
+  it("oP (Pnma, and Pbnm brought to Pnma's axes): Γ X Y Z S U T R; lines Σ Δ Λ D C A B G H Q", () => {
     expect(nameOf(62, [0.5, 0, 0])).toBe("X");
     expect(nameOf(62, [0, 0.5, 0])).toBe("Y");
     expect(nameOf(62, [0, 0, 0.5])).toBe("Z");
@@ -106,6 +109,9 @@ describe("k-vector names, by Bravais lattice", () => {
     expect(nameOf(62, [0, 0.5, 0.5])).toBe("T");
     expect(nameOf(62, [0.5, 0.5, 0.5])).toBe("R");
     expect(nameOf(47, [0.25, 0, 0])).toBe("Σ (line)");
+    expect(nameOf(47, [0.5, 0.25, 0])).toBe("D (line)");
+    expect(nameOf(47, [0.5, 0.5, 0.25])).toBe("Q (line)");
+    expect(nameOf(47, [0.5, 0.25, 0.5])).toBeNull(); // U–R: not named (Bradley & Cracknell's label is not CDML's; the oracle)
     // Pbnm's c is Pnma's b: its (0, 0, ½) is Pnma's Y.
     expect(nameOf("P b n m", [0, 0, 0.5])).toBe("Y");
   });
@@ -124,8 +130,11 @@ describe("k-vector names, by Bravais lattice", () => {
     expect(nameOf(150, [2 / 3, -1 / 3, 0.5])).toBe("HA");
   });
 
-  it("hR (R-3m, hexagonal axes, and on rhombohedral axes): T only", () => {
+  it("hR (R-3m, hexagonal axes, and on rhombohedral axes): T, L, F; no lines", () => {
     expect(nameOf("R -3 m:H", [0, 0, 1.5])).toBe("T");
+    expect(nameOf("R -3 m:H", [0.5, 0, 0.5])).toBe("L");
+    expect(nameOf("R -3 m:H", [-0.5, 0.5, 0.5])).toBe("L");
+    expect(nameOf("R -3 m:H", [0, 0.5, 1])).toBe("F");
     expect(nameOf("R -3 m:H", [0, 0, 0.75])).toBeNull(); // the 3-fold line's labels depend on the axial ratio (Bilbao, R3)
     expect(nameOf("R -3 m:R", [0.5, 0.5, 0.5])).toBe("T");
   });

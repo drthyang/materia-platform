@@ -19,21 +19,33 @@
  *     reciprocal lattice. KA and HA (the hexagonal −K and −H) are named only
  *     where the group does not carry K to −K (Bilbao's P321 example, its KVEC
  *     help page "examples_kvec", read 2026-11-08);
- *  3. a line of the table when k lies on a line of symmetry of the group (its
- *     little co-group fixes exactly a line) and some arm of its star lies
- *     strictly inside the table's segment between the line's two end points,
- *     modulo the reciprocal lattice. A segment the group no longer relates to
- *     the holohedry's (CDML's "A" lines of the trigonal classes, the −Λ of
- *     F-43m) is left unnamed rather than guessed;
+ *  3. a line of the table when some arm of k's star lies strictly inside the
+ *     table's segment between the line's two end points, modulo the
+ *     reciprocal lattice. As in CDML and KVEC, the holohedry's labels hold in
+ *     every arithmetic class of the lattice, where a line may have become part
+ *     of a plane or of the general position (KVEC's help: k-vectors with
+ *     different CDML labels can be of one type, marked "ex"); so F-43m's
+ *     (0, ½, ½) is Σ. A segment the group no longer relates to the
+ *     holohedry's (CDML's "A" lines of the trigonal classes, the −Λ of F-43m)
+ *     is left unnamed rather than guessed;
  *  4. otherwise no name (planes, general points, and the lattices below).
  *
- * Lattices named: cP, cF, cI, tP, oP, hP, and hR's T only. Not named, because
- * their CDML labels could not be written from the convention with confidence
- * (BZ shapes that depend on the axial ratios, CDML's monoclinic and triclinic
- * labels): aP, mP, mC, oC (and oA), oF, oI, tI, and hR's other points and
- * lines. A k there keeps its coordinates. Entries the ISOTROPY oracle found
- * to disagree with CDML are removed, not corrected from it (the oracle is a
- * check, not a source).
+ * Lattices named: cP, cF, cI, tP, oP, hP, and hR's points T, L and F. Not
+ * named, because their CDML labels could not be written from the convention
+ * with confidence (zone shapes that depend on the axial ratios, CDML's
+ * monoclinic and triclinic labels): aP, mP, mC, oC (and oA), oF, oI, tI, and
+ * hR's lines. A k there keeps its coordinates.
+ *
+ * Checked against ISOTROPY (the opt-in oracle, all 230 types, 2026-11-08): the
+ * entries it contradicted were removed, not corrected from it, since it is a
+ * check and not a source. They were Bradley & Cracknell's fcc line Z (X–W) and
+ * the orthorhombic E and P (U–R, T–R), whose CDML labels differ from what was
+ * written here. Withdrawn with them: fcc S (X–U) and bcc F (P–H), Bradley &
+ * Cracknell lines that ISOTROPY does not list, since the fcc case shows CDML's
+ * line labels can differ from theirs. Points and lines ISOTROPY does not list
+ * because they share a k-vector type with another, but which Bilbao's KVEC
+ * help or the issue names, stay as written: fcc K and U, hexagonal T, S, KA and
+ * HA.
  *
  * The name does not depend on the arm passed: a line's coordinates are those
  * of the star's canonical arm (the first in starsInBound's order: the
@@ -115,8 +127,6 @@ export const K_VECTOR_TABLES: Readonly<Partial<Record<LatticeKey, LatticeTable>>
       { label: "Λ", from: G, to: [1 / 2, 1 / 2, 1 / 2] },
       { label: "Σ", from: G, to: [3 / 4, 3 / 4, 0] },
       { label: "Q", from: [1 / 2, 1 / 2, 1 / 2], to: [1 / 2, 1, 0] },
-      { label: "Z", from: [0, 1, 0], to: [1 / 2, 1, 0] },
-      { label: "S", from: [0, 1, 0], to: [1 / 4, 1, 1 / 4] },
     ],
   },
   cI: {
@@ -131,7 +141,6 @@ export const K_VECTOR_TABLES: Readonly<Partial<Record<LatticeKey, LatticeTable>>
       { label: "Λ", from: G, to: [1 / 2, 1 / 2, 1 / 2] },
       { label: "D", from: [1 / 2, 1 / 2, 0], to: [1 / 2, 1 / 2, 1 / 2] },
       { label: "G", from: [0, 1, 0], to: [1 / 2, 1 / 2, 0] },
-      { label: "F", from: [1 / 2, 1 / 2, 1 / 2], to: [0, 1, 0] },
     ],
   },
   tP: {
@@ -174,8 +183,6 @@ export const K_VECTOR_TABLES: Readonly<Partial<Record<LatticeKey, LatticeTable>>
       { label: "B", from: [0, 0, 1 / 2], to: [0, 1 / 2, 1 / 2] },
       { label: "G", from: [1 / 2, 0, 0], to: [1 / 2, 0, 1 / 2] },
       { label: "H", from: [0, 1 / 2, 0], to: [0, 1 / 2, 1 / 2] },
-      { label: "E", from: [1 / 2, 0, 1 / 2], to: [1 / 2, 1 / 2, 1 / 2] },
-      { label: "P", from: [0, 1 / 2, 1 / 2], to: [1 / 2, 1 / 2, 1 / 2] },
       { label: "Q", from: [1 / 2, 1 / 2, 0], to: [1 / 2, 1 / 2, 1 / 2] },
     ],
   },
@@ -202,7 +209,11 @@ export const K_VECTOR_TABLES: Readonly<Partial<Record<LatticeKey, LatticeTable>>
     ],
   },
   hR: {
-    points: [{ label: "T", k: [0, 0, 3 / 2] }],
+    points: [
+      { label: "T", k: [0, 0, 3 / 2] },
+      { label: "L", k: [1 / 2, 0, 1 / 2] },
+      { label: "F", k: [0, 1 / 2, 1] },
+    ],
     lines: [],
   },
 };
@@ -292,36 +303,6 @@ function equivalent(centrings: readonly RVec[], k: RVec, kp: RVec): boolean {
 
 const inStar = (ctx: KVectorContext, p: RVec, k: RVec): boolean => ctx.rotations.some((W) => equivalent(ctx.centrings, rotate(W, p), k));
 
-/** The dimension of the subspace every rotation of k's little co-group fixes (acting on k): 0 a point, 1 a line, 2 a plane, 3 general. */
-function fixedDimension(ctx: KVectorContext, k: RVec): number {
-  const rows: number[][] = [];
-  for (const W of ctx.rotations) {
-    if (!equivalent(ctx.centrings, rotate(W, k), k)) continue;
-    const M = iinv(W);
-    // rotateK is (W⁻¹)ᵀk: rows of (W⁻¹)ᵀ − I are the columns of W⁻¹ − I.
-    for (let r = 0; r < 3; r++) rows.push([0, 1, 2].map((c) => M[c]![r]! - (r === c ? 1 : 0)));
-  }
-  return 3 - rank(rows);
-}
-
-function rank(rows: number[][]): number {
-  const m = rows.map((r) => [...r]);
-  let rk = 0;
-  for (let col = 0; col < 3 && rk < m.length; col++) {
-    let piv = -1;
-    for (let r = rk; r < m.length; r++) if (Math.abs(m[r]![col]!) > 1e-9) { piv = r; break; }
-    if (piv < 0) continue;
-    [m[rk], m[piv]] = [m[piv]!, m[rk]!];
-    for (let r = 0; r < m.length; r++) {
-      if (r === rk) continue;
-      const f = m[r]![col]! / m[rk]![col]!;
-      for (let c = 0; c < 3; c++) m[r]![c]! -= f * m[rk]![c]!;
-    }
-    rk++;
-  }
-  return rk;
-}
-
 /** True when q lies strictly between a and b modulo the reciprocal lattice. */
 function onSegment(centrings: readonly RVec[], q: RVec, a: RVec, b: RVec): boolean {
   const r0 = vsub(q, a);
@@ -365,7 +346,6 @@ export function kVectorName(ctx: KVectorContext | null, k: RVec): KVectorName | 
     if (p.unlessEquivalentTo && inStar(ctx, rq(p.unlessEquivalentTo), pk)) continue;
     return { label: p.label, kind: "point" };
   }
-  if (fixedDimension(ctx, ks) !== 1) return null;
   for (const line of table.lines) {
     const a = rq(line.from);
     const b = rq(line.to);
