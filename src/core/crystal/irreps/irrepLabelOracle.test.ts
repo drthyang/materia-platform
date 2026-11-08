@@ -18,6 +18,8 @@
  * and every one of ISOTROPY's must be matched: the correspondence is printed.
  * The cases are the isotropy oracle's and the magnetic page's non-abelian
  * zone-boundary points (P6₃/mmc A, P4₂/mnm and P4/mmm Z).
+ *
+ * The file also holds THY-73's k-vector name check (below).
  */
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -28,7 +30,8 @@ import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
 import { factorGroup, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import { complexIrrepsOfStar } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { CONVENTIONAL_CELL, DEFAULT_SUPERCELL } from "@/core/crystal/irreps/supercell";
-import type { Rat } from "@/core/crystal/irreps/rational";
+import { K_VECTOR_TABLES, kVectorContext, kVectorName } from "@/core/crystal/irreps/kVectorNames";
+import { radd, rat, rmul, type Rat, type RVec } from "@/core/crystal/irreps/rational";
 
 const ISODATA = process.env.ISODATA ?? "";
 const ENABLED = process.env.ISOTROPY_ORACLE === "1" && ISODATA !== "" && existsSync(resolve(ISODATA, "iso"));
@@ -212,4 +215,111 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand
       expect(best.unmatchedTheirs, `${name}: ISOTROPY irreps with no MATERIA irrep of their characters`).toEqual([]);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// k-vector names (THY-73): MATERIA's names (kVectorNames.ts, written by hand
+// from the Bradley–Cracknell / CDML convention) against ISOTROPY's own list of
+// k-vectors for each of the 230 space-group types (VALUE PARENT n, SHOW
+// KPOINT, SHOW KDEGREE, DISPLAY KPOINT), whose labels are CDML's. A check, not
+// a source: where they disagree, the name is removed from the table, not
+// copied from ISOTROPY. For each of ISOTROPY's k-vectors: a point as given, a
+// line at its parameter a = 1/16, a plane or the general point at a = 1/16,
+// b = 3/64, c = 5/128. MATERIA must give the same name (GM = Γ, DT = Δ,
+// LD = Λ, SM = Σ) or none; a different name is a disagreement and fails.
+// Names MATERIA gives that no ISOTROPY k-vector confirmed are listed
+// (UNCONFIRMED), not failed. In this file because the workflow's label step
+// runs it (the workflow itself is unchanged).
+// ---------------------------------------------------------------------------
+
+const GREEK: Record<string, string> = { GM: "Γ", DT: "Δ", LD: "Λ", SM: "Σ" };
+
+/** "−2a+1", "1/2", "a+b-c", "2a" at the parameters a, b, c: exactly. */
+export function evalComponent(text: string, params: { a: Rat; b: Rat; c: Rat }): Rat | null {
+  const t = text.replace(/\s+/g, "");
+  if (t === "") return null;
+  let sum = rat(0);
+  const re = /([+-]?)(\d+(?:\/\d+)?)?([abc])?/g;
+  let pos = 0;
+  let m: RegExpExecArray | null;
+  while (pos < t.length && (m = re.exec(t)) && m.index === pos && m[0] !== "") {
+    pos += m[0].length;
+    const sign = m[1] === "-" ? -1 : 1;
+    let coef = rat(sign);
+    if (m[2]) {
+      const [n, d] = m[2].split("/");
+      coef = rmul(coef, rat(Number(n), d ? Number(d) : 1));
+    }
+    sum = radd(sum, m[3] ? rmul(coef, params[m[3] as "a" | "b" | "c"]) : coef);
+  }
+  return pos === t.length ? sum : null;
+}
+
+/** ISOTROPY's DISPLAY KPOINT rows: "DT (0,2a,0)   1" → label, components, degree. */
+export function parseKPoints(out: string): { label: string; components: string[]; degree: number }[] {
+  const rows: { label: string; components: string[]; degree: number }[] = [];
+  for (const line of out.split("\n")) {
+    const m = line.match(/^\s*([A-Z][A-Z0-9]*)\s+\(([^)]*)\)\s+(\d)\s*$/);
+    if (!m) continue;
+    const components = m[2]!.split(",");
+    if (components.length !== 3) continue;
+    rows.push({ label: m[1]!, components, degree: Number(m[3]) });
+  }
+  return rows;
+}
+
+/** ORACLE_CASES selects this check when it matches "k-vector names"; KNAME_GROUPS (a regular expression on the IT number) narrows it. */
+const KNAME_ENABLED = !process.env.ORACLE_CASES || new RegExp(process.env.ORACLE_CASES).test("k-vector names");
+const GROUPS = Array.from({ length: 230 }, (_, i) => i + 1).filter((n) => !process.env.KNAME_GROUPS || new RegExp(`^(${process.env.KNAME_GROUPS})$`).test(String(n)));
+
+describe.skipIf(!ENABLED || !KNAME_ENABLED)("ISOTROPY oracle: k-vector names against ISOTROPY's (CDML) k-vector list", { timeout: 1_800_000 }, () => {
+  it("every name MATERIA gives is ISOTROPY's for the same k, in every space-group type", () => {
+    const params = { a: rat(1, 16), b: rat(3, 64), c: rat(5, 128) };
+    const disagreements: string[] = [];
+    const confirmed = new Map<string, Set<string>>();
+    let agree = 0;
+    let unnamed = 0;
+    for (const n of GROUPS) {
+      const out = iso(["PAGE NOBREAK", `VALUE PARENT ${n}`, "SHOW KPOINT", "SHOW KDEGREE", "DISPLAY KPOINT"]);
+      if ([1, 14, 62, 123, 139, 166, 194, 216, 225, 229].includes(n)) console.log(`--- ISOTROPY, parent ${n} ---\n${out}`);
+      const rows = parseKPoints(out);
+      if (rows.length === 0) {
+        disagreements.push(`${n}: no k-vectors parsed`);
+        continue;
+      }
+      const ctx = kVectorContext(buildSpaceGroup(n).operations);
+      const lattice = ctx?.lattice ?? "?";
+      for (const row of rows) {
+        const comps = row.components.map((c) => evalComponent(c, params));
+        if (comps.some((c) => c === null)) {
+          disagreements.push(`${n}: could not read ${row.label} (${row.components.join(",")})`);
+          continue;
+        }
+        const k = comps as unknown as RVec;
+        const ours = kVectorName(ctx, k);
+        const theirs = GREEK[row.label] ?? row.label;
+        if (!ours) {
+          unnamed++;
+          if (row.degree <= 1) console.log(`UNNAMED ${n} (${lattice}): ISOTROPY ${row.label} (${row.components.join(",")}) degree ${row.degree}`);
+          continue;
+        }
+        if (ours.label === theirs && (ours.kind === "point") === (row.degree === 0)) {
+          agree++;
+          const set = confirmed.get(lattice) ?? new Set<string>();
+          set.add(ours.label);
+          confirmed.set(lattice, set);
+          continue;
+        }
+        disagreements.push(`${n} (${lattice}): ISOTROPY ${row.label} (${row.components.join(",")}) degree ${row.degree}, MATERIA ${ours.label} (${ours.kind})`);
+      }
+    }
+    for (const [lattice, table] of Object.entries(K_VECTOR_TABLES)) {
+      const seen = confirmed.get(lattice) ?? new Set<string>();
+      const missing = [...table!.points.map((p) => p.label), ...table!.lines.map((l) => l.label)].filter((x) => !seen.has(x));
+      if (missing.length > 0) console.log(`UNCONFIRMED ${lattice}: ${missing.join(", ")}`);
+    }
+    console.log(`KNAMES: ${agree} agree, ${unnamed} unnamed by MATERIA, ${disagreements.length} disagreements`);
+    for (const d of disagreements) console.log(`DISAGREE ${d}`);
+    expect(disagreements, disagreements.join("\n")).toEqual([]);
+  });
 });
