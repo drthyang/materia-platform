@@ -162,7 +162,7 @@ describe("the listing client", () => {
     const fresh = factorGroup(GTS.spaceGroup.operations, B112);
     for (const r of starsInBound(group)) {
       const k: [number, number, number] = [rnum(r[0]), rnum(r[1]), rnum(r[2])];
-      const sentinel = { star: { k, arms: [], name: null, label: "sentinel" }, littleCoGroupOrder: 0, irreps: [], physical: [] } as StarIrreps;
+      const sentinel = { star: { k, arms: [], name: null, label: "sentinel", kVector: null }, littleCoGroupOrder: 0, irreps: [], physical: [] } as StarIrreps;
       seedIrrepsOfStar(group, k, sentinel);
       const got = cachedIrrepsOfStar(group, k);
       expect(got).not.toBe(sentinel);
@@ -173,7 +173,7 @@ describe("the listing client", () => {
   it("a seeded star is what the cache returns; a star already there is kept", () => {
     const group = gts112();
     const k: [number, number, number] = [0, 0, 0.5];
-    const seed = { star: { k, arms: [k], name: null, label: "seed" }, littleCoGroupOrder: 1, irreps: [], physical: [] } as StarIrreps;
+    const seed = { star: { k, arms: [k], name: null, label: "seed", kVector: null }, littleCoGroupOrder: 1, irreps: [], physical: [] } as StarIrreps;
     seedIrrepsOfStar(group, k, seed);
     expect(cachedIrrepsOfStar(group, k)).toBe(seed);
     seedIrrepsOfStar(group, k, { ...seed });
