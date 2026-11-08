@@ -381,8 +381,9 @@ describe("the step's state, as the panel keeps it", () => {
     const a = view(step).irrepAnalysis;
     if (!a || !a.available) throw new Error("no representation analysis");
     // Numbered in irrepOrder's order (THY-64): the truth's irrep, once "irrep 2 of 3" in the chain's order, is irrep 1.
+    // (0, 0, ½) of P6₃/mmc is the A point (THY-73; was "k = (0, 0, 1/2) irrep n of 3").
     expect(a.terms.map((t) => [t.label, t.multiplicity, t.dim])).toEqual([
-      ["k = (0, 0, 1/2) irrep 1 of 3", 1, 2], ["k = (0, 0, 1/2) irrep 2 of 3", 2, 2], ["k = (0, 0, 1/2) irrep 3 of 3", 3, 4],
+      ["A irrep 1 of 3", 1, 2], ["A irrep 2 of 3", 2, 2], ["A irrep 3 of 3", 3, 4],
     ]);
     // Irrep 1 along (a,a): the truth's group, the list's G1.
     const irrep1 = a.terms[0]!;

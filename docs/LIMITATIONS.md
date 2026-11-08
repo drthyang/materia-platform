@@ -541,14 +541,24 @@ Conventions are pinned in
 - The activation's mode labels name a Γ irrep Γn, the short form of the
   generic "Γ irrep n of m" (the same n). Γn can read as a CDML label (Γ4⁻);
   it is not one.
-- Irrep labels are generic (the k-point, "irrep n of m"): no CDML labels such
-  as X3⁺ ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). The
+- k-vector names (THY-73) are the CDML names Bilbao's KVEC uses, for the
+  cubic, tetragonal-P, orthorhombic-P and hexagonal lattices and the
+  rhombohedral T, L and F points. Triclinic, monoclinic, the centred
+  orthorhombic and body-centred tetragonal lattices, the rhombohedral lines,
+  CDML's extra lines of the lower classes (the trigonal "A" lines, F-43m's −Λ)
+  and three lines where Bradley & Cracknell's label is not CDML's (fcc X–W,
+  orthorhombic U–R and T–R) show coordinates instead of a name.
+- Irrep labels are generic (the k-vector name, "irrep n of m"): no CDML labels
+  such as X3⁺ ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). The
   number n is MATERIA's own order (dimension, reality, then the characters;
   irrepOrder.ts), the same on every runtime and browser, but not ISOTROPY's
   numbering, and, as any table's, it depends on the setting the operations are
   written in and on the arm of the star. A project saved before THY-64 keeps
   the labels it was saved with (text in its mode rows), which may number an
   irrep differently from the page now; Activate again to get the new labels.
+  So does one saved before THY-73: its mode rows read "k = (0, 0, 1/2) irrep 2
+  of 4" where the page now writes "Δ (0, 0, 1/2) irrep 2 of 4" or "A irrep 2 of
+  3", and its 3D chips take the new names.
   Order-parameter directions are written in MATERIA's irrep basis and can
   differ from ISODISTORT's symbols for the same subgroup, for example (a,a)
   and (a,-a) where ISODISTORT writes (a,0) and (0,a). A few keep an

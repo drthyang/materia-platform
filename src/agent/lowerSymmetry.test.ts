@@ -278,6 +278,15 @@ describe("list_subgroups", () => {
     expect(xw.rows.length).toBeGreaterThan(0);
     expect(xw.rows.every((r) => r.cell === "1×1×2")).toBe(true);
     expect(xw.rows.some((r) => /^X irrep 5 .* \+ W irrep 1 /.test(r.irreps))).toBe(true);
+    // The Γ–X line's star (THY-73): the chip answers to its name, CDML's two letters, its coordinates, or both.
+    const byName = parsed((await ex.run("list_subgroups", { bound: "1×1×2", k: ["Δ"], limit: 50 })).text) as { rows: { id: string; irreps: string }[] };
+    expect(byName.rows.length).toBeGreaterThan(0);
+    expect(byName.rows.some((r) => r.irreps.includes("Δ(0,0,½) irrep "))).toBe(true);
+    expect(byName.rows.some((r) => r.irreps.includes("(0,0,½)") && !r.irreps.includes("Δ(0,0,½)"))).toBe(false);
+    for (const k of ["DT", "(0, 0, 1/2)", "Δ (0, 0, 1/2)", "k = (0,0,1/2)"]) {
+      const again = parsed((await ex.run("list_subgroups", { bound: "1×1×2", k: [k], limit: 50 })).text) as { rows: { id: string }[] };
+      expect(again.rows.map((r) => r.id), k).toEqual(byName.rows.map((r) => r.id));
+    }
   });
 });
 

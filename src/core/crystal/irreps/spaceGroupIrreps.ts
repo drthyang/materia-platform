@@ -26,13 +26,15 @@
  * so their irreps at k are the complex conjugates of these; compare
  * characters, never matrices.
  *
- * Labels are generic (ADR 0004): the k-point's name where it is a standard
- * cubic point (Γ, X, L, W; H, N, P; X, M, R), else its vector, then "irrep n
- * of m". CDML labels such as X3⁺ are not computable and are not invented.
- * The number n is the irrep's place in irrepOrder.ts's total order
- * (dimension, reality, the small representation's characters on a fixed list
- * of elements), not the order the chain built it in, so it is the same on
- * every runtime (THY-64).
+ * Labels are generic (ADR 0004): the k-vector's name in the CDML convention
+ * KVEC uses (kVectorNames.ts: "X", "Δ (0, 0, 1/2)"; THY-73), else its vector,
+ * then "irrep n of m". CDML irrep labels such as X3⁺ are a table's numbering
+ * and are not invented. The number n is the irrep's place in irrepOrder.ts's
+ * total order (dimension, reality, the small representation's characters on
+ * a fixed list of elements), not the order the chain built it in, so it is
+ * the same on every runtime (THY-64). Each irrep carries a fingerprint, and
+ * the label shown comes from the label provider in force (irrepLabels.ts),
+ * the generic one by default.
  *
  * Every call checks its own output and throws rather than return a wrong
  * irrep: the representation property, unitarity, Σ dim² = |star|·|Ḡ| over the
@@ -51,10 +53,13 @@ import {
   equivalentK, generatorsOf, kInBound, pointGroupElements, rotateK, starsInBound, type FactorGroup,
 } from "@/core/crystal/irreps/factorGroup";
 import {
-  compose, idet, ikey, imul, invert, itransMulVec, phase, rnum, vdot, vfrom, vsub, type IMat, type RVec,
+  compose, ikey, imul, invert, itransMulVec, phase, rnum, vdot, vfrom, vsub, type IMat, type RVec,
 } from "@/core/crystal/irreps/rational";
 import { alignedToDirections } from "@/core/crystal/irreps/directionBasis";
 import { compareRotations, orderIrreps } from "@/core/crystal/irreps/irrepOrder";
+import { canonicalStarArm, kVectorContext, kVectorName, type KVectorName } from "@/core/crystal/irreps/kVectorNames";
+import { irrepLabelFor, makeFingerprint, pairLabelFor, type IrrepFingerprint } from "@/core/crystal/irreps/irrepLabels";
+import { extendedSymbol, settingForOperations } from "@/core/crystal/spaceGroups";
 
 export type Reality = "real" | "pseudoreal" | "complex";
 
@@ -64,10 +69,12 @@ export interface KStar {
   readonly k: Vec3;
   /** Every arm, the representative first. */
   readonly arms: readonly Vec3[];
-  /** The standard name of the point (Γ, X, H, …), or null when it has none here. */
+  /** The star's name: a point's ("Γ", "X"), or a line's with the canonical arm's coordinates ("Δ (0, 0, 1/2)"); null when it has none here. */
   readonly name: string | null;
-  /** The name, else the vector: "X", "k = (0, 0, 1)". */
+  /** The name, else the vector: "X", "Δ (0, 0, 1/2)", "k = (0, 0, 1)". */
   readonly label: string;
+  /** The k-vector's CDML label and kind ("Δ", a line), or null. */
+  readonly kVector: KVectorName | null;
 }
 
 /** One irrep of the whole group (complex), at one star. */
@@ -81,8 +88,12 @@ export interface SpaceGroupIrrep {
   /** Its matrices on the factor group's elements. */
   readonly matrices: readonly CMat[];
   readonly characters: readonly Complex[];
-  /** "X irrep 2 of 4". */
+  /** The label shown: the label provider's, by default the generic "X irrep 2 of 4" (irrepLabels.ts). */
   readonly label: string;
+  /** The generic label, "X irrep 2 of 4", whatever the provider. */
+  readonly genericLabel: string;
+  /** What a label provider matches the irrep by (irrepLabels.ts). */
+  readonly fingerprint: IrrepFingerprint;
 }
 
 /** A physically irreducible representation: the real form of an irrep, or of an irrep with its conjugate. */
@@ -116,31 +127,37 @@ function formatFraction(x: number): string {
 /** "(0, 0, 1)". */
 export const formatK = (k: Vec3): string => `(${k.map(formatFraction).join(", ")})`;
 
-/** The standard cubic points, in conventional reciprocal units, by lattice centring. */
-const NAMED_CUBIC: Record<"P" | "F" | "I", readonly [string, Vec3][]> = {
-  P: [["Γ", [0, 0, 0]], ["X", [0, 0.5, 0]], ["M", [0.5, 0.5, 0]], ["R", [0.5, 0.5, 0.5]]],
-  F: [["Γ", [0, 0, 0]], ["X", [0, 1, 0]], ["L", [0.5, 0.5, 0.5]], ["W", [0.5, 1, 0]]],
-  I: [["Γ", [0, 0, 0]], ["H", [0, 0, 1]], ["N", [0.5, 0.5, 0]], ["P", [0.5, 0.5, 0.5]]],
-};
-
-function kName(group: FactorGroup, k: RVec, rotations: readonly IMat[]): string | null {
-  if (k.every((x) => x.n === 0)) return "Γ";
-  // Cubic: eight proper 3-folds (trace 0, det 1).
-  const threeFolds = rotations.filter((W) => W[0][0] + W[1][1] + W[2][2] === 0 && idet(W) === 1);
-  if (threeFolds.length < 8) return null;
-  const f = group.centrings.length;
-  const lattice = f === 1 ? "P" : f === 4 ? "F" : f === 2 ? "I" : null;
-  if (!lattice) return null;
-  for (const [name, v] of NAMED_CUBIC[lattice]) {
-    const kn = vfrom(v, 12);
-    if (rotations.some((W) => equivalentK(group, rotateK(W, kn), k))) return name;
-  }
-  return null;
+/**
+ * The star's name (kVectorNames.ts): a point's label, or a line's with the
+ * coordinates of the star's canonical arm, so every arm gives the same name.
+ */
+function kName(group: FactorGroup, k: RVec, rotations: readonly IMat[]): { display: string; kVector: KVectorName } | null {
+  const kVector = kVectorName(kVectorContext(group.parentOperations), k);
+  if (!kVector) return null;
+  if (kVector.kind === "point") return { display: kVector.label, kVector };
+  const arm = canonicalStarArm(rotations, group.centrings, k);
+  return { display: `${kVector.label} ${formatK([rnum(arm[0]), rnum(arm[1]), rnum(arm[2])])}`, kVector };
 }
 
-/** The name of the star of k (Γ, X, M, R, L, W, H, N, P on a cubic parent), or null when it has none: kName, without the irreps. */
+/** The name of the star of k ("X", "Δ (0, 0, 1/2)", Γ), or null when it has none: kName, without the irreps. */
 export function starName(group: FactorGroup, k: Vec3): string | null {
-  return kName(group, vfrom(k, 24), pointGroupElements(group).map((i) => group.elements[i]!.W));
+  return kName(group, vfrom(k, 24), pointGroupElements(group).map((i) => group.elements[i]!.W))?.display ?? null;
+}
+
+const settingCache = new WeakMap<FactorGroup, string | null>();
+
+/** The parent's tabulated setting, for the fingerprint. */
+function settingOf(group: FactorGroup): string | null {
+  if (settingCache.has(group)) return settingCache.get(group)!;
+  let setting: string | null;
+  try {
+    const entry = settingForOperations(group.parentOperations);
+    setting = entry ? extendedSymbol(entry) : null;
+  } catch {
+    setting = null;
+  }
+  settingCache.set(group, setting);
+  return setting;
 }
 
 /** The star of k: its arms W⁻ᵀk modulo Λ*, and for each the first element carrying k to it. */
@@ -368,7 +385,7 @@ export function irrepsOfStar(group: FactorGroup, kIn: Vec3): StarIrreps {
       characters: matrices.map((x) => trace(x, 2 * irrep.dim)),
       starArms: star.arms,
       label: members.length === 2
-        ? `${star.label} irreps ${members[0]}⊕${members[1]} of ${m}`
+        ? pairLabelFor(irrep.fingerprint, irreps[partner]!.fingerprint, `${star.label} irreps ${members[0]}⊕${members[1]} of ${m}`)
         : irrep.reality === "pseudoreal" ? `${irrep.label} (doubled)` : `${irrep.label} ⊕ its conjugate at −k`,
     });
   });
@@ -389,13 +406,14 @@ export function complexIrrepsOfStar(group: FactorGroup, kIn: Vec3): Omit<StarIrr
   const pg = pointGroupElements(group);
   const rotations = pg.map((i) => group.elements[i]!.W);
   const { arms, reps } = starOf(group, k);
-  const name = kName(group, k, rotations);
+  const named = kName(group, k, rotations);
   const kv: Vec3 = [rnum(k[0]), rnum(k[1]), rnum(k[2])];
   const star: KStar = {
     k: kv,
     arms: arms.map((a) => [rnum(a[0]), rnum(a[1]), rnum(a[2])] as Vec3),
-    name,
-    label: name ?? `k = ${formatK(kv)}`,
+    name: named?.display ?? null,
+    label: named?.display ?? `k = ${formatK(kv)}`,
+    kVector: named?.kVector ?? null,
   };
 
   // The little co-group, each rotation with its coset representative's translation.
@@ -455,7 +473,27 @@ export function complexIrrepsOfStar(group: FactorGroup, kIn: Vec3): Omit<StarIrr
     characters: smallOrder.map(({ e }) => blockTrace(b.matrices[e]!, b.smallDim)),
   }));
   const m = ordered.length;
-  const irreps: SpaceGroupIrrep[] = ordered.map((b, i) => ({ ...b, index: i + 1, label: `${star.label} irrep ${i + 1} of ${m}` }));
+  // The fingerprint (irrepLabels.ts): the characters on the same fixed list, each element written out.
+  const setting = settingOf(group);
+  const elementKeys = smallOrder.map(({ e }) => {
+    const x = group.elements[e]!;
+    return `${ikey(x.W)}|${x.w.map((r) => `${r.n}/${r.d}`).join(",")}`;
+  });
+  const irreps: SpaceGroupIrrep[] = ordered.map((b, i) => {
+    const genericLabel = `${star.label} irrep ${i + 1} of ${m}`;
+    const fingerprint = makeFingerprint({
+      setting,
+      star: star.label,
+      kVector: star.kVector,
+      k: kv,
+      dim: b.dim,
+      smallDim: b.smallDim,
+      reality: b.reality,
+      elements: elementKeys,
+      characters: smallOrder.map(({ e }) => blockTrace(b.matrices[e]!, b.smallDim)),
+    });
+    return { ...b, index: i + 1, label: irrepLabelFor(fingerprint, genericLabel), genericLabel, fingerprint };
+  });
   selfCheck(group, irreps, arms, rotations.length, star.label);
   return { star, littleCoGroupOrder: n, irreps };
 }

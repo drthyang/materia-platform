@@ -16,25 +16,43 @@
  * the characters of exactly one of ISOTROPY's (or, for a complex pair that
  * ISOTROPY lists as one physically irreducible representation, their sum),
  * and every one of ISOTROPY's must be matched: the correspondence is printed.
- * The cases are the isotropy oracle's and the magnetic page's non-abelian
- * zone-boundary points (P6₃/mmc A, P4₂/mnm and P4/mmm Z).
+ * The cases are the isotropy oracle's, the magnetic page's non-abelian
+ * zone-boundary points (P6₃/mmc A, P4₂/mnm and P4/mmm Z), and THY-73's: the
+ * named lines (F-43m Δ and Σ, P6₃/mmc Δ, at ISOTROPY's VALUE KVALUE) and
+ * points of the tetragonal, orthorhombic and monoclinic lattices. Each irrep
+ * is printed with its fingerprint (irrepLabels.ts), hashed: the key a
+ * permitted table provider would match.
+ *
+ * The file also holds THY-73's k-vector name check (below).
  */
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Complex } from "@/core/math/types";
-import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
+import { buildSpaceGroup, extendedSymbol } from "@/core/crystal/spaceGroups";
+import { referenceSetting } from "@/core/crystal/standardSetting";
 import { factorGroup, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import { complexIrrepsOfStar } from "@/core/crystal/irreps/spaceGroupIrreps";
-import { CONVENTIONAL_CELL, DEFAULT_SUPERCELL } from "@/core/crystal/irreps/supercell";
-import type { Rat } from "@/core/crystal/irreps/rational";
+import { CONVENTIONAL_CELL, DEFAULT_SUPERCELL, type SupercellMatrix } from "@/core/crystal/irreps/supercell";
+import { K_VECTOR_TABLES, kVectorContext, kVectorName } from "@/core/crystal/irreps/kVectorNames";
+import { radd, rat, rmul, type Rat, type RVec } from "@/core/crystal/irreps/rational";
 
 const ISODATA = process.env.ISODATA ?? "";
 const ENABLED = process.env.ISOTROPY_ORACLE === "1" && ISODATA !== "" && existsSync(resolve(ISODATA, "iso"));
 
 function iso(commands: readonly string[]): string {
   return execFileSync(resolve(ISODATA, "iso"), [], { input: `${commands.join("\n")}\nQUIT\n`, env: { ...process.env, ISODATA: ISODATA.endsWith("/") ? ISODATA : `${ISODATA}/` }, encoding: "utf8", maxBuffer: 64 << 20 });
+}
+
+/** FNV-1a, 32 bits, as 8 hex digits: a fingerprint key, short, for the log. */
+function fnv1a(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
 }
 
 /** A rational as ISOTROPY reads it: "1/2", "3/2", "1". */
@@ -108,8 +126,8 @@ export function parseCharacters(out: string): Map<string, Complex> {
   return byIrrep;
 }
 
-/** [case, MATERIA's setting, ISOTROPY's parent number, its k-point label, k (conventional)] */
-const ALL_CASES: readonly [string, number | string, number, string, readonly [number, number, number]][] = [
+/** [case, MATERIA's setting, ISOTROPY's parent number, its k-point label, k (conventional), and for a line ISOTROPY's parameter and MATERIA's bound] */
+const ALL_CASES: readonly [string, number | string, number, string, readonly [number, number, number], { readonly kvalue: string; readonly bound: SupercellMatrix }?][] = [
   ["Pm-3m Γ", 221, 221, "GM", [0, 0, 0]],
   ["Fm-3m Γ", 225, 225, "GM", [0, 0, 0]],
   ["Fm-3m X", 225, 225, "X", [0, 0, 1]],
@@ -127,6 +145,17 @@ const ALL_CASES: readonly [string, number | string, number, string, readonly [nu
   ["P6₃/mmc A", "P 63/m m c", 194, "A", [0, 0, 0.5]],
   ["P4₂/mnm Z", "P 42/m n m", 136, "Z", [0, 0, 0.5]],
   ["P4/mmm Z", 123, 123, "Z", [0, 0, 0.5]],
+  // THY-73: the named lines (k-vector names, kVectorNames.ts) and a few points of the other lattices.
+  ["F-43m W", 216, 216, "W", [0.5, 1, 0]],
+  ["F-43m Δ", 216, 216, "DT", [0, 0, 0.5], { kvalue: "1,1/4", bound: DEFAULT_SUPERCELL }],
+  ["F-43m Σ", 216, 216, "SM", [0, 0.5, 0.5], { kvalue: "1,1/4", bound: DEFAULT_SUPERCELL }],
+  ["P6₃/mmc Δ", "P 63/m m c", 194, "DT", [0, 0, 0.25], { kvalue: "1,1/4", bound: [[1, 0, 0], [0, 1, 0], [0, 0, 4]] }],
+  ["P4/mmm X", 123, 123, "X", [0, 0.5, 0]],
+  ["P4/mmm A", 123, 123, "A", [0.5, 0.5, 0.5]],
+  ["Pnma X", 62, 62, "X", [0.5, 0, 0]],
+  ["Pnma Y", 62, 62, "Y", [0, 0.5, 0]],
+  ["P2₁/c Z", 14, 14, "Z", [0, 0.5, 0]],
+  ["P2₁/c B", 14, 14, "B", [0, 0, 0.5]],
 ];
 
 /** ORACLE_CASES (a regular expression) runs only the cases whose name it matches. */
@@ -136,16 +165,16 @@ const close = (a: Complex, b: Complex): boolean => Math.hypot(a.re - b.re, a.im 
 /** A character ISOTROPY could not print (its field overflowed, "******") constrains nothing. */
 const agrees = (ours: Complex, theirs: Complex): boolean => Number.isNaN(theirs.re) || close(ours, theirs);
 
-describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand for ISOTROPY's (CDML) irreps one to one", { timeout: 900_000 }, () => {
-  for (const [name, setting, parent, kLabel, k] of CASES) {
+describe.skipIf(!ENABLED || CASES.length === 0)("ISOTROPY oracle: MATERIA's generic irrep labels stand for ISOTROPY's (CDML) irreps one to one", { timeout: 900_000 }, () => {
+  for (const [name, setting, parent, kLabel, k, line] of CASES) {
     it(name, () => {
-      const group = factorGroup(buildSpaceGroup(setting).operations, k.every(Number.isInteger) ? CONVENTIONAL_CELL : DEFAULT_SUPERCELL);
+      const group = factorGroup(buildSpaceGroup(setting).operations, line?.bound ?? (k.every(Number.isInteger) ? CONVENTIONAL_CELL : DEFAULT_SUPERCELL));
       const { irreps } = complexIrrepsOfStar(group, k);
       const reps = classRepresentatives(group);
       const theirs = new Map<string, Complex[]>();
       reps.forEach((e, r) => {
         const element = isoElement(group.elements[e]!.W, group.elements[e]!.w);
-        const out = iso(["PAGE NOBREAK", "LABEL ELEMENT INTERNATIONAL", `VALUE PARENT ${parent}`, `VALUE KPOINT ${kLabel}`, `VALUE ELEMENT ${element}`, "SHOW IRREP", "SHOW CHARACTER", "DISPLAY IRREP"]);
+        const out = iso(["PAGE NOBREAK", "LABEL ELEMENT INTERNATIONAL", `VALUE PARENT ${parent}`, `VALUE KPOINT ${kLabel}`, ...(line ? [`VALUE KVALUE ${line.kvalue}`] : []), `VALUE ELEMENT ${element}`, "SHOW IRREP", "SHOW CHARACTER", "DISPLAY IRREP"]);
         if (r === 0 || r === 1) console.log(`--- ISOTROPY, ${name}, element ${element} ---\n${out}`);
         const chars = parseCharacters(out);
         for (const [label, c] of chars) {
@@ -161,7 +190,8 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand
         if (unknown > 0) console.log(`UNREAD ${name}: ${label} has ${unknown} of ${reps.length} characters ISOTROPY did not print legibly`);
         expect(unknown, `${name}: ${label} unread on ${unknown} of ${reps.length} classes`).toBeLessThanOrEqual(Math.floor(reps.length / 4));
       }
-      const ours = irreps.map((irrep) => ({ label: irrep.label, chi: reps.map((e) => irrep.characters[e]!) }));
+      // Each irrep by its label and its fingerprint (irrepLabels.ts), hashed short: the key a table provider would match.
+      const ours = irreps.map((irrep) => ({ label: `${irrep.label} [${fnv1a(irrep.fingerprint.key)}]`, chi: reps.map((e) => irrep.characters[e]!) }));
       // ISOTROPY's phase convention may be the conjugate of MATERIA's; one choice must match every irrep.
       const attempt = (conj: boolean) => {
         const pairs: [string, string][] = [];
@@ -212,4 +242,113 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand
       expect(best.unmatchedTheirs, `${name}: ISOTROPY irreps with no MATERIA irrep of their characters`).toEqual([]);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// k-vector names (THY-73): MATERIA's names (kVectorNames.ts, written by hand
+// from the Bradley–Cracknell / CDML convention) against ISOTROPY's own list of
+// k-vectors for each of the 230 space-group types (VALUE PARENT n, SHOW
+// KPOINT, SHOW KDEGREE, DISPLAY KPOINT), whose labels are CDML's. A check, not
+// a source: where they disagree, the name is removed from the table, not
+// copied from ISOTROPY. For each of ISOTROPY's k-vectors: a point as given, a
+// line at its parameter a = 1/16, a plane or the general point at a = 1/16,
+// b = 3/64, c = 5/128. MATERIA must give the same name (GM = Γ, DT = Δ,
+// LD = Λ, SM = Σ) or none; a different name is a disagreement and fails.
+// Names MATERIA gives that no ISOTROPY k-vector confirmed are listed
+// (UNCONFIRMED), not failed. In this file because the workflow's label step
+// runs it (the workflow itself is unchanged).
+// ---------------------------------------------------------------------------
+
+const GREEK: Record<string, string> = { GM: "Γ", DT: "Δ", LD: "Λ", SM: "Σ" };
+
+/** "−2a+1", "1/2", "a+b-c", "2a" at the parameters a, b, c (ISOTROPY writes the third as g at the general point): exactly. */
+export function evalComponent(text: string, params: { a: Rat; b: Rat; c: Rat }): Rat | null {
+  const t = text.replace(/\s+/g, "");
+  if (t === "") return null;
+  let sum = rat(0);
+  const re = /([+-]?)(\d+(?:\/\d+)?)?([abcg])?/g;
+  let pos = 0;
+  let m: RegExpExecArray | null;
+  while (pos < t.length && (m = re.exec(t)) && m.index === pos && m[0] !== "") {
+    pos += m[0].length;
+    const sign = m[1] === "-" ? -1 : 1;
+    let coef = rat(sign);
+    if (m[2]) {
+      const [n, d] = m[2].split("/");
+      coef = rmul(coef, rat(Number(n), d ? Number(d) : 1));
+    }
+    const p = m[3] === "g" ? "c" : (m[3] as "a" | "b" | "c" | undefined);
+    sum = radd(sum, p ? rmul(coef, params[p]) : coef);
+  }
+  return pos === t.length ? sum : null;
+}
+
+/** ISOTROPY's DISPLAY KPOINT rows: "DT (0,2a,0)   1" → label, components, degree. */
+export function parseKPoints(out: string): { label: string; components: string[]; degree: number }[] {
+  const rows: { label: string; components: string[]; degree: number }[] = [];
+  for (const line of out.split("\n")) {
+    const m = line.match(/^\s*([A-Z][A-Z0-9]*)\s+\(([^)]*)\)\s+(\d)\s*$/);
+    if (!m) continue;
+    const components = m[2]!.split(",");
+    if (components.length !== 3) continue;
+    rows.push({ label: m[1]!, components, degree: Number(m[3]) });
+  }
+  return rows;
+}
+
+/** ORACLE_CASES selects this check when it matches "k-vector names"; KNAME_GROUPS (a regular expression on the IT number) narrows it. */
+const KNAME_ENABLED = !process.env.ORACLE_CASES || new RegExp(process.env.ORACLE_CASES).test("k-vector names");
+const GROUPS = Array.from({ length: 230 }, (_, i) => i + 1).filter((n) => !process.env.KNAME_GROUPS || new RegExp(`^(${process.env.KNAME_GROUPS})$`).test(String(n)));
+
+describe.skipIf(!ENABLED || !KNAME_ENABLED)("ISOTROPY oracle: k-vector names against ISOTROPY's (CDML) k-vector list", { timeout: 1_800_000 }, () => {
+  it("every name MATERIA gives is ISOTROPY's for the same k, in every space-group type", () => {
+    const params = { a: rat(1, 16), b: rat(3, 64), c: rat(5, 128) };
+    const disagreements: string[] = [];
+    const confirmed = new Map<string, Set<string>>();
+    let agree = 0;
+    let unnamed = 0;
+    for (const n of GROUPS) {
+      const out = iso(["PAGE NOBREAK", `VALUE PARENT ${n}`, "SHOW KPOINT", "SHOW KDEGREE", "DISPLAY KPOINT"]);
+      if ([1, 14, 62, 123, 139, 166, 194, 216, 225, 229].includes(n)) console.log(`--- ISOTROPY, parent ${n} ---\n${out}`);
+      const rows = parseKPoints(out);
+      if (rows.length === 0) {
+        disagreements.push(`${n}: no k-vectors parsed`);
+        continue;
+      }
+      const ref = referenceSetting(n);
+      const ctx = ref ? kVectorContext(buildSpaceGroup(extendedSymbol(ref)).operations) : null;
+      const lattice = ctx?.lattice ?? "?";
+      for (const row of rows) {
+        const comps = row.components.map((c) => evalComponent(c, params));
+        if (comps.some((c) => c === null)) {
+          disagreements.push(`${n}: could not read ${row.label} (${row.components.join(",")})`);
+          continue;
+        }
+        const k = comps as unknown as RVec;
+        const ours = kVectorName(ctx, k);
+        const theirs = GREEK[row.label] ?? row.label;
+        if (!ours) {
+          unnamed++;
+          if (row.degree <= 1) console.log(`UNNAMED ${n} (${lattice}): ISOTROPY ${row.label} (${row.components.join(",")}) degree ${row.degree}`);
+          continue;
+        }
+        if (ours.label === theirs && (ours.kind === "point") === (row.degree === 0)) {
+          agree++;
+          const set = confirmed.get(lattice) ?? new Set<string>();
+          set.add(ours.label);
+          confirmed.set(lattice, set);
+          continue;
+        }
+        disagreements.push(`${n} (${lattice}): ISOTROPY ${row.label} (${row.components.join(",")}) degree ${row.degree}, MATERIA ${ours.label} (${ours.kind})`);
+      }
+    }
+    for (const [lattice, table] of Object.entries(K_VECTOR_TABLES)) {
+      const seen = confirmed.get(lattice) ?? new Set<string>();
+      const missing = [...table!.points.map((p) => p.label), ...table!.lines.map((l) => l.label)].filter((x) => !seen.has(x));
+      if (missing.length > 0) console.log(`UNCONFIRMED ${lattice}: ${missing.join(", ")}`);
+    }
+    console.log(`KNAMES: ${agree} agree, ${unnamed} unnamed by MATERIA, ${disagreements.length} disagreements`);
+    for (const d of disagreements) console.log(`DISAGREE ${d}`);
+    expect(disagreements, disagreements.join("\n")).toEqual([]);
+  });
 });

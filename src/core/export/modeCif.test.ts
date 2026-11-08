@@ -25,6 +25,7 @@ import { DEFAULT_SUPERCELL } from "@/core/crystal/irreps/supercell";
 import { realiseChild } from "@/core/crystal/irreps/realisation";
 import { supercellModeBasis } from "@/core/crystal/irreps/supercellModes";
 import { irrepModeSet } from "@/core/crystal/irreps/modeSet";
+import { irrepToken } from "@/core/export/modeCif";
 import { decomposeChild } from "@/core/crystal/irreps/decompose";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import { modeCif } from "@/core/export/modeCif";
@@ -274,3 +275,14 @@ _iso_parentcell_angle_gamma  90.00000
 _iso_parentcell_volume       59.27338
 _iso_parent-to-child.transform_Pp_abc a,c,-2b;0,2,0
 `;
+
+describe("irrep tokens (THY-73)", () => {
+  it("write a line's star by CDML's two letters, a point by its name, Γ as GM, an unnamed star as k", () => {
+    expect(irrepToken("Δ (0, 0, 1/2) irrep 2 of 4", "Δ (0, 0, 1/2)")).toBe("DT_irrep2of4");
+    expect(irrepToken("Σ (0, 1/2, 1/2) irreps 3⊕4 of 4", "Σ (0, 1/2, 1/2)")).toBe("SM_irreps3+4of4");
+    expect(irrepToken("A irrep 1 of 3", "A")).toBe("A_irrep1of3");
+    expect(irrepToken("R irrep 8 of 10", "R")).toBe("R_irrep8of10");
+    expect(irrepToken("Γ irrep 10 of 10", "Γ")).toBe("GM_irrep10of10");
+    expect(irrepToken("k = (1/3, 0, 0) irrep 1 of 2", "k = (1/3, 0, 0)")).toBe("k_irrep1of2");
+  });
+});

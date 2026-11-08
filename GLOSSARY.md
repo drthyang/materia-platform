@@ -64,8 +64,12 @@ _Avoid_: real irrep
 The finite group of matrices an irrep forms acting on its order-parameter space.
 
 **Generic irrep label**:
-MATERIA's name for an irrep: its k-point (Γ, X, L, …, or the vector where the point has no standard name here) and its place among the star's irreps, "X irrep 2 of 4"; a complex pair reads "irreps 3⊕4". The place is a total order of the irreps themselves (irrepOrder.ts): dimension, then reality, then the characters on a fixed list of the little co-group's rotations, so it is the same on every runtime; the Γ chip's Γn is "Γ irrep n of m". Miller–Love (CDML) labels such as X3⁺ are only read from imported ISODISTORT mode CIFs and matched in the opt-in ISOTROPY oracle (ADR 0004).
+MATERIA's name for an irrep: its k-vector name (Γ, X, A, …; a line's name with its coordinates, "Δ (0, 0, 1/2)"; the vector where it has no name here, see *k-vector name*) and its place among the star's irreps, "X irrep 2 of 4"; a complex pair reads "irreps 3⊕4". The label shown comes from a label provider, matched by the irrep's fingerprint; the default gives these generic labels (irrepLabels.ts). The place is a total order of the irreps themselves (irrepOrder.ts): dimension, then reality, then the characters on a fixed list of the little co-group's rotations, so it is the same on every runtime; the Γ chip's Γn is "Γ irrep n of m". Miller–Love (CDML) labels such as X3⁺ are only read from imported ISODISTORT mode CIFs and matched in the opt-in ISOTROPY oracle (ADR 0004).
 _Avoid_: writing a generic label in CDML form (Γ1, X3); the magnetic page's old "Γ1, Γ2" at every k
+
+**k-vector name**:
+The name of a point or line of symmetry of the Brillouin zone in the CDML (Bradley–Cracknell) nomenclature the Bilbao server's KVEC uses, in the conventional reciprocal basis of the ITA standard setting: "X", "A", "Δ (0, 0, 1/2)" (THY-73; kVectorNames.ts). Written by hand from the convention for the cubic, tetragonal-P, orthorhombic-P and hexagonal lattices and the rhombohedral T, L and F; elsewhere a star keeps its coordinates. The opt-in ISOTROPY oracle checks every name.
+_Avoid_: calling it an irrep label; the irrep's number is MATERIA's (*Generic irrep label*), not CDML's
 
 **Magnetic irrep**:
 An irrep of the parent group with time reversal acting as −1, the representation a magnetic order parameter transforms by; ISODISTORT writes it with an "m" (mX2⁺ for X2⁺). The magnetic page shows the space-group irrep's generic label.

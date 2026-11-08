@@ -349,10 +349,11 @@ In **Symmetry framework**, pick **Magnetic space groups**, or
 **Representation analysis** to tick irreps and get their isotropy subgroup.
 
 Representation analysis works at any commensurate k. The line under
-**Magnetic space group** gives Γ_mag first, such as "Γmag = 2 irrep 1 ⊕
-1 irrep 2 ⊕ 3 irrep 3 at k = (0, 0, 1/2)". Below it, each irrep is listed with
-its dimension and its modes on your first ion. The irreps are named
-generically, by the k-point and "irrep n of m", as on the Subgroups page
+**Magnetic space group** gives Γ_mag first, such as "Γmag = 1 irrep 1 ⊕
+2 irrep 2 ⊕ 3 irrep 3 at A" for Mn₃Ga at k = (0, 0, ½), the A point of
+P6₃/mmc. Below it, each irrep is listed with its dimension and its modes on
+your first ion. The irreps are named generically, by the k-point and "irrep
+n of m", as on the Subgroups page
 ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). Tick one irrep,
 or several to mix them. A multidimensional irrep also takes an
 order-parameter direction from the menu beside it, such as (a,0), (a,a) or the
@@ -565,9 +566,11 @@ shows the modes being refined.
       as the box that holds whole copies of it, **2×2×2**.
     - The **tag** writes an irrep as its k-point and number: **R·8** is R irrep
       8 ("R irrep 8 of 10" in the detail), **M·3+R·8** two irreps coupled
-      (dashed). Irreps are named generically
+      (dashed), **Δ(0,0,½)·2** an irrep on a line of symmetry. Irreps are
+      named generically
       ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)), not with
-      ISODISTORT's labels. **M·3/7** means M irrep 3 or M irrep 7 reach the
+      the Bilbao server's or ISODISTORT's labels. The k-point names are
+      theirs (CDML's). **M·3/7** means M irrep 3 or M irrep 7 reach the
       subgroup alike: the same k-point, dimension, direction and copies on
       the atoms, the same isotropy subgroups by type and order, and alone
       the same one in this subgroup's domain. Which of the two drives a real
@@ -586,6 +589,13 @@ shows the modes being refined.
       Where the lead set has a tied member ("M irrep 3 or 7"), Activate kicks
       the one with the least stretch: M irrep 3, the in-phase tilt (not M
       irrep 7).
+    - **Bilbao's labels for SrTiO₃'s tilts.** With Sr at the origin, as in the
+      app's SrTiO₃, M irrep 3 (the in-phase tilt) is Bilbao's and
+      ISODISTORT's M2+, and R irrep 8 (the antiphase tilt) is their R5−.
+      With Ti at the origin, the same tilts are M3+ and R4+. This is a
+      correspondence by characters, from the ISOTROPY oracle's CI log, not a
+      table the app ships. Other numbers do not map one to one in general
+      ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)).
     - **strain only**: the child moves no atom of this structure (its irreps
       carry no displacement); only the cell can change, so there is nothing
       to Activate. These rows are hidden by default.
@@ -601,7 +611,13 @@ shows the modes being refined.
       SrTiO₃'s a⁻b⁺a⁻ Pnma). **any k** clears them. The chips are Γ, for a
       centred parent its decentring points (X for F, H for I), then the
       supercell's other stars (X, M and R of a primitive cubic parent; L and
-      W of an F one; coordinates where a star has no name).
+      W of an F one). A point of symmetry has its name; a point on a line of
+      symmetry has the line's name and its coordinates, such as **Δ (0, 0,
+      1/2)** and **Σ (0, 1/2, 1/2)** of GaTa₄Se₈'s F-43m. The names are
+      those of the Bilbao server's KVEC (CDML's), for cubic, tetragonal-P,
+      orthorhombic-P and hexagonal lattices and the rhombohedral T, L and F
+      points. Elsewhere (monoclinic, triclinic, centred orthorhombic,
+      body-centred tetragonal, and some lines) a star shows its coordinates.
     - The same-cell rows show at once. The larger cells are worked out in
       the background (seconds; a minute for an F-centred cubic parent in
       2×2×2): "listing 2×2×2 subgroups… 60 %" with **stop**, the supercell
@@ -684,8 +700,8 @@ shows the modes being refined.
   ISODISTORT-aware programs such as GSAS-II read its modes.
 - Chips above the mode table pick out the rows to work on:
   - **k-point chips**: **all k**, then one chip per k-point the modes in
-    force sit at, named as on the Subgroups page (Γ, X, M, R…, or the
-    coordinates). A supercell child of SrTiO₃ in Pnma shows X, M and R;
+    force sit at, named as on the Subgroups page (Γ, X, M, R…, Δ (0, 0,
+    1/2) on a line, or the coordinates). A supercell child of SrTiO₃ in Pnma shows X, M and R;
     R-3c shows R only. **×2** is how many parent cells one arm's wave
     repeats over.
   - **site chips**: **all sites**, then one chip per parent site the modes

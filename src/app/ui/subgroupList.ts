@@ -267,7 +267,7 @@ export function collapseTies(sets: readonly (readonly IrrepRef[])[]): TiedSet[] 
   return out.map((g) => ({ members: g.base.map((x, i) => (i === g.at ? [x, ...g.alts] : [x])) }));
 }
 
-/** A star as a tag writes it: "R", "(0,0,½)". */
+/** A star as a tag writes it: "R", "(0,0,½)", "Δ(0,0,½)". */
 export function starShort(star: string): string {
   return star.replace(/^k = /, "").replace(/\s/g, "").replace(/1\/2/g, "½").replace(/1\/4/g, "¼").replace(/3\/4/g, "¾").replace(/1\/3/g, "⅓").replace(/2\/3/g, "⅔");
 }
@@ -282,10 +282,11 @@ export function setLine(set: TiedSet): string {
   return set.members.map((alts) => alts.length === 1 ? shortLabel(alts[0]!) : `${shortLabel(alts[0]!)} or ${alts.slice(1).map((x) => x.number).join(" or ")}`).join(" + ");
 }
 
-/** "R irrep 8 of 10" → "R irrep 8"; "k = (0, 0, 1/2) irreps 3⊕4 of 4" → "(0,0,½) irreps 3⊕4". */
+/** "R irrep 8 of 10" → "R irrep 8"; "k = (0, 0, 1/2) irreps 3⊕4 of 4" → "(0,0,½) irreps 3⊕4"; "Δ (0, 0, 1/2) irrep 2 of 4" → "Δ(0,0,½) irrep 2". */
 export function shortLabel(x: IrrepRef): string {
   const s = x.label.replace(/ of \d+$/, "");
-  return x.star.startsWith("(") || x.label.startsWith("k = ") ? s.replace(/^k = \([^)]*\)/, starShort(x.star)) : s;
+  const prefix = s.startsWith("k = ") ? (/^k = \([^)]*\)/.exec(s)?.[0] ?? null) : x.star.includes("(") && s.startsWith(x.star) ? x.star : null;
+  return prefix ? `${starShort(x.star)}${s.slice(prefix.length)}` : s;
 }
 
 /** The name as the page writes it: the engine's spaced symbol closed up, screw axes as subscripts ("P 42/n n m:2 #134" → "P4₂/nnm:2 #134"). */

@@ -7,6 +7,26 @@ release fixes bugs.
 
 ## [Unreleased]
 
+### Changed
+
+- **k-point names from the Bilbao server's convention** (THY-73). Stars are
+  named as Bilbao's KVEC names them (CDML's labels, in the conventional
+  reciprocal basis of the ITA standard setting): every point of symmetry of
+  the cubic, tetragonal-P, orthorhombic-P and hexagonal lattices (A on
+  P6₃/mmc, Z and R on P4/mmm, X, Y, S, U, T on Pnma, fcc K…) and the
+  rhombohedral T, L and F, and a point on a line by the line and its
+  coordinates: "Δ (0, 0, 1/2)" and "Σ (0, 1/2, 1/2)" on F-43m. Irrep labels
+  follow: "A irrep 1 of 3", "Δ (0, 0, 1/2) irrep 2 of 4"; their numbers
+  (THY-64) do not change. Where no name could be written with confidence the
+  coordinates stay ("k = (0, 0, 1)" on I4/mmm). The Agent reads these names
+  in its tools; `list_subgroups`' k filter takes "Δ", "DT" or the
+  coordinates. Mode CIFs write a line's star as "DT". Saved projects keep
+  the labels they were saved with.
+- **A label-provider seam** (ADR 0004): each irrep carries a fingerprint,
+  and the label shown comes from a provider, generic by default, so CDML
+  labels from a permitted table could be added later without changing the
+  engine, the numbering or saved projects. No table ships.
+
 ## [0.5.0] - 2026-11-07
 
 ### Added

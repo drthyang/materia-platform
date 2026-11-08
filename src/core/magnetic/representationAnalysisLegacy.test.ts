@@ -54,7 +54,7 @@ const OLD_ROUTE_WRONG: Record<string, string> = {
   // P2/c at (0,0,½): the c-glide squares to a translation with phase −1, so the four 1-D ordinary irreps are one 2-D small representation.
   wolframite_k_00half: "k = (0, 0, 1/2) irrep 1 of 1",
   // Pnma at X: the 2₁ along a squares to a translation with phase −1: two 2-D small representations, not eight 1-D ones.
-  perovskite_k_half00: "k = (1/2, 0, 0) irrep 1 of 2 | k = (1/2, 0, 0) irrep 2 of 2",
+  perovskite_k_half00: "X irrep 1 of 2 | X irrep 2 of 2",
 };
 
 const close = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
