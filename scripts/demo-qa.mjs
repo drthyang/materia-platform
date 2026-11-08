@@ -451,7 +451,7 @@ async function step3and4(context, vp) {
       expect(await listed(page, "1×1×2"), "the 1×1×2 listing finishes");
     }, { background: true });
     note(`1×1×2 list before the chips: ${(await sg.innerText()).match(/\d+ of \d+ subgroups/)?.[0]}`);
-    for (const name of ["Γ, same cell", "X, same cell", "(0, 0, 1/2), supercell", "W, supercell", "any k-point"]) {
+    for (const name of ["Γ, same cell", "X, same cell", "Δ (0, 0, 1/2), supercell", "W, supercell", "any k-point"]) {
       const chip = sg.getByRole("button", { name, exact: true });
       if (!(await chip.count())) {
         expect(false, `k chip "${name}" present`);

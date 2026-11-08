@@ -92,14 +92,19 @@ export function freeCoordinates(structure: StructureModel, siteIndex: number): {
 
 const AXIS = ["x", "y", "z"] as const;
 
+/** CDML's two-letter names for the Greek k-vector labels, as ISODISTORT writes them. */
+const GREEK_TOKEN: Readonly<Record<string, string>> = { Γ: "GM", Δ: "DT", Σ: "SM", Λ: "LD" };
+
 /**
  * A generic irrep label as an ISODISTORT-shaped token, ASCII and free of
  * spaces and brackets: "R irrep 8 of 10" → "R_irrep8of10", "M irreps 3⊕4 of 10"
- * → "M_irreps3+4of10", Γ as GM, an unnamed star as "k".
+ * → "M_irreps3+4of10", Γ as GM, a line's star by its name alone ("Δ (0, 0, 1/2)"
+ * → "DT"), an unnamed star as "k".
  */
 export function irrepToken(label: string, star: string | undefined): string {
   const m = label.match(/irreps?\s+([\d⊕]+)\s+of\s+(\d+)(.*)$/);
-  const name = star === undefined || star.startsWith("k") ? "k" : star === "Γ" ? "GM" : star.replace(/[^A-Za-z0-9]/g, "");
+  const head = star?.split(/\s+\(/)[0]?.trim();
+  const name = star === undefined || head === undefined || star.startsWith("k") || star.startsWith("(") ? "k" : GREEK_TOKEN[head] ?? head.replace(/[^A-Za-z0-9]/g, "");
   if (!m) return `${name}_${label.replace(/[^A-Za-z0-9+]/g, "")}`;
   const tail = /doubled/.test(m[3]!) ? "d" : /conjugate/.test(m[3]!) ? "c" : "";
   return `${name}_irrep${m[1]!.includes("⊕") ? "s" : ""}${m[1]!.replace(/⊕/g, "+")}of${m[2]}${tail}`;

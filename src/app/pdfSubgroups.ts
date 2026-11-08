@@ -240,7 +240,7 @@ export async function listSubgroups(structure: StructureModel, bound: SupercellS
 export interface SubgroupQuery {
   /** A name or an ITA number, as the view's Find takes it ("P-42_1m", "113"). */
   readonly name?: string;
-  /** k-point chips ("X", "W", "Γ"): the rows their irreps reach, two allowing their coupled pairs. */
+  /** k-point chips ("X", "W", "Γ", "Δ" or "Δ (0, 0, 1/2)", "(0, 0, 1/2)"): the rows their irreps reach, two allowing their coupled pairs. */
   readonly k?: readonly string[];
   /** "same cell", or a box ("1×1×2"); "supercell" for any larger one. */
   readonly cell?: string;
@@ -248,12 +248,44 @@ export interface SubgroupQuery {
   readonly all?: boolean;
 }
 
-/** A k-point as a chip names it: "Γ" for Gamma or G, a name upper-cased, coordinates without spaces. */
+/** CDML's two-letter names for the Greek labels (as ISOTROPY and ISODISTORT write them). */
+const GREEK_ALIAS: Readonly<Record<string, string>> = { GM: "Γ", DT: "Δ", SM: "Σ", LD: "Λ" };
+
+/** A k-point as a chip names it: "Γ" for Gamma or G, a name upper-cased (DT for Δ…), coordinates without spaces. */
 const chipKey = (k: string): string => {
   const t = k.trim().replace(/^k\s*=\s*/i, "");
   if (/^(Γ|gamma|gm|g)$/i.test(t)) return "Γ";
-  return t.startsWith("(") ? t.replace(/\s+/g, "") : t.toUpperCase();
+  if (t.startsWith("(")) return t.replace(/\s+/g, "");
+  const m = /^([^\s(]+)\s*(\(.*\))?$/.exec(t);
+  const name = (m?.[1] ?? t).toUpperCase();
+  return `${GREEK_ALIAS[name] ?? name}${m?.[2] ? m[2].replace(/\s+/g, "") : ""}`;
 };
+
+/**
+ * The keys a star's chip answers to: its own ("X", "Δ(0,0,1/2)"), and for a
+ * line its name alone ("Δ") and its coordinates alone ("(0,0,1/2)"), the last
+ * two only where they pick out one star of the list.
+ */
+function starKeys(rows: readonly SubgroupRow[]): Map<string, string> {
+  const own = new Map<string, string>();
+  const partial = new Map<string, Set<string>>();
+  const add = (key: string, star: string) => {
+    const set = partial.get(key) ?? new Set<string>();
+    set.add(star);
+    partial.set(key, set);
+  };
+  for (const r of rows) for (const set of r.reach.sets) for (const x of set) {
+    own.set(chipKey(x.star), x.star);
+    const line = /^([^\s(]+)\s+(\(.*\))$/.exec(x.star);
+    if (line) {
+      add(chipKey(line[1]!), x.star);
+      add(chipKey(line[2]!), x.star);
+    }
+  }
+  const keys = new Map(own);
+  for (const [key, stars] of partial) if (stars.size === 1 && !keys.has(key)) keys.set(key, [...stars][0]!);
+  return keys;
+}
 
 /** A cell as a row writes it. */
 export function cellKey(cell: string): string {
@@ -270,8 +302,7 @@ export function cellKey(cell: string): string {
  */
 export function queryGroups(rows: readonly SubgroupRow[], q: SubgroupQuery = {}): ShownGroup[] {
   const groups = groupRows(rows);
-  const stars = new Map<string, string>();
-  for (const r of rows) for (const set of r.reach.sets) for (const x of set) stars.set(chipKey(x.star), x.star);
+  const stars = starKeys(rows);
   const ks = (q.k ?? []).map((k) => stars.get(chipKey(k)) ?? chipKey(k));
   const visible = visibleGroups(groups, { ...(q.all ? NO_FILTERS : DEFAULT_FILTERS), ks });
   const cell = q.cell === undefined ? null : cellKey(q.cell);

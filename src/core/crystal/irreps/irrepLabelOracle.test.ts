@@ -16,8 +16,12 @@
  * the characters of exactly one of ISOTROPY's (or, for a complex pair that
  * ISOTROPY lists as one physically irreducible representation, their sum),
  * and every one of ISOTROPY's must be matched: the correspondence is printed.
- * The cases are the isotropy oracle's and the magnetic page's non-abelian
- * zone-boundary points (P6₃/mmc A, P4₂/mnm and P4/mmm Z).
+ * The cases are the isotropy oracle's, the magnetic page's non-abelian
+ * zone-boundary points (P6₃/mmc A, P4₂/mnm and P4/mmm Z), and THY-73's: the
+ * named lines (F-43m Δ and Σ, P6₃/mmc Δ, at ISOTROPY's VALUE KVALUE) and
+ * points of the tetragonal, orthorhombic and monoclinic lattices. Each irrep
+ * is printed with its fingerprint (irrepLabels.ts), hashed: the key a
+ * permitted table provider would match.
  *
  * The file also holds THY-73's k-vector name check (below).
  */
@@ -30,7 +34,7 @@ import { buildSpaceGroup, extendedSymbol } from "@/core/crystal/spaceGroups";
 import { referenceSetting } from "@/core/crystal/standardSetting";
 import { factorGroup, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import { complexIrrepsOfStar } from "@/core/crystal/irreps/spaceGroupIrreps";
-import { CONVENTIONAL_CELL, DEFAULT_SUPERCELL } from "@/core/crystal/irreps/supercell";
+import { CONVENTIONAL_CELL, DEFAULT_SUPERCELL, type SupercellMatrix } from "@/core/crystal/irreps/supercell";
 import { K_VECTOR_TABLES, kVectorContext, kVectorName } from "@/core/crystal/irreps/kVectorNames";
 import { radd, rat, rmul, type Rat, type RVec } from "@/core/crystal/irreps/rational";
 
@@ -39,6 +43,16 @@ const ENABLED = process.env.ISOTROPY_ORACLE === "1" && ISODATA !== "" && existsS
 
 function iso(commands: readonly string[]): string {
   return execFileSync(resolve(ISODATA, "iso"), [], { input: `${commands.join("\n")}\nQUIT\n`, env: { ...process.env, ISODATA: ISODATA.endsWith("/") ? ISODATA : `${ISODATA}/` }, encoding: "utf8", maxBuffer: 64 << 20 });
+}
+
+/** FNV-1a, 32 bits, as 8 hex digits: a fingerprint key, short, for the log. */
+function fnv1a(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
 }
 
 /** A rational as ISOTROPY reads it: "1/2", "3/2", "1". */
@@ -112,8 +126,8 @@ export function parseCharacters(out: string): Map<string, Complex> {
   return byIrrep;
 }
 
-/** [case, MATERIA's setting, ISOTROPY's parent number, its k-point label, k (conventional)] */
-const ALL_CASES: readonly [string, number | string, number, string, readonly [number, number, number]][] = [
+/** [case, MATERIA's setting, ISOTROPY's parent number, its k-point label, k (conventional), and for a line ISOTROPY's parameter and MATERIA's bound] */
+const ALL_CASES: readonly [string, number | string, number, string, readonly [number, number, number], { readonly kvalue: string; readonly bound: SupercellMatrix }?][] = [
   ["Pm-3m Γ", 221, 221, "GM", [0, 0, 0]],
   ["Fm-3m Γ", 225, 225, "GM", [0, 0, 0]],
   ["Fm-3m X", 225, 225, "X", [0, 0, 1]],
@@ -131,6 +145,17 @@ const ALL_CASES: readonly [string, number | string, number, string, readonly [nu
   ["P6₃/mmc A", "P 63/m m c", 194, "A", [0, 0, 0.5]],
   ["P4₂/mnm Z", "P 42/m n m", 136, "Z", [0, 0, 0.5]],
   ["P4/mmm Z", 123, 123, "Z", [0, 0, 0.5]],
+  // THY-73: the named lines (k-vector names, kVectorNames.ts) and a few points of the other lattices.
+  ["F-43m W", 216, 216, "W", [0.5, 1, 0]],
+  ["F-43m Δ", 216, 216, "DT", [0, 0, 0.5], { kvalue: "1,1/4", bound: DEFAULT_SUPERCELL }],
+  ["F-43m Σ", 216, 216, "SM", [0, 0.5, 0.5], { kvalue: "1,1/4", bound: DEFAULT_SUPERCELL }],
+  ["P6₃/mmc Δ", "P 63/m m c", 194, "DT", [0, 0, 0.25], { kvalue: "1,1/4", bound: [[1, 0, 0], [0, 1, 0], [0, 0, 4]] }],
+  ["P4/mmm X", 123, 123, "X", [0, 0.5, 0]],
+  ["P4/mmm A", 123, 123, "A", [0.5, 0.5, 0.5]],
+  ["Pnma X", 62, 62, "X", [0.5, 0, 0]],
+  ["Pnma Y", 62, 62, "Y", [0, 0.5, 0]],
+  ["P2₁/c Z", 14, 14, "Z", [0, 0.5, 0]],
+  ["P2₁/c B", 14, 14, "B", [0, 0, 0.5]],
 ];
 
 /** ORACLE_CASES (a regular expression) runs only the cases whose name it matches. */
@@ -141,15 +166,15 @@ const close = (a: Complex, b: Complex): boolean => Math.hypot(a.re - b.re, a.im 
 const agrees = (ours: Complex, theirs: Complex): boolean => Number.isNaN(theirs.re) || close(ours, theirs);
 
 describe.skipIf(!ENABLED || CASES.length === 0)("ISOTROPY oracle: MATERIA's generic irrep labels stand for ISOTROPY's (CDML) irreps one to one", { timeout: 900_000 }, () => {
-  for (const [name, setting, parent, kLabel, k] of CASES) {
+  for (const [name, setting, parent, kLabel, k, line] of CASES) {
     it(name, () => {
-      const group = factorGroup(buildSpaceGroup(setting).operations, k.every(Number.isInteger) ? CONVENTIONAL_CELL : DEFAULT_SUPERCELL);
+      const group = factorGroup(buildSpaceGroup(setting).operations, line?.bound ?? (k.every(Number.isInteger) ? CONVENTIONAL_CELL : DEFAULT_SUPERCELL));
       const { irreps } = complexIrrepsOfStar(group, k);
       const reps = classRepresentatives(group);
       const theirs = new Map<string, Complex[]>();
       reps.forEach((e, r) => {
         const element = isoElement(group.elements[e]!.W, group.elements[e]!.w);
-        const out = iso(["PAGE NOBREAK", "LABEL ELEMENT INTERNATIONAL", `VALUE PARENT ${parent}`, `VALUE KPOINT ${kLabel}`, `VALUE ELEMENT ${element}`, "SHOW IRREP", "SHOW CHARACTER", "DISPLAY IRREP"]);
+        const out = iso(["PAGE NOBREAK", "LABEL ELEMENT INTERNATIONAL", `VALUE PARENT ${parent}`, `VALUE KPOINT ${kLabel}`, ...(line ? [`VALUE KVALUE ${line.kvalue}`] : []), `VALUE ELEMENT ${element}`, "SHOW IRREP", "SHOW CHARACTER", "DISPLAY IRREP"]);
         if (r === 0 || r === 1) console.log(`--- ISOTROPY, ${name}, element ${element} ---\n${out}`);
         const chars = parseCharacters(out);
         for (const [label, c] of chars) {
@@ -165,7 +190,8 @@ describe.skipIf(!ENABLED || CASES.length === 0)("ISOTROPY oracle: MATERIA's gene
         if (unknown > 0) console.log(`UNREAD ${name}: ${label} has ${unknown} of ${reps.length} characters ISOTROPY did not print legibly`);
         expect(unknown, `${name}: ${label} unread on ${unknown} of ${reps.length} classes`).toBeLessThanOrEqual(Math.floor(reps.length / 4));
       }
-      const ours = irreps.map((irrep) => ({ label: irrep.label, chi: reps.map((e) => irrep.characters[e]!) }));
+      // Each irrep by its label and its fingerprint (irrepLabels.ts), hashed short: the key a table provider would match.
+      const ours = irreps.map((irrep) => ({ label: `${irrep.label} [${fnv1a(irrep.fingerprint.key)}]`, chi: reps.map((e) => irrep.characters[e]!) }));
       // ISOTROPY's phase convention may be the conjugate of MATERIA's; one choice must match every irrep.
       const attempt = (conj: boolean) => {
         const pairs: [string, string][] = [];
