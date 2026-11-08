@@ -27,11 +27,20 @@ The owner asked for the Bilbao Crystallographic Server's names: KVEC's k-vector 
 
 So Bilbao's irrep labels at every k mean shipping a label table taken from ISO-IR: every irrep of every group at every k-vector type, with enough characters to match the app's. That needs permission.
 
-**Options** (the owner's decision, pending):
+**Options** considered:
 
 1. k-vector names now, irreps keep generic numbers with the name: "Δ irrep 2 of 4". No licence question.
 2. Option 1, plus CDML labels by the point-group rule where the small representations are ordinary. The rule would be transcribed from ISOTROPY and swept against it in CI for every space-group type, with generic numbers elsewhere. It covers SrTiO₃ (Pm-3m) and GaTa₄Se₈ (F-43m), but not Mn₃Ga's A point, and it shows two label styles side by side. ADR 0005 would need amending.
 3. Ask permission. H. T. Stokes and B. J. Campbell (BYU) would allow a compact label table generated from ISO-IR inside MATERIA under AGPL-3.0, with attribution. M. I. Aroyo (Bilbao) would be informed, since REPRES uses the same labels. With it, every irrep gets its Bilbao label, matched by characters when the table is built.
 4. Bring your own table. The user downloads ISO-IR from BYU and the browser reads it locally, so nothing is redistributed. Complete, but clumsy (55 MB).
 
-Recommended: 1 now, 3 in parallel, and 2 only if permission is refused. Until the owner decides, the app keeps "irrep n of m" in THY-64's order, prefixed with the k-vector name.
+**Decision** (the owner, 2026-11-08): option 1 now, built so that better labels can be plugged in later. Option 3 stays open; the request below is the owner's to send.
+
+**What shipped** (THY-73):
+
+- *k-vector names* (kVectorNames.ts), written by hand from the Bradley & Cracknell / CDML convention for the cubic, tetragonal-P, orthorhombic-P and hexagonal lattices and the rhombohedral T, L and F, in the conventional reciprocal basis of the ITA standard setting (other settings are brought there first). A point has its name ("A"); a point on a line has the line's name and the coordinates of its star's canonical arm ("Δ (0, 0, 1/2)"), so the name does not depend on the arm and two stars on one line stay apart. As in CDML and KVEC, the holohedry's labels hold in every class of the lattice (F-43m's (0, ½, ½) is Σ); segments a lower class no longer relates to the holohedry's stay unnamed. Triclinic, monoclinic, centred orthorhombic and body-centred tetragonal lattices keep coordinates, because their CDML labels could not be written from the convention with confidence.
+- *The check* (ADR 0005's wording kept): the opt-in ISOTROPY oracle compares every name with ISOTROPY's k-vector list for all 230 types. ISOTROPY is a check, not a source. Where it disagreed, the entry was removed, never corrected from it: Bradley & Cracknell's fcc Z (X–W) and orthorhombic E and P. Two further B&C lines it does not list, fcc S and bcc F, were withdrawn with them. The run after that: 2279 names agree, 0 disagree.
+- *Irrep labels*: "<k-vector name> irrep n of m" in THY-64's order ("A irrep 1 of 3", "R irrep 8 of 10"); Γ keeps "Γn" on the Γ chip.
+- *A label-provider seam* (irrepLabels.ts). Each irrep carries a fingerprint: the parent's setting, the star's name and k-vector label, the arm, the dimensions, the reality, and the small representation's characters on THY-64's fixed list of elements, rounded to 1e-3, in one key. The label shown is the active provider's, else the generic one. The default provider gives the generic labels. A table provider (`fingerprintTableProvider`), for a permitted CDML table or one built in the browser from a user's own ISO-IR file, matches by that key; an irrep it does not know keeps its generic label, and the engine, its numbering and saved projects (whose labels are text) do not change. No table ships. A test proves the seam with a two-row fake table. The Γ chip's "Γn" (displaciveModes.ts) is outside the seam: a table provider would add one call there.
+
+**The permission request** (draft, for the owner to send to H. T. Stokes and B. J. Campbell, BYU, copying M. I. Aroyo, Bilbao): "MATERIA (github.com/drthyang/materia-platform, AGPL-3.0) computes space-group irreps itself and would like to show the CDML labels that ISO-IR and Bilbao's REPRES use. May we ship a compact table generated from ISO-IR, giving labels and the characters needed to match them, inside the AGPL app, citing ISO-IR and Stokes, Campbell & Cordes (2013)?"
