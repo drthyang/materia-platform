@@ -26,7 +26,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Complex } from "@/core/math/types";
-import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
+import { buildSpaceGroup, extendedSymbol } from "@/core/crystal/spaceGroups";
+import { referenceSetting } from "@/core/crystal/standardSetting";
 import { factorGroup, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import { complexIrrepsOfStar } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { CONVENTIONAL_CELL, DEFAULT_SUPERCELL } from "@/core/crystal/irreps/supercell";
@@ -139,7 +140,7 @@ const close = (a: Complex, b: Complex): boolean => Math.hypot(a.re - b.re, a.im 
 /** A character ISOTROPY could not print (its field overflowed, "******") constrains nothing. */
 const agrees = (ours: Complex, theirs: Complex): boolean => Number.isNaN(theirs.re) || close(ours, theirs);
 
-describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand for ISOTROPY's (CDML) irreps one to one", { timeout: 900_000 }, () => {
+describe.skipIf(!ENABLED || CASES.length === 0)("ISOTROPY oracle: MATERIA's generic irrep labels stand for ISOTROPY's (CDML) irreps one to one", { timeout: 900_000 }, () => {
   for (const [name, setting, parent, kLabel, k] of CASES) {
     it(name, () => {
       const group = factorGroup(buildSpaceGroup(setting).operations, k.every(Number.isInteger) ? CONVENTIONAL_CELL : DEFAULT_SUPERCELL);
@@ -234,12 +235,12 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand
 
 const GREEK: Record<string, string> = { GM: "Γ", DT: "Δ", LD: "Λ", SM: "Σ" };
 
-/** "−2a+1", "1/2", "a+b-c", "2a" at the parameters a, b, c: exactly. */
+/** "−2a+1", "1/2", "a+b-c", "2a" at the parameters a, b, c (ISOTROPY writes the third as g at the general point): exactly. */
 export function evalComponent(text: string, params: { a: Rat; b: Rat; c: Rat }): Rat | null {
   const t = text.replace(/\s+/g, "");
   if (t === "") return null;
   let sum = rat(0);
-  const re = /([+-]?)(\d+(?:\/\d+)?)?([abc])?/g;
+  const re = /([+-]?)(\d+(?:\/\d+)?)?([abcg])?/g;
   let pos = 0;
   let m: RegExpExecArray | null;
   while (pos < t.length && (m = re.exec(t)) && m.index === pos && m[0] !== "") {
@@ -250,7 +251,8 @@ export function evalComponent(text: string, params: { a: Rat; b: Rat; c: Rat }):
       const [n, d] = m[2].split("/");
       coef = rmul(coef, rat(Number(n), d ? Number(d) : 1));
     }
-    sum = radd(sum, m[3] ? rmul(coef, params[m[3] as "a" | "b" | "c"]) : coef);
+    const p = m[3] === "g" ? "c" : (m[3] as "a" | "b" | "c" | undefined);
+    sum = radd(sum, p ? rmul(coef, params[p]) : coef);
   }
   return pos === t.length ? sum : null;
 }
@@ -287,7 +289,8 @@ describe.skipIf(!ENABLED || !KNAME_ENABLED)("ISOTROPY oracle: k-vector names aga
         disagreements.push(`${n}: no k-vectors parsed`);
         continue;
       }
-      const ctx = kVectorContext(buildSpaceGroup(n).operations);
+      const ref = referenceSetting(n);
+      const ctx = ref ? kVectorContext(buildSpaceGroup(extendedSymbol(ref)).operations) : null;
       const lattice = ctx?.lattice ?? "?";
       for (const row of rows) {
         const comps = row.components.map((c) => evalComponent(c, params));
