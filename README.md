@@ -68,14 +68,14 @@ put `ANTHROPIC_API_KEY` in `.env.local` and choose **Local proxy**, so the key n
 
 Both demos are public data and open on a converged fit.
 
-1. **Rietveld.** On the start page click **Rietveld · Mn₃Ga neutron TOF**, then **Refine**: a two-phase
+1. **Rietveld.** On the start page click the **Mn₃Ga neutron TOF** demo, then **Refine**: a two-phase
    fit at wR 4.24 %, with the MnO impurity's weight fraction and its esd. **Validation** gives the
    verdict against the acceptance bar.
 2. **The magnetic step.** Click **Magnetic analysis →**, **Include them in the k-search**,
    **Search k from … peaks**, then **Rank 14 candidates against the data** (20–30 s, with progress
    and Cancel). At 600 K the sample is paramagnetic, and the page says that no candidate improves on
    the nuclear-only fit.
-3. **PDF and subgroups.** **Close**, open **PDF · GaTa₄Se₈ X-ray G(r)** and click **Refine**. Open
+3. **PDF and subgroups.** **Close**, open the **GaTa₄Se₈ X-ray G(r)** demo and click **Refine**. Open
    **Subgroups**: the Tree of F-43m's maximal subgroups. Set **Supercell** to **1×1×2**, switch to
    **List**, type `P-42_1m` in **Find**, pick the 1×1×2 row and click **Activate**: the child refines
    in its own (a, a, 2c) cell.
