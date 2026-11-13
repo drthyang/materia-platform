@@ -1521,16 +1521,10 @@ export function KSearchPanel({
                         readOnly
                         disabled
                         title={`Derived from the tie ${p.expression} — edit the reference amplitudes instead`}
-                        style={{ ...kInput, opacity: 0.7 }}
+                        style={{ ...momentInput, opacity: 0.7 }}
                       />
                     ) : (
-                      <input
-                        type="number"
-                        step={0.1}
-                        value={amps[p.id] ?? p.value}
-                        onChange={(e) => step.setAmp(p.id, Number(e.target.value))}
-                        style={kInput}
-                      />
+                      <MomentField value={amps[p.id] ?? p.value} onChange={(v) => step.setAmp(p.id, v)} />
                     )}
                   </label>
                 ))}
@@ -1689,6 +1683,32 @@ function AddPeakButton({ adding, onToggle }: { adding: boolean; onToggle: () => 
 
 /** Numbered step header: circled number + tracked label + optional info badge
  *  and a right-aligned status chip. One consistent look for every workflow step. */
+/**
+ * A moment amplitude's field. At rest it shows the value to four decimals: a
+ * refined amplitude has some sixteen digits, which no field holds, and the
+ * field's edge cut it mid-digit. Focused, it shows the stored value whole, so
+ * editing starts from what is there; the value itself is never rounded.
+ */
+function MomentField({ value, onChange }: { value: number; onChange: (v: number) => void }): JSX.Element {
+  const [focused, setFocused] = useState(false);
+  return (
+    <input
+      type="number"
+      step={0.1}
+      value={focused ? value : momentShown(value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => onChange(Number(e.target.value))}
+      style={momentInput}
+    />
+  );
+}
+
+/** A moment amplitude as its field shows it at rest: four decimals, trailing zeros dropped. */
+export function momentShown(value: number): number {
+  return Number.isFinite(value) ? +value.toFixed(4) : value;
+}
+
 function StepTitle({ n, title, info, right }: {
   n: string;
   title: string;
@@ -1696,11 +1716,12 @@ function StepTitle({ n, title, info, right }: {
   right?: ReactNode;
 }): JSX.Element {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8, minWidth: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 7, rowGap: 3, marginBottom: 8, minWidth: 0 }}>
       <span style={stepNum}>{n}</span>
       <span style={themeLabel}>{title}</span>
       {info && <InfoBadge text={info} width={300} />}
-      {right && <span style={{ marginLeft: "auto", display: "inline-flex", minWidth: 0 }}>{right}</span>}
+      {/* Takes a line of its own where the title leaves it no room (a phone), instead of an ellipsis. */}
+      {right && <span style={{ marginLeft: "auto", display: "inline-flex", minWidth: 0, maxWidth: "100%" }}>{right}</span>}
     </div>
   );
 }
@@ -1711,6 +1732,8 @@ const kZeroNote: React.CSSProperties = {
   marginTop: 8, padding: "7px 10px", borderRadius: 7, fontSize: 12, lineHeight: 1.55,
   background: theme.noteBg, border: `1px solid ${theme.noteBorder}`, color: theme.noteInk, maxWidth: 640,
 };
+/** A moment amplitude's field: room for a refined value (0.415…) beside WebKit's always-shown stepper, which covered the last digits at the k field's width. */
+const momentInput: React.CSSProperties = { width: 96, border: `1px solid ${theme.control}`, borderRadius: 7, padding: "3px 7px", fontSize: 13, fontFamily: themeMono };
 const kInput: React.CSSProperties = { width: 64, border: `1px solid ${theme.control}`, borderRadius: 7, padding: "3px 7px", fontSize: 13, fontFamily: themeMono };
 const btn: React.CSSProperties = { marginTop: 6, border: "none", background: theme.primary, color: "#fff", borderRadius: 7, padding: "4px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" };
 /** "Set k" while the fields hold the k in use: btn's size, nothing to press. */
