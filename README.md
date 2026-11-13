@@ -72,7 +72,7 @@ Both demos are public data and open on a converged fit.
    fit at wR 4.24 %, with the MnO impurity's weight fraction and its esd. **Validation** gives the
    verdict against the acceptance bar.
 2. **The magnetic step.** Click **Magnetic analysis →**, **Include them in the k-search**,
-   **Search k from … peaks**, then **Rank 14 candidates against the data** (20–30 s, with progress
+   **Search k from … peaks**, then **Rank 14 candidates against the data** (about half a minute, with progress
    and Cancel). At 600 K the sample is paramagnetic, and the page says that no candidate improves on
    the nuclear-only fit.
 3. **PDF and subgroups.** **Close**, open the **GaTa₄Se₈ X-ray G(r)** demo and click **Refine**. Open
