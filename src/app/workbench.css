@@ -2032,3 +2032,17 @@ html:has(.wb-run-bar) .wb-shell::after {
   flex-wrap: nowrap;
 }
 
+
+/* ---- Posterior table: a cue that it scrolls sideways -----------------------
+ * On a phone the table is wider than its card and scrolls inside it; nothing
+ * said so, and its last columns (esd ratio, R̂, ESS) went unseen. An edge
+ * shadow marks each side that has more: the shadows stay with the box, and
+ * card-colored covers that move with the content hide them at either end.
+ * No shadow where the table fits. */
+.wb-posterior-table {
+  background:
+    linear-gradient(to right, #fff 40%, rgba(255, 255, 255, 0)) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, #fff 40%, rgba(255, 255, 255, 0)) right center / 28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(60, 45, 20, 0.34), rgba(60, 45, 20, 0)) left center / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(60, 45, 20, 0.34), rgba(60, 45, 20, 0)) right center / 12px 100% no-repeat scroll;
+}
