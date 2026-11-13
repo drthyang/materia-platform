@@ -6,26 +6,44 @@
 
 **Crystal and magnetic structure refinement in the browser, built to be driven by people and by AI agents.**
 
-MATERIA refines crystal structures against diffraction and total-scattering data in a web page, with
-nothing to install and the data never leaving your machine. It runs Rietveld refinement of powder
-patterns (X-ray and neutron, constant wavelength and time of flight, several phases), single-crystal F²
-refinement, and real-space fits of the pair distribution function G(r), magnetic PDF included. For
-magnetic order it goes from the peaks the nuclear model leaves, to the propagation vector k, to the
-magnetic space groups that k allows, ranked against the data, to refined moments and an mCIF. Its own
-subgroup engine builds the irreps, isotropy subgroups and subgroup lattice of a structure within a
-supercell bound, so a lower-symmetry child, in the parent's cell or a larger one, can be activated and
-refined by its distortion modes. The **MATERIA Copilot** puts a language model beside the analysis: it
-reads the live page, follows your written method, and changes things only through the page's own
-controls, asking first. One TypeScript engine backs the app, the Copilot and an MCP server.
+MATERIA refines crystal and magnetic structures against diffraction and total-scattering data in a web
+page, with nothing to install and the data never leaving your machine. The **MATERIA Copilot** puts a
+language model beside the analysis: it changes things only through the page's own controls, asking first.
+
+**Live site: [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-platform/)**
 
 <p align="center">
-  <img src="docs/media/desktop.webp" alt="The Rietveld page: a two-phase Mn₃Ga and MnO fit of POWGEN time-of-flight neutron data, with observed, calculated and difference curves, a row of Bragg ticks for each phase, and the symmetry-allowed parameter table with esds" width="100%" />
+  <img src="docs/media/desktop.png" alt="The Rietveld page on the bundled Mn₃Ga demo: a two-phase Mn₃Ga and MnO fit of POWGEN time-of-flight neutron data at wR 4.24 %, with observed, calculated and difference curves, a row of Bragg ticks for each phase, and the parameter table with esds" width="100%" />
 </p>
+
+## What it does
+
+- **Powder Rietveld.** X-ray and neutron, constant wavelength and time of flight, several phases,
+  microstructure. Reads GSAS-II, GSAS and FullProf instrument files and writes a FullProf / GSAS-II
+  cross-check bundle.
+- **Magnetic structures.** From the peaks the nuclear model leaves, to the propagation vector k, to the
+  magnetic space groups k allows (BNS/OG) ranked against the data, to refined moments and an mCIF.
+  Representation analysis at any commensurate k; commensurate and incommensurate single-k.
+- **Single crystal.** F² refinement from hkl, SHELX and FullProf lists, with extinction, twins and
+  absolute structure.
+- **PDF and magnetic PDF.** Neutron and X-ray G(r), several phases and datasets, boxcar scans, and a
+  PDFgui / diffpy-CMI export.
+- **Subgroups.** Its own engine builds the irreps, isotropy subgroups and subgroup lattice within a
+  supercell bound. A lower-symmetry child refines in its own cell by its distortion modes, with
+  ISODISTORT's A_s and A_p; ISODISTORT mode CIFs are read and written.
+- **Uncertainty.** Least-squares esds and Bayesian posteriors (ensemble MCMC and NUTS), with Stop and
+  Continue.
+- **One engine, three ways in.** One TypeScript engine backs the app, the Copilot and an
+  [MCP server](docs/AGENT_TOOLS.md).
+
+New in 0.5.0: the Subgroups Tree, List and Find, 3D modes grouped by irrep, the Copilot's
+symmetry-lowering tools and context meter, and a phone layout ([CHANGELOG](CHANGELOG.md#050---2026-11-07)).
+How it compares with GSAS-II, Jana2020 and FullProf: [docs/COMPARISON.md](docs/COMPARISON.md).
 
 ## Quick start
 
-**Online:** open **[drthyang.github.io/materia-platform](https://drthyang.github.io/materia-platform/)**.
-The analysis runs in your browser.
+**Online:** open the [live site](https://drthyang.github.io/materia-platform/). The analysis runs in
+your browser.
 
 **Locally** (Node 22, as CI uses):
 
@@ -36,12 +54,10 @@ npm ci
 npm run dev        # then open http://localhost:5173/materia-platform/
 ```
 
-| Command | What it does |
-| --- | --- |
-| `npm run test` | Unit, regression and scripted agent-eval tests (Vitest) |
-| `npm run typecheck` · `npm run lint` | TypeScript and ESLint |
-| `npm run build` · `npm run preview` | The production build, and a local server for it |
-| `npm run mcp` | Build and serve the MCP server ([agent tools](docs/AGENT_TOOLS.md)) |
+- `npm run test`: unit, regression and scripted agent-eval tests (Vitest)
+- `npm run typecheck`, `npm run lint`: TypeScript and ESLint
+- `npm run build`, `npm run preview`: the production build, and a local server for it
+- `npm run mcp`: build and serve the MCP server ([agent tools](docs/AGENT_TOOLS.md))
 
 The Copilot needs a model. On the live site, paste an Anthropic API key in its settings (it stays in
 your browser) or connect a local model on Ollama or LM Studio. With `npm run dev` or `npm run preview`,
@@ -66,60 +82,7 @@ Both demos are public data and open on a converged fit.
 4. **3D Model.** The modes fold by parent irrep, with a bar chart of each irrep's share of the
    distortion. Click a bar to draw that irrep's displacements as arrows.
 
-A 5–10 minute walk-through with timings and fallbacks: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
-Every page and control, task by task: the [user guide](docs/USER_GUIDE.md).
-
-## What's new in 0.5.0
-
-**Subgroups: a Tree, a merged List, and Find.** The Subgroups view opens on the Tree of maximal
-subgroups within the supercell bound (2×2×2 by default). Each row gives the cell, the domain states and
-the irreps that reach it; the detail shows how you get there and what Activate will refine.
-
-<p align="center">
-  <img src="docs/media/subgroups-tree.webp" alt="The PDF page's Subgroups view on the GaTa₄Se₈ demo: on the left the Tree of F-43m's five maximal subgroups in a 2×2×2 bound, with k-point chips above it; P-43m #215 is selected, and its detail on the right gives a same-cell child with 4 domains and index 4, the path F-43m to P-43m by X irrep 1, and an Activate button" width="100%" />
-</p>
-
-**3D modes grouped by k-point and irrep, with a contribution chart.** After Activate, the 3D Model view
-lists the child's distortion modes folded by parent irrep, filters them by k-point and site, and charts
-each irrep's share of the distortion. Bonds draw as sticks, ball-and-stick or thin lines, or not at all.
-
-<p align="center">
-  <img src="docs/media/modes-3d.webp" alt="The 3D Model view after activating and refining the P-42₁m child of GaTa₄Se₈ in a 1×1×2 cell: the unit cell with green displacement arrows for X irrep 5 of 5, k-point and site chips, a bar chart giving X irrep 5 of 5 55.6 % and W irrep 1 of 4 44.4 % of the distortion, and the mode table with A, A_s and A_p for each irrep" width="100%" />
-</p>
-
-**The Copilot lowers the symmetry, and shows how full the model's window is.** `list_subgroups`,
-`lower_symmetry` and `clear_subgroup` do what the Subgroups view does, through an approval card. A meter
-by the message box gives the share of the model's context window in use.
-
-<p align="center">
-  <img src="docs/media/copilot-lower-symmetry.webp" alt="The Copilot docked beside the GaTa₄Se₈ PDF page, played by a scripted model (no model was called). The user asked to lower the symmetry to P-42₁m in a 1×1×2 cell; the Copilot has read the pdf-workflow skill and listed the subgroups, and waits on an approval card: Lower F-43m #216 to P-42₁m #113, 1×1×2, 24 domains, from X irrep 5 and W irrep 1, variant 1 of 4, with Approve and Decline. Ask first is selected, and the context meter reads 19 %" width="100%" />
-</p>
-
-**A phone layout.** Up to 640 px wide, Prefit, Refine and Cancel sit in a bar at the bottom of the
-screen, the Copilot opens as a sheet, and a subgroup's detail as a full-screen sheet.
-
-<p align="center">
-  <img src="docs/media/phone.webp" alt="Four phone screens 390 px wide: the Mn₃Ga Rietveld pattern with Escape min and Refine in the bottom bar; the GaTa₄Se₈ Subgroups Tree with Prefit and Refine in the bottom bar; the P-43m subgroup detail as a full-screen sheet with Back, its two variants and Activate; and the Copilot as a sheet with a Refine approval card" width="100%" />
-</p>
-
-Also new: magnetic representation analysis at any commensurate k on the same engine, **Stop** for
-posterior sampling, a Boxcar tab with its own range and starting point, and a PDFgui / diffpy-CMI
-export. Two fixes change results: a powder magnetic line now sums every member of its family, so
-domains of one group fit alike, and irrep numbers follow one documented order on every runtime.
-Details and upgrade notes: [CHANGELOG](CHANGELOG.md#050---2026-11-07).
-
-## What it does
-
-| Track | Highlights |
-| --- | --- |
-| **Powder Rietveld** | CW and TOF, multi-phase, microstructure; GSAS-II, GSAS and FullProf instrument files; a FullProf / GSAS-II cross-check bundle |
-| **Magnetic structures** | Magnetic peaks → k search → magnetic subgroups (BNS/OG) → moments; representation analysis at any commensurate k; commensurate and incommensurate single-k; mCIF |
-| **Single crystal** | F² from hkl, SHELX and FullProf lists; extinction, twins, absolute structure |
-| **PDF and mPDF** | Neutron and X-ray G(r), multi-phase and multi-dataset, magnetic PDF; boxcar scans; a PDFgui / diffpy-CMI export |
-| **Subgroups** | Irreps, isotropy subgroups and the subgroup lattice within a supercell bound; a child refines in its own cell; modes by parent irrep, with ISODISTORT's A_s and A_p; ISODISTORT mode CIFs read and written |
-| **Uncertainty** | Least-squares esds plus Bayesian posteriors (ensemble MCMC and NUTS), with Stop and Continue |
-
-How it compares with GSAS-II, Jana2020 and FullProf: [docs/COMPARISON.md](docs/COMPARISON.md).
+A longer walk-through is in the [demo script](docs/DEMO_SCRIPT.md).
 
 ## How the Copilot stays safe
 
@@ -168,28 +131,39 @@ prompt. Each item names where it lives; the full account is in [docs/AGENT_TOOLS
 
 ## Validation and evals
 
-**The engine against reference programs.** Each row names what a result was checked against.
-*Supported*: implemented and checked. *Approximate*: works, with a simplification to know. Tolerances
-and tests are in [VALIDATION.md](docs/VALIDATION.md#external-comparisons), every gap in
+**The engine against reference programs.** Each item names what a result was checked against;
+reference values are in parentheses. *Approximate* means it works, with a simplification to know.
+Tolerances and tests are in [VALIDATION.md](docs/VALIDATION.md#external-comparisons), every gap in
 [LIMITATIONS.md](docs/LIMITATIONS.md).
 
-| Area | Case | Checked against | Result | Status |
-| --- | --- | --- | --- | --- |
-| Single crystal | Ga/Al hydride, Mo Kα, SHELXL's 142 parameters | SHELXL | R1 2.02 % (2.04 %); Flack x 0.435(11) (0.435(15)); Al share 0.844(2) (0.844(2)) | Supported |
-| Magnetic intensities | Mn₃Ga 350 K, POWGEN neutron | GSAS-II | all 82 \|F_M\|² within ±5 % | Supported |
-| Moments and group | Mn₃Ga 30 K, monoclinic cell | GSAS-II | \|M\| of three Mn sites to 0.01 μB; P2₁′/m′ | Supported |
-| Magnetic group labels | MnO, every k = 0 subgroup of Fm-3m | FindSpinGroup | the same BNS labels | Supported |
-| Magnetic groups at k ≠ 0 | 15 parents and k, 0 and zone boundary | an independent construction, named by spglib | every candidate a group; the same classes and BNS numbers | Supported |
-| Subgroup lattice | Pnma, Pm-3m and Fm-3m in a supercell | Bilbao SUBGROUPS; brute-force enumeration | the same class counts (Pm-3m, I-centred 2c cell: 98 classes, 10 maximal); Fm-3m: the same 231 subgroups | Supported |
-| Modes by irrep | SrTiO₃ → R-3c and Pnma; NiAs → MnP-type Pnma | ISOTROPY; ISODISTORT 6.12.2 mode CIFs | per-irrep A_s to 4e-14; A_s and normfactor as ISODISTORT writes them | Supported |
-| Supercell child | four SrTiO₃ tilt systems | the whole supercell summed atom by atom | \|F\|² to 4e-12, G(r) to 7e-14 | Supported |
-| Incommensurate k | DyMn₆Ge₆ conical spiral, PSI DMC | FullProf | γ = 0.16478(67) (0.16509(43)); the cone's k = 0 part is not modelled, so wR 19.9 % (11.3 %) | Approximate |
-| PDF | Ni and MnO, X-ray G(r) | PDFfit2 1.6.0 | G_calc correlation 0.9998; refined cell within 2 mÅ | Supported |
-| Magnetic PDF | MnO and its measured tutorial data | diffpy.mpdf | f(r) to 10⁻¹¹ of its peak; ordered scale 1.6716 (1.6685) | Supported |
-| Posterior | the PDFfit2 Ni fit; exact Gaussian cases | LM esds; the exact posterior | posterior std / esd 0.95–1.01 | Approximate: correlated residuals ignored |
-| Does the Copilot help? | 8 held-out simulated cases with known answers | the app alone, fixed scoring | the app alone is right on 3 of 8; the Copilot's runs are in progress | Not yet |
-
-Reference values are in parentheses.
+- **Single crystal, against SHELXL.** A Ga/Al hydride at Mo Kα with SHELXL's 142 parameters:
+  R1 2.02 % (2.04 %); the Flack x and the Al share within 0.002 of SHELXL's 0.435 and 0.844.
+- **Magnetic intensities, against GSAS-II.** Mn₃Ga at 350 K, POWGEN neutrons: all 82 |F_M|² within
+  ±5 %.
+- **Moments and group, against GSAS-II.** Mn₃Ga at 30 K: |M| of the three Mn sites to 0.01 μB, in
+  P2₁′/m′.
+- **Magnetic group labels, against FindSpinGroup.** MnO, every k = 0 subgroup of Fm-3m: the same BNS
+  labels.
+- **Magnetic groups at k ≠ 0, against an independent construction named by spglib.** 15 cases of
+  parent and k (k = 0 and zone boundary): every candidate a group, with the same classes and BNS
+  numbers.
+- **Subgroup lattice, against Bilbao SUBGROUPS and brute-force enumeration.** Pnma, Pm-3m and Fm-3m
+  in a supercell: the same class counts (Pm-3m in an I-centred 2c cell: 98 classes, 10 maximal) and,
+  for Fm-3m, the same 231 subgroups.
+- **Modes by irrep, against ISOTROPY and ISODISTORT 6.12.2 mode CIFs.** SrTiO₃ → R-3c and Pnma,
+  NiAs → MnP-type Pnma: per-irrep A_s to 4e-14; A_s and normfactor as ISODISTORT writes them.
+- **Supercell child, against the whole supercell summed atom by atom.** Four SrTiO₃ tilt systems:
+  |F|² to 4e-12, G(r) to 7e-14.
+- **Incommensurate k, against FullProf (approximate).** The DyMn₆Ge₆ conical spiral, PSI DMC:
+  γ = 0.16478(67) (0.16509(43)). The cone's k = 0 part is not modelled, so wR is 19.9 % (11.3 %).
+- **PDF, against PDFfit2 1.6.0.** Ni and MnO X-ray G(r): G_calc correlation 0.9998; refined cell
+  within 2 mÅ.
+- **Magnetic PDF, against diffpy.mpdf.** MnO: f(r) to 10⁻¹¹ of its peak; on the measured tutorial
+  data, ordered scale 1.6716 (1.6685).
+- **Posterior, against least-squares esds and the exact posterior (approximate).** The PDFfit2 Ni
+  fit and exact Gaussian cases: posterior std / esd 0.95–1.01. Correlated residuals are ignored.
+- **Does the Copilot help? Not shown yet.** On 8 held-out simulated cases with known answers and
+  fixed scoring, the app alone is right on 3 of 8; the Copilot's runs are not done yet.
 
 **The v0.5.0 eval gate.** Before the tag, eight live eval scenarios ran on Claude Haiku 5.5 and Claude
 Sonnet 5.5, three runs each (four on Sonnet for two of them: 50 runs). After the fixes they led to, the
@@ -209,22 +183,20 @@ check read a staging sentence as a refusal.
 mostly do what an earlier failure taught the Copilot to do. It is a regression test of behaviour, on a
 few runs per scenario. It does not show that the Copilot reaches better answers than the app used
 without it. That question has its own protocol, on held-out simulated cases with known answers, and
-its Copilot runs are not done yet (the last row of the table above;
+its Copilot runs are not done yet (the last item of the list above;
 [VALIDATION.md, "Does the Agent help?"](docs/VALIDATION.md#does-the-agent-help)). Separately, in ten
 researcher rounds a crystallographer put the Copilot through analyses end to end, and what it got wrong
 or could not do was fixed ([researcher rounds](docs/VALIDATION.md#researcher-rounds)).
 
 ## Documentation
 
-| Read | For |
-| --- | --- |
-| [User guide](docs/USER_GUIDE.md) | Every page and control, task by task |
-| [Demo script](docs/DEMO_SCRIPT.md) | A 5–10 minute walk-through with timings and fallbacks |
-| [Limitations](docs/LIMITATIONS.md) | What is supported, approximate or missing |
-| [Validation](docs/VALIDATION.md) · [Agent evals](docs/AGENT_EVALS.md) | What is tested, and against what |
-| [Agent tools](docs/AGENT_TOOLS.md) | The Copilot's tools and the MCP server |
-| [Architecture](docs/ARCHITECTURE.md) | The layers, the source tree and the real-data regression |
-| [All docs](docs/README.md) | Every document, by task |
+- [User guide](docs/USER_GUIDE.md): every page and control, task by task
+- [Demo script](docs/DEMO_SCRIPT.md): a 5–10 minute walk-through with timings and fallbacks
+- [Limitations](docs/LIMITATIONS.md): what is supported, approximate or missing
+- [Validation](docs/VALIDATION.md) and [agent evals](docs/AGENT_EVALS.md): what is tested, and against what
+- [Agent tools](docs/AGENT_TOOLS.md): the Copilot's tools and the MCP server
+- [Architecture](docs/ARCHITECTURE.md): the layers, the source tree and the real-data regression
+- [All docs](docs/README.md): every document, by task
 
 ## Status
 
@@ -235,5 +207,10 @@ or could not do was fixed ([researcher rounds](docs/VALIDATION.md#researcher-rou
 
 [AGPL-3.0](LICENSE). If you run a modified version on a network server, you must make its source
 available to its users (AGPL §13).
+
+## Citing
+
+To cite MATERIA, cite this repository and the version you used (shown beside the
+logo in the app).
 
 *This project is personal work, developed and maintained in my personal capacity.*
