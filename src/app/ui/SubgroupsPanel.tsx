@@ -304,7 +304,8 @@ function RowLine({ g, variant, selected, active, onPick, lead, trail, dim }: { g
     >
       {lead}
       <span style={{ ...nameStyle, fontWeight: selected ? 600 : 400 }}>{compactName(g.group.name)}</span>
-      <span style={factStyle}>· {g.group.cell}</span>
+      {/* The cell gives way first in a row too narrow for all its facts (a 402 px phone cut the tree's "n below" instead). */}
+      <span style={{ ...factStyle, flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }} title={g.group.cell}>· {g.group.cell}</span>
       <span style={factStyle}>· {g.group.domains} dom</span>
       {active ? <span style={{ ...factStyle, color: color.primary }}>· active</span> : null}
       {trail}
@@ -785,7 +786,7 @@ function TreeBody(p: {
               active={p.activeKey === row.key}
               onPick={() => p.onPick(row)}
               lead={caret}
-              trail={also || count ? <span style={{ display: "inline-flex", gap: 4, flex: "1 1 0", minWidth: 0, overflow: "hidden" }}>{also ?? count}</span> : null}
+              trail={also ? <span style={{ display: "inline-flex", gap: 4, flex: "1 1 0", minWidth: 0, overflow: "hidden" }}>{also}</span> : count}
               dim={!rowPasses(row, p.filters)}
             />
           </div>,

@@ -154,12 +154,14 @@ export const cardHeadRow: CSSProperties = { display: "flex", alignItems: "center
  */
 export const cardHeadLead: CSSProperties = { display: "flex", alignItems: "center", gap: 10, flex: "1 1 0" };
 /**
- * The title row's label: gives way to an ellipsis before the row wraps. One
- * clamped line rather than `nowrap`, whose min-content width is the whole
- * text: that held the lead at the label's full width, and the figures beside
- * it ran off a phone-width card.
+ * The title row's label: gives way before the row wraps, first onto a second
+ * line (at word breaks), then to an ellipsis. Clamped lines rather than
+ * `nowrap`, whose min-content width is the whole text: that held the lead at
+ * the label's full width, and the figures beside it ran off a phone-width
+ * card. (One clamped line cut "Bayesian posterior — free parameters" short on
+ * a phone and beside the tabs on a tablet.)
  */
-export const cardHeadLabel: CSSProperties = { flex: "0 1 auto", minWidth: "8ch", overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 1, wordBreak: "break-all" };
+export const cardHeadLabel: CSSProperties = { flex: "0 1 auto", minWidth: "8ch", overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflowWrap: "anywhere" };
 /** The plot's own toolbar, under the title row on the Refinement tab: axis unit, optimize view, the fit window, overlays. */
 export const plotToolbar: CSSProperties = { display: "flex", alignItems: "center", gap: 8, rowGap: 6, marginBottom: 8, flexWrap: "wrap" };
 

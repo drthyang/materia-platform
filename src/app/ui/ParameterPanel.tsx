@@ -358,11 +358,19 @@ function ResultSection({ result, open, onToggle }: { result: RefinementResult; o
   );
 }
 
-const colHeader: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 104px 62px 62px", padding: `6px ${space.inset}`, borderBottom: `1px solid ${color.border}`, ...uppercaseLabel };
+/**
+ * The row's columns: label, value, esd, status. The label takes what is left
+ * and ends in an ellipsis; the gap keeps it off the value field and the esd
+ * off the status pill in a narrow panel (a phone, or beside the open Copilot
+ * drawer), where a nine-character esd fills its column.
+ */
+const PARAM_COLUMNS = "minmax(0, 1fr) 88px 62px 56px";
+const PARAM_COLUMN_GAP = 6;
+const colHeader: CSSProperties = { display: "grid", gridTemplateColumns: PARAM_COLUMNS, columnGap: PARAM_COLUMN_GAP, padding: `6px ${space.inset}`, borderBottom: `1px solid ${color.border}`, ...uppercaseLabel };
 const groupHeader: CSSProperties = { display: "flex", alignItems: "center", gap: 8, background: color.groupBg, borderTop: `1px solid ${color.subtle}`, padding: `8px ${space.inset}`, cursor: "pointer", transition: "background 400ms, box-shadow 400ms" };
 /** A group the page just brought into view (the Validation view's "Open …"). */
 const markedHeader: CSSProperties = { background: color.primaryTintBg, boxShadow: `inset 3px 0 0 ${color.primary}` };
-const paramRow: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 104px 62px 62px", alignItems: "center", padding: `4px ${space.inset} 4px calc(${space.inset} + 12px)`, borderTop: `1px solid ${color.subtle2}` };
+const paramRow: CSSProperties = { display: "grid", gridTemplateColumns: PARAM_COLUMNS, columnGap: PARAM_COLUMN_GAP, alignItems: "center", padding: `4px ${space.inset} 4px calc(${space.inset} + 12px)`, borderTop: `1px solid ${color.subtle2}` };
 const groupControlRow: CSSProperties = { display: "flex", alignItems: "center", gap: 8, rowGap: 5, flexWrap: "wrap", padding: `7px ${space.inset} 7px calc(${space.inset} + 12px)`, borderTop: `1px solid ${color.subtle2}`, fontSize: 12, color: color.secondary };
 const valueInput: CSSProperties = { width: 88, border: `1px solid ${color.input}`, borderRadius: 7, fontSize: 12, fontFamily: mono, padding: "2px 6px", background: "#fff" };
 const pill: CSSProperties = { fontSize: 11, padding: "1px 8px", borderRadius: 999, textAlign: "center", justifySelf: "start" };

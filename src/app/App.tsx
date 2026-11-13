@@ -42,7 +42,7 @@ import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
-import { LOCAL_MAGNETIC_DEMO_LABEL, localMagneticDemoParams, localMagneticDemoAvailable, loadLocalMagneticExample } from "@/examples/localMagneticDemo";
+import { loadLocalDemoModule, localDemoAvailable } from "@/app/localDemoGate";
 import { DEMOS, type DemoId } from "@/app/demos";
 import { hasUnsavedChanges, markOf, type ProjectMark } from "@/app/closeProject";
 import { CloseProjectDialog } from "@/app/ui/CloseProjectDialog";
@@ -213,7 +213,7 @@ export function App(): JSX.Element {
   const [localDemos, setLocalDemos] = useState<ReadonlySet<DemoId>>(new Set());
   useEffect(() => {
     let cancelled = false;
-    localMagneticDemoAvailable().then((ok) => {
+    localDemoAvailable().then((ok) => {
       if (!cancelled && ok) setLocalDemos(new Set<DemoId>(["magnetic"]));
     });
     return () => { cancelled = true; };
@@ -647,14 +647,16 @@ export function App(): JSX.Element {
       // rows free: the solve's last step, the moments refined against the
       // nuclear model as a fixed reference. The app opens on the magnetic page,
       // which recognizes the applied model and preselects its group. Fetched,
-      // so nothing of it is in the bundle.
-      loadLocalMagneticExample().then(
-        (ex) => {
+      // so nothing of it is in the bundle; a production build has no local
+      // demo at all (localDemoGate.ts).
+      if (!loadLocalDemoModule) return;
+      loadLocalDemoModule().then(async (mod) => ({ mod, ex: await mod.loadLocalMagneticExample() })).then(
+        ({ mod, ex }) => {
           const base = loadedSession(ex.structure, ex.pattern, ex.instrument, [], ex.refinedParams, ex.backgroundTerms);
           const session = {
             ...base,
             magnetic: ex.magnetic,
-            powderParams: localMagneticDemoParams(base.powderParams, ex),
+            powderParams: mod.localMagneticDemoParams(base.powderParams, ex),
             powderBindings: [...base.powderBindings, ...ex.momentBindings],
             rawData: ex.rawData,
             rawInstrument: ex.rawInstrument,
@@ -668,7 +670,7 @@ export function App(): JSX.Element {
           setDemo("magnetic");
           setNotice(null);
           setMessage(`Loaded the local magnetic demo (POWGEN, ${ex.group}; the moments refined with the nuclear model held) — magnetic page.`);
-          requestStep("load", LOCAL_MAGNETIC_DEMO_LABEL, true, true);
+          requestStep("load", mod.LOCAL_MAGNETIC_DEMO_LABEL, true, true);
         },
         (e: unknown) => {
           const msg = e instanceof Error ? e.message : String(e);

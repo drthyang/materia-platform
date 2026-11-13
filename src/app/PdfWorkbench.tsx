@@ -64,6 +64,7 @@ import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { reportHtml, type ReportInput } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
 import { esdsWithTies } from "@/core/refinement/constraints";
+import { InfoBadge } from "@/app/ui/InfoBadge";
 import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 
 const DATA_ACCEPT = ".gr,.sgr,.fgr,.sq,.fq,.dat,.txt,text/plain";
@@ -882,6 +883,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       Magnetic PDF →
     </button>
   );
+  // The reason the button is dimmed, behind a "?" a finger can open: the
+  // button's own tooltip needs a pointer to hover with.
+  const magneticBlockedInfo = magneticBlockedReason ? <InfoBadge text={magneticBlockedReason} width={260} align="right" ariaLabel="Why Magnetic PDF is unavailable" /> : null;
 
   // Moment-fit backend handed to the (shared) symmetry panel: it fits the freed
   // moment amplitudes against this G(r) with the nuclear model held fixed — the
@@ -1231,7 +1235,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           result={result}
           title="PDF parameters"
           shown={step !== 1}
-          extraActions={refineActions}
+          extraActions={<>{refineActions}{magneticBlockedInfo}</>}
           warnings={siteSumRangeWarnings(params)}
           groupControls={{
             // Each shared site's occupancies sum to its total by a tie (the last follows the others).
