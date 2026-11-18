@@ -63,6 +63,7 @@ The Copilot needs a model. On the live site, paste an Anthropic API key in its s
 your browser) or connect a local model on Ollama or LM Studio. With `npm run dev` or `npm run preview`,
 put `ANTHROPIC_API_KEY` in `.env.local` and choose **Local proxy**, so the key never reaches the browser
 ([five ways to reach a model](docs/AGENT_TOOLS.md#five-ways-to-reach-a-model)).
+Step by step: [set up the Copilot](docs/COPILOT_SETUP.md).
 
 ## Try it in 2 minutes
 
