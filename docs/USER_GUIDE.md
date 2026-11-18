@@ -1046,6 +1046,9 @@ the PDF page. How it is built, and every tool it has:
 
 ### Connect a model
 
+Step by step, with checks and fixes for each connection:
+[COPILOT_SETUP.md](./COPILOT_SETUP.md).
+
 1. Open it from the **Copilot** rail at the page's side (on a phone, the
    **Copilot** bar at the bottom).
 2. In its settings (⚙), pick a provider: **Anthropic** (with **API key** or
