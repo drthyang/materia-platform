@@ -210,6 +210,33 @@ describe("refinesMomentsAlone", () => {
   });
 });
 
+describe("magneticEndsOnMoments", () => {
+  const call = (name: string, free?: string[], out: Record<string, unknown> = {}, isError = false) =>
+    ({ kind: "call", name, input: {}, isError, text: isError ? "Error: refused" : JSON.stringify(name === "refine" ? { refined: true, ...out } : out), ...(free ? { free } : {}) });
+  const run = (events: unknown[]): EvalRun => ({ events }) as unknown as EvalRun;
+  const PASS = ["scale", "bkg0", "profU", "profV", "profW"];
+  const MOMENTS = ["mom_Mn1_0", "mom_Mn1_1"];
+
+  it("passes a run whose last refinement, after the instrument pass, is of the moments alone", async () => {
+    const { magneticEndsOnMoments } = await import("@/agent/evals/checks");
+    const good = [call("refine_moments"), call("continue_magnetic_refinement"), call("refine", MOMENTS), call("refine", PASS), call("refine", MOMENTS), call("write_report")];
+    expect(magneticEndsOnMoments.grade(run(good))).toEqual({ pass: true, detail: "the last refinement, after the pass, freed only mom_Mn1_0, mom_Mn1_1" });
+    // The pass and the moments run twice (a moment moved by more than its esd the first time), and k refined with the moments.
+    expect(magneticEndsOnMoments.grade(run([call("continue_magnetic_refinement"), call("refine", PASS), call("refine", MOMENTS), call("refine", PASS), call("refine", [...MOMENTS, "prop_k3"])])).pass).toBe(true);
+  });
+
+  it("fails a run that ends on the pass, has none, or frees a nuclear row with the moments at the end", async () => {
+    const { magneticEndsOnMoments } = await import("@/agent/evals/checks");
+    // The method before 2026-11-20: the moments, then the pass, then the report.
+    expect(magneticEndsOnMoments.grade(run([call("continue_magnetic_refinement"), call("refine", MOMENTS), call("refine", PASS), call("write_report", undefined, {}, true)]))).toEqual({ pass: false, detail: "ended on the instrument pass: the moments were not refined after it" });
+    expect(magneticEndsOnMoments.grade(run([call("continue_magnetic_refinement"), call("refine", MOMENTS)]))).toEqual({ pass: false, detail: "no final instrument pass: no refinement with the moments held after the hand-off" });
+    expect(magneticEndsOnMoments.grade(run([call("continue_magnetic_refinement"), call("refine", PASS), call("refine", [...MOMENTS, "scale"])]))).toEqual({ pass: false, detail: "the last refinement after the pass freed scale with the moments" });
+    // A refine that did not finish is no refinement; a run that never handed the model over has no step to end.
+    expect(magneticEndsOnMoments.grade(run([call("continue_magnetic_refinement"), call("refine", PASS), call("refine", MOMENTS, { refined: false })])).pass).toBe(false);
+    expect(magneticEndsOnMoments.grade(run([call("refine_moments")]))).toEqual({ pass: false, detail: "never handed the magnetic model to the refinement" });
+  });
+});
+
 describe("symmetryLast", () => {
   const run = (reply: string): EvalRun => ({ events: [{ kind: "reply", text: reply }] }) as unknown as EvalRun;
 

@@ -21,7 +21,8 @@ import { PROBE_OPTIONS, carriedText, pairText, readCorrelations } from "@/core/d
 import { PAGE_METHOD } from "@/agent/skills";
 import { INSTRUMENT_KINDS, outOfOrder, ruleRefusal, stagesLeft, type AgentRecord } from "@/agent/method";
 import type { PageAdapter, StateOf } from "@/agent/pages";
-import { isMomentParameterKind, type LinearRestraint, type ParameterKind, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
+import { isMagneticModelParameterKind, isMomentParameterKind, type LinearRestraint, type ParameterKind, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
+import { lineage, type ProjectHistory } from "@/core/project/history";
 
 /** Who refused a call: the method gate, a running fit, a firm rule, the correlation guard, the symmetry review's gate, or a page changed while the card waited. */
 export type RefusalKind = "method" | "busy" | "firm-rule" | "correlation" | "symmetry-gate" | "report-gate" | "stale";
@@ -135,23 +136,69 @@ export function symmetryNotYet(page: AgentPage, record: AgentRecord, status: str
   return null;
 }
 
+/** The kinds of the magnetic workflow's final instrument pass: the instrument's terms, with the scale and the background beside them. */
+const passKind = (k: ParameterKind | undefined): boolean => k !== undefined && (INSTRUMENT_KINDS.has(k) || k === "scale" || k === "background");
+
+/** What a converged refinement refined, by kind (its esds' rows); nothing for a fit that did not converge. */
+function refinedKinds(parameters: readonly RefinementParameter[], result: RefinementResult | null | undefined): (ParameterKind | undefined)[] {
+  const kind = new Map(parameters.map((p) => [p.id, p.kind] as const));
+  return result?.status === "converged" ? Object.keys(result.esd).map((id) => kind.get(id)) : [];
+}
+
+/**
+ * The magnetic workflow's final instrument pass (magnetic-analysis Stage 5): a converged refinement, with a
+ * magnetic model's moment rows in the refinement, that freed the instrument's terms, with the scale and the
+ * background at most beside them, and nothing else.
+ */
+export function isInstrumentPass(parameters: readonly RefinementParameter[], result: RefinementResult | null | undefined): boolean {
+  if (!parameters.some((p) => isMomentParameterKind(p.kind))) return false;
+  const refined = refinedKinds(parameters, result);
+  return refined.some((k) => k !== undefined && INSTRUMENT_KINDS.has(k)) && refined.every(passKind);
+}
+
+/** A converged refinement of the magnetic rows alone: the moments, and k's components where they refine; every nuclear row held. */
+export function isMomentsRefinement(parameters: readonly RefinementParameter[], result: RefinementResult | null | undefined): boolean {
+  const refined = refinedKinds(parameters, result);
+  return refined.some((k) => k !== undefined && isMomentParameterKind(k)) && refined.every((k) => k !== undefined && isMagneticModelParameterKind(k));
+}
+
+/**
+ * Whether the final instrument pass is on the History's path to the page as it stands, since the analysis
+ * was loaded: undo and go_to_step take it off again. Null without a History (the caller's own memory of the
+ * run then stands).
+ */
+export function instrumentPassOnPath(history: ProjectHistory | null, now: { readonly parameters: readonly RefinementParameter[]; readonly result: RefinementResult | null }): boolean | null {
+  if (!history) return null;
+  const path = lineage(history);
+  const start = Math.max(0, ...path.map((st, i) => (st.kind === "load" || st.kind === "open" ? i : 0)));
+  const fits = path.slice(start).map((st) => {
+    const r = st.workspace.refinement as { parameters?: readonly RefinementParameter[]; lastResult?: RefinementResult } | undefined;
+    return { parameters: r?.parameters ?? [], result: r?.lastResult ?? null };
+  });
+  return [...fits, now].some((fit) => isInstrumentPass(fit.parameters, fit.result));
+}
+
 /**
  * Why the report waits, or null: on the powder page with a magnetic model in the refinement, the
- * magnetic workflow ends with a final instrument pass (magnetic-analysis Stage 5) — the peak shape was
- * fitted before the magnetic peaks were modelled — so the report comes once the last converged
- * refinement freed the instrument's terms, with the scale and background beside them, and nothing else. Without the skills (arm C) there is no
- * workflow to keep.
+ * magnetic workflow ends with a final instrument pass and then the moments again (magnetic-analysis
+ * Stage 5). The peak shape was fitted before the magnetic peaks were modelled, so it is refined once more
+ * with the moments held; that pass moves the scale, the background and the peak shape under the moments,
+ * so the moments refine last, alone, and the report quotes them as they settled. So the report comes once
+ * a pass has run (`passDone`) and the last converged refinement is the moments'. Without the skills
+ * (arm C) there is no workflow to keep.
  */
-export function reportNotYet(page: AgentPage, parameters: readonly RefinementParameter[], result: RefinementResult | null | undefined, skills: boolean): Held | null {
+export function reportNotYet(page: AgentPage, parameters: readonly RefinementParameter[], result: RefinementResult | null | undefined, skills: boolean, passDone: boolean): Held | null {
   if (!skills || page !== "powder" || !parameters.some((p) => isMomentParameterKind(p.kind))) return null;
-  const kind = new Map(parameters.map((p) => [p.id, p.kind] as const));
-  const refined = result?.status === "converged" ? Object.keys(result.esd).map((id) => kind.get(id)) : [];
-  // The pass: the instrument's terms, with the scale and background beside them, and nothing else.
-  const passKind = (k: ParameterKind | undefined): boolean => k !== undefined && (INSTRUMENT_KINDS.has(k) || k === "scale" || k === "background");
-  if (refined.some((k) => k !== undefined && INSTRUMENT_KINDS.has(k)) && refined.every(passKind)) return null;
+  if (!passDone && !isInstrumentPass(parameters, result)) {
+    return {
+      line: "Not yet: the final instrument pass",
+      message: `Not yet. ${PAGE_METHOD[page]}'s magnetic step ends with a final instrument pass and then the moments again (magnetic-analysis Stage 5): the peak shape was fitted before the magnetic peaks were modelled. Free the instrument's terms — the zero and the peak shape with its asymmetry (TOF α, β, σ; constant wavelength U, V, W, X, Y and S/L, H/L) — with the scale and the background, everything else held (the moments, the structure, the microstrain), and refine to convergence; a term that lands on its bound is fixed alone and the rest refined again. Then refine the moments alone once more, and write the report, quoting the fit before and after the pass.`,
+    };
+  }
+  if (isMomentsRefinement(parameters, result)) return null;
   return {
-    line: "Not yet: the final instrument pass",
-    message: `Not yet. ${PAGE_METHOD[page]}'s magnetic step ends with a final instrument pass (magnetic-analysis Stage 5): the peak shape was fitted before the magnetic peaks were modelled. Free the instrument's terms — the zero and the peak shape with its asymmetry (TOF α, β, σ; constant wavelength U, V, W, X, Y and S/L, H/L) — with the scale and the background, everything else held (the moments, the structure, the microstrain), and refine to convergence; a term that lands on its bound is fixed alone and the rest refined again. Then write the report, quoting the fit before and after the pass.`,
+    line: "Not yet: the moments after the instrument pass",
+    message: `Not yet. The final instrument pass is done; ${PAGE_METHOD[page]}'s magnetic step ends on the moments (magnetic-analysis Stage 5): the pass moved the scale, the background and the peak shape under them. Hold every nuclear row (set_free: fix the instrument's terms, the scale and the background; free the moments, and k's components if they refined) and refine to convergence. That refinement's momentShiftOverEsd is the moments' move across the pass: above 1, run the pass and the moments once more; still above 1, the peak shape trades with the moments: undo the passes, hold the terms that correlate with them, and say so. Then write the report, quoting the fit before and after the pass.`,
   };
 }
 

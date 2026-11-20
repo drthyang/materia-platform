@@ -40,7 +40,8 @@ export const ALTERNATION_MAX_ROUNDS = 10;
  * (the rule "the moments refine with the nuclear model held", as written), and
  * the step between refines the scale and the background. Both end on the same
  * moments; true takes two or three rounds where false takes up to seven.
- * The owner's choice, open: this is the one switch.
+ * The owner chose false on 2026-11-20 ("we usually don't refine the scale"
+ * with the moments); this is the one switch.
  */
 export const K0_SCALE_WITH_MOMENTS = false;
 

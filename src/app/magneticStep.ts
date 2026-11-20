@@ -280,8 +280,8 @@ export function fitMoments(fit: MagneticFit, build: MagneticModelBuild, start?: 
 }
 
 /**
- * What Refine moments did, in the words the page shows. PROVISIONAL wording,
- * awaiting the owner's confirmation (docs/reports/2026-11-19-moments-alternation.md).
+ * What Refine moments did, in the words the page shows: the owner's wording
+ * (2026-11-20; docs/reports/2026-11-19-moments-alternation.md).
  */
 export const MOMENT_ROUNDS_SUMMARY = "Nuclear structure held; scale and background re-refined with the magnetic model.";
 
@@ -314,6 +314,12 @@ export function momentFitReadout(agreementLabel: string, wR: number, rounds: Mom
       : []),
   ].join(" ");
   return { line, warning: !rounds.settled, details };
+}
+
+/** A fit's rounds as the Agent's view of the chosen model carries them; nothing for a fit with no step between its moments steps. */
+function roundsView(rounds: MomentRounds | null): { count: number; settled: boolean; lastShiftOverEsd: number; esd: Readonly<Record<string, number>>; esdIncludes: boolean } | undefined {
+  if (!rounds || (rounds.count === 0 && rounds.esdIncludes.length === 0)) return undefined;
+  return { count: rounds.count, settled: rounds.settled, lastShiftOverEsd: rounds.lastShiftOverEsd, esd: rounds.esd, esdIncludes: rounds.esdIncludes.length > 0 };
 }
 
 // ── the ranking ─────────────────────────────────────────────────────────────
@@ -1193,7 +1199,7 @@ export class MagneticStep {
           kDescription: describePropagation(v.kClass),
           kUnsupported: v.kUnsupported,
           candidates: v.reps.map((r, i) => candidateView(r, i, v.dims[i] ?? 0, v.maximal[i] ?? false, v.rankResults[r.candidate.id])),
-          selected: chosen && v.build && v.applied ? selectionView(chosen, s.chosen!, at.structure, v.build.params, v.resolvedAmps, v.applied, v.fitWR) : null,
+          selected: chosen && v.build && v.applied ? selectionView(chosen, s.chosen!, at.structure, v.build.params, v.resolvedAmps, v.applied, v.fitWR, roundsView(v.fitRounds)) : null,
           ties: { sameSite: s.ties.sameSite, magnitudes: v.options.magnitudes },
           baselineAgreement: v.baselineAgreement,
           best: v.best ? candidateId(v.reps.findIndex((r) => r.candidate.id === v.best!.id)) : null,

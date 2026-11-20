@@ -1,12 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   caseOf, cleanPoints, noisy, nuclearOnlyRows, powderMomentFit, sequence, sessionOf, Fitter,
-  AUDIT_PATTERN, FIT_RANGE, MODEL_A, MODEL_A_K0, MODEL_B, MODEL_F_K0, type Case,
+  AUDIT_PATTERN, FIT_RANGE, MODEL_A, MODEL_A_K0, MODEL_B, MODEL_F_K0, NUCLEAR_SETS, type Case,
 } from "@/testSupport/momentSequenceCase";
 import { CELL, GAMMA_R0_HALF, j0Mn2, momentSize, reflection, type SpinModel } from "@/testSupport/independentMnwo4";
 import { MagneticStep, fitMoments, fitRows, momentFitReadout, MOMENT_ROUNDS_SUMMARY, type MomentRounds } from "@/app/magneticStep";
 import { magneticStepOn } from "@/testSupport/magneticHeadless";
-import { momentEsdOptions, momentRoundValues, powderFit, powderPageCurves, weightedR, withMomentRoundRows } from "@/app/powderPage";
+import { momentEsdOptions, momentRoundValues, powderFit, powderPageCurves, weightedR, withFitResult, withMomentRoundRows } from "@/app/powderPage";
+import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { alternateMoments, ALTERNATION_MAX_ROUNDS, K0_SCALE_WITH_MOMENTS } from "@/core/magnetic/momentAlternation";
 import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
@@ -372,7 +373,7 @@ describe("Cancel, and the cap", () => {
     expect(ALTERNATION_MAX_ROUNDS).toBe(10);
   }, 60_000);
 
-  it("the readout: the result first on one line, the provisional wording behind it", async () => {
+  it("the readout: the result first on one line, the owner's wording behind it", async () => {
     const r = await refineMoments(MODEL_A, 0);
     const said = momentFitReadout("wR", r.page.step.view().fitWR!, r.rounds, { mom_Mn1_0: "Mn1 moment" });
     expect(said.line).toBe("wR = 5.0% · settled in 4 rounds");
@@ -440,6 +441,53 @@ describe("k = 0 (independent MnWO4): Refine moments no longer undoes the ranking
     expect(free.rounds!.held.scale! / held.rounds.held.scale!).toBeCloseTo(1, 2);
     expect(free.rounds!.esd.mom_Mn1_0! / held.esd[0]!).toBeCloseTo(1, 2);
   }, 60_000);
+});
+
+describe("the method's order: rounds, the moments alone, the final instrument pass, the moments alone again", () => {
+  /** Free exactly these kinds on the page, then the Refine button's fit, its values on the page. */
+  async function refineKinds(session: Session, client: ComputeClient, free: (p: RefinementParameter) => boolean): Promise<{ session: Session; result: RefinementResult }> {
+    const next = { ...session, powderParams: session.powderParams.map((p) => ({ ...p, fixed: !!p.expression || !free(p) })) };
+    const result = await powderFit(client, { session: next, instrument: DEFAULT_INSTRUMENT, fitRange: FIT_RANGE, result: null }, { maxIterations: 20 });
+    return { session: withFitResult(next, result), result };
+  }
+  const isMoment = (p: RefinementParameter): boolean => p.kind === "momentMode";
+  /** The final instrument pass on this page: its one instrument term (the peak width), with the scale and the background. */
+  const isPass = (p: RefinementParameter): boolean => p.kind === "peakWidth" || p.kind === "scale" || p.kind === "background";
+
+  for (const [name, model, truth] of [["one moment row", MODEL_A, [4.2]], ["two moment rows", MODEL_B, [3, 2]]] as const) {
+    it(`${name}: the moments after the pass are the joint fit's (width included), and the pass moved them by a fraction of an esd`, async () => {
+      const c = caseOf(model, 6);
+      const client = new ComputeClient();
+      const rows: string[] = [];
+      for (const seed of [0, 1, 2, 3]) {
+        // Stage 3: refine_moments (rounds). Stage 4: on the refinement page, the moments alone.
+        const r = await refineMoments(model, seed);
+        r.page.step.continueToRefinement(false);
+        const stage4 = await refineKinds(r.page.session(), client, isMoment);
+        const ids = Object.keys(stage4.result.esd);
+        // Stage 5: the pass (the moments held), then the moments alone again.
+        const pass = await refineKinds(stage4.session, client, isPass);
+        const last = await refineKinds(pass.session, client, isMoment);
+        // The reference no step of the app runs: the scale, the background, the width and the moments together.
+        const joint = sequence(c, noisy(c.clean, seed), 0, NUCLEAR_SETS.scaleBackgroundWidth).joint;
+        const shift = ids.map((id) => Math.abs(last.result.parameters[id]! - stage4.result.parameters[id]!) / last.result.esd[id]!);
+        const left = ids.map((id, i) => Math.abs(Math.abs(last.result.parameters[id]!) - Math.abs(joint.components[i]!)) / last.result.esd[id]!);
+        rows.push(`seed ${seed}: stage 4 ${ids.map((id) => stage4.result.parameters[id]!.toFixed(4)).join(", ")} → after the pass ${ids.map((id) => `${last.result.parameters[id]!.toFixed(4)}(${(1e4 * last.result.esd[id]!).toFixed(0)})`).join(", ")} · moved ${shift.map((x) => x.toFixed(2)).join(", ")} esd · from the joint fit ${left.map((x) => x.toFixed(2)).join(", ")} esd · wR ${(100 * stage4.result.agreement.rWeighted!).toFixed(3)} → ${(100 * pass.result.agreement.rWeighted!).toFixed(3)} → ${(100 * last.result.agreement.rWeighted!).toFixed(3)} %`);
+        // Stage 4 after the rounds moves nothing.
+        ids.forEach((id, i) => expect(Math.abs(stage4.result.parameters[id]! - r.components[i]!) / stage4.result.esd[id]!).toBeLessThan(0.1));
+        // The owner's rule for the last tweak: the moments stay within about their esds across the profile pass. Here well within.
+        for (const x of shift) expect(x).toBeLessThan(0.5);
+        // And the last moments step lands on the joint answer, within the truth's esd.
+        for (const x of left) expect(x).toBeLessThan(0.15);
+        ids.forEach((id, i) => expect(Math.abs(Math.abs(last.result.parameters[id]!) - truth[i]!) / last.result.esd[id]!).toBeLessThan(3));
+        // The pass refined the width the nuclear-only fit left 1 % wide, and every esd in the last step includes the scale and the background.
+        expect(pass.session.powderParams.find((p) => p.id === "width")!.value).toBeLessThan(stage4.session.powderParams.find((p) => p.id === "width")!.value);
+        expect(Object.keys(last.result.esd)).toEqual(ids);
+        expect(last.result.diagnostics?.esdIncludes?.length).toBe(7);
+      }
+      console.log(`[moment-order] ${name}\n  ${rows.join("\n  ")}`);
+    }, 60_000);
+  }
 });
 
 describe("noise-free through the step: the rounds end on the truth, not on the cap", () => {
