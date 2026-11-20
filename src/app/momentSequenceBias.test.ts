@@ -5,7 +5,7 @@ import {
 } from "@/testSupport/momentSequenceCase";
 import { CELL, GAMMA_R0_HALF, j0Mn2, momentSize, reflection, type SpinModel } from "@/testSupport/independentMnwo4";
 import { MagneticStep, fitMoments, fitRows, momentFitReadout, MOMENT_ROUNDS_SUMMARY, type MomentRounds } from "@/app/magneticStep";
-import { magneticStepOn } from "@/testSupport/magneticHeadless";
+import { magneticStepOn, sessionCurves } from "@/testSupport/magneticHeadless";
 import { momentEsdOptions, momentRoundValues, powderFit, powderPageCurves, weightedR, withFitResult, withMomentRoundRows } from "@/app/powderPage";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { alternateMoments, ALTERNATION_MAX_ROUNDS, K0_SCALE_WITH_MOMENTS } from "@/core/magnetic/momentAlternation";
@@ -296,6 +296,46 @@ describe("the rows Refine moments hands back to the page", () => {
     page.set(withMomentRoundRows(page.session(), { scale: 0.079 }));
     expect(page.step.handle.state().baselineAgreement).toBeCloseTo(live(), 12);
     expect(page.step.handle.state().baselineAgreement).not.toBe(before);
+  }, 60_000);
+});
+
+describe("a model shown on the refinement pattern follows Refine moments", () => {
+  it("Show, then Refine moments: the page's model carries the fitted moments, and its pattern is the one fitted", async () => {
+    const c = caseOf(MODEL_A, 6);
+    const page = pageOf(c, 0);
+    page.step.handle.choose(truthId(c, page.step));
+    // Show on refinement pattern: the candidate at its seed amplitude (2 µB), no rows.
+    page.step.show(true);
+    expect(page.session().magnetic!.moments[0]!.components[1]).toBeCloseTo(2, 6);
+    const wR = (await page.step.refineMoments())!;
+    const shown = page.session().magnetic!;
+    const fitted = page.step.view().applied!;
+    expect(shown.moments).toEqual(fitted.moments);
+    // The step keeps its fit's readout and its choice: the model coming back from the page is the one it fitted.
+    expect(page.step.view().fitWR).toBeCloseTo(wR, 12);
+    expect(page.step.view().fitRounds!.settled).toBe(true);
+    expect(page.step.handle.state().selected!.id).toBe(truthId(c, page.step));
+    expect(Math.abs(shown.moments[0]!.components[1]!)).toBeCloseTo(4.203, 2);
+    // The page's own curve (nuclear + the shown model) at the page's rows is the fit's.
+    expect(weightedR(page.session(), sessionCurves(page.session()), FIT_RANGE)).toBeCloseTo(wR, 6);
+    // Another group chosen and refined: the page keeps the model it shows, and takes only the rows.
+    const other = page.step.handle.state().candidates.find((g) => g.momentParameters === 2)!.id;
+    page.step.handle.choose(other);
+    await page.step.refineMoments();
+    expect(page.session().magnetic!.moments).toEqual(shown.moments);
+  }, 60_000);
+
+  it("after Continue: the page's moment rows follow too", async () => {
+    const c = caseOf(MODEL_A, 6);
+    const page = pageOf(c, 0);
+    page.step.handle.choose(truthId(c, page.step));
+    page.step.continueToRefinement(false);
+    expect(page.session().powderParams.find((p) => p.id === "mom_Mn1_0")!.value).toBeCloseTo(2, 6);
+    await page.step.refineMoments();
+    const row = page.session().powderParams.find((p) => p.id === "mom_Mn1_0")!;
+    expect(row.value).toBe(page.step.view().resolvedAmps.mom_Mn1_0);
+    expect(row.fixed).toBe(false);
+    expect(Math.abs(row.value)).toBeCloseTo(4.203, 2);
   }, 60_000);
 });
 

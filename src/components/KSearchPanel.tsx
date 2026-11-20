@@ -212,7 +212,7 @@ export function KSearchPanel({
   baselineAgreement?: number | null;
   /** The page's scale and background rows as they stand, and where a moments fit's rounds hand them back (magneticStep.ts, StepInputs). */
   nuclearValues?: Readonly<Record<string, number>>;
-  onMomentFit?: (held: Readonly<Record<string, number>>) => void;
+  onMomentFit?: StepInputs["onMomentFit"];
   /**
    * A magnetic model to open ON — the session's applied model (an mCIF load, a
    * bundled demo, a reopened project, a previous Continue). Its k is set, its

@@ -52,6 +52,7 @@ import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
 import { KSearchPanel, type MagneticPatternView } from "@/components/KSearchPanel";
+import { MOMENT_ROUNDS_STEP } from "@/app/magneticStep";
 import type { DemoEntry, DemoId } from "@/app/demos";
 import { useOnChange } from "@/app/useOnChange";
 import { momentEntriesFrom } from "@/app/ui/cellModel";
@@ -95,7 +96,7 @@ import {
   BACKGROUND_TERMS, backgroundTermsEntry, curvesGoodnessOfFit, extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
   powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR as weightedROf, withAnisotropicAdp, withAntisitePair, withBackgroundTerms,
   withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMomentRoundRows, momentRoundValues, momentEsdOptions, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf, magneticModelSummary,
-  changed, snapshotHolds, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type PowderPage, type PowderPageModel,
+  changed, snapshotHolds, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type FittedMoments, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
 import { zeroAdpStepLabel, type ZeroAdpChoice, type ZeroAdpFix, type ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
 import { ZeroAdpNotice } from "@/app/ui/ZeroAdpNotice";
@@ -914,11 +915,16 @@ export function PowderWorkbench({
   // The rows a moments fit's rounds refine beside the moments (the scale and the background), as the page holds them:
   // the step knows by them whether the page still carries what its last fit handed back.
   const momentRoundRows = useMemo(() => momentRoundValues(session), [session]);
+  // The session as it stands when a fit ends, whatever render its callback was made in.
+  const sessionNow = useRef(session);
+  sessionNow.current = session;
 
   /** A moments fit's rounds re-refined the scale and the background with the magnetic model: the page takes them, as one History step. */
-  const takeMomentRoundRows = useCallback((held: Readonly<Record<string, number>>): void => {
-    change((s) => withMomentRoundRows(s, held));
-    stepHistory?.requestStep("magnetic", "Moments refined (scale and background re-refined)");
+  const takeMomentRoundRows = useCallback((held: Readonly<Record<string, number>>, fitted: FittedMoments): void => {
+    // Nothing to take (a fit run again at its end, no model shown): no change of the page, no History step.
+    if (withMomentRoundRows(sessionNow.current, held, fitted) === sessionNow.current) return;
+    change((s) => withMomentRoundRows(s, held, fitted));
+    stepHistory?.requestStep("magnetic", MOMENT_ROUNDS_STEP);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- change and the History binding are the page's own
   }, [stepHistory]);
 

@@ -285,6 +285,9 @@ export function fitMoments(fit: MagneticFit, build: MagneticModelBuild, start?: 
  */
 export const MOMENT_ROUNDS_SUMMARY = "Nuclear structure held; scale and background re-refined with the magnetic model.";
 
+/** The History step a page records when it takes the rows a moments fit's rounds refined. */
+export const MOMENT_ROUNDS_STEP = "Moments refined (scale and background re-refined)";
+
 /** Beside the ranking table, on a page whose Refine moments runs as rounds: why a group's wR there can read higher. */
 export const RANK_SINGLE_FIT_NOTE = "Ranked with one moments fit per group; Refine moments also re-refines the scale and the background, so its wR can read lower.";
 
@@ -545,8 +548,10 @@ export interface StepInputs {
    * Take the nuclear rows a fit's rounds refined (`MomentRounds.held`): the
    * page writes them onto its rows, as one History step. Without it a page
    * keeps its nuclear-only scale and background under the fitted moments.
+   * `fitted` is the model at the fitted moments with its amplitudes: a page
+   * that shows this model (Show, or Continue's rows) shows it as fitted.
    */
-  readonly onMomentFit?: (held: Readonly<Record<string, number>>) => void;
+  readonly onMomentFit?: (held: Readonly<Record<string, number>>, fitted: { readonly magnetic: MagneticModel; readonly values: Readonly<Record<string, number>> }) => void;
   /** The page refines k with the moments (powder). */
   readonly allowRefineK: boolean;
   /** The data and the fit window, as a key: a new one drops the ranking and the fit readout. */
@@ -1136,8 +1141,12 @@ export class MagneticStep {
       // The rows the rounds moved go to the page, with the nuclear-only agreement they would otherwise overwrite.
       const now = this.inputs();
       const held = out.rounds?.held;
-      const moved = !!held && !!now.onMomentFit && Object.keys(held).some((id) => now.nuclearValues?.[id] !== held[id]);
-      if (moved) now.onMomentFit!(held);
+      // A page that shows a model is handed the fitted one too, whether or not a row moved: it knows if it is this model.
+      const moved = !!held && !!now.onMomentFit && (!!now.applied || Object.keys(held).some((id) => now.nuclearValues?.[id] !== held[id]));
+      if (moved) {
+        const values = resolvedAmplitudes(build, amps);
+        now.onMomentFit!(held, { magnetic: applyMagneticMoments(build.magnetic, build.bindings, values), values });
+      }
       const kept = held && now.onMomentFit && Object.keys(held).length > 0 && baseline != null ? { nuclearOnly: { wR: baseline, held, on: now.fitContext } } : {};
       this.commit({ ...this.s, amps, fitWR: { on, wR: out.agreement, ...(out.rounds ? { rounds: out.rounds } : {}) }, ...kept });
       return out.agreement;

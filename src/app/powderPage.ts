@@ -47,6 +47,7 @@ import type { MagneticFit, ResidualPeak } from "@/app/magneticStep";
 import { noiseOf } from "@/core/magnetic/momentRestarts";
 import { alternateMoments } from "@/core/magnetic/momentAlternation";
 import { momentBindingKey, type MagneticModel } from "@/core/magnetic/types";
+import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import type { Vec3 } from "@/core/math/types";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { fitAmplitudesToMoments } from "@/core/magnetic/amplitudeFit";
@@ -1067,10 +1068,42 @@ export function momentRoundValues(s: Session): Record<string, number> {
   return Object.fromEntries(s.powderParams.filter((p) => (p.kind === "scale" || p.kind === "background") && !p.expression).map((p) => [p.id, p.value]));
 }
 
-/** The session with the rows a moments fit's rounds refined (momentRoundValues' rows) at the values it handed back. */
-export function withMomentRoundRows(s: Session, held: Readonly<Record<string, number>>): Session {
+/** What a moments fit refined, for a page that shows that model: the model at the fitted moments, and its amplitude rows' values. */
+export interface FittedMoments {
+  readonly magnetic: MagneticModel;
+  readonly values: Readonly<Record<string, number>>;
+}
+
+/** Whether the model on the page is the one a fit refined: the same group (its operations), k and magnetic sites. */
+function sameMagneticModel(a: MagneticModel, b: MagneticModel): boolean {
+  const k = (m: MagneticModel): string => (m.propagation[0] ?? [0, 0, 0]).map((x) => x.toFixed(9)).join(",");
+  const sites = (m: MagneticModel): string => m.moments.map((x) => `${x.siteLabel}#${x.orbitIndex ?? 1}`).sort().join(",");
+  return !!a.operations && !!b.operations && magneticOperationSignature(a.operations) === magneticOperationSignature(b.operations) && k(a) === k(b) && sites(a) === sites(b);
+}
+
+/**
+ * The session after a moments fit's rounds: the rows they refined
+ * (momentRoundValues' rows) at the values they handed back; and, where the
+ * page shows the model that was fitted (Show on refinement pattern, or
+ * Continue's rows), that model at the fitted moments, its amplitude rows with
+ * it. So the pattern the refinement page draws is the one the fit ended on.
+ * A page showing another model keeps it. The same session when nothing moves.
+ */
+export function withMomentRoundRows(s: Session, held: Readonly<Record<string, number>>, fitted?: FittedMoments): Session {
   const rows = momentRoundValues(s);
-  return { ...s, powderParams: s.powderParams.map((p) => (p.id in rows && held[p.id] !== undefined && held[p.id] !== p.value ? { ...p, value: held[p.id]! } : p)) };
+  const shown = fitted && s.magnetic && sameMagneticModel(s.magnetic, fitted.magnetic) ? fitted : null;
+  const value = (p: RefinementParameter): number =>
+    p.id in rows && held[p.id] !== undefined ? held[p.id]!
+      : shown && isMomentParameterKind(p.kind) && !p.expression && shown.values[p.id] !== undefined ? shown.values[p.id]!
+        : p.value;
+  const moved = s.powderParams.some((p) => value(p) !== p.value);
+  const remodelled = !!shown && JSON.stringify(shown.magnetic.moments) !== JSON.stringify(s.magnetic!.moments);
+  if (!moved && !remodelled) return s;
+  return {
+    ...s,
+    ...(remodelled ? { magnetic: { ...s.magnetic!, moments: shown!.magnetic.moments } } : {}),
+    powderParams: moved ? s.powderParams.map((p) => (value(p) !== p.value ? { ...p, value: value(p) } : p)) : s.powderParams,
+  };
 }
 
 /**

@@ -73,7 +73,10 @@ export function magneticStepOn(
       baselineAgreement: s.pattern.points.length > 0 ? weightedR(s, powderPageCurves(s).nuclear, window) : null,
       nuclearValues: momentRoundValues(s),
       // The rows a fit's rounds refined go onto the page, as the workbench puts them.
-      onMomentFit: (held) => set(withMomentRoundRows(page().session, held)),
+      onMomentFit: (held, fitted) => {
+        const next = withMomentRoundRows(page().session, held, fitted);
+        if (next !== page().session) set(next);
+      },
       allowRefineK: true,
       fitContext: `${s.pattern.id}|${s.pattern.points.length}|${window ? `${window.min}–${window.max}` : "all"}`,
       preselect: s.magnetic ?? null,
