@@ -239,5 +239,6 @@ The 35 test files that need the local data folder did not run in this clone
 
 ## Checks
 
-At the branch head: `npm run build`, `npm run lint` and `npm test` pass (see
-the pull request for the counts).
+At the branch head (main's 0.5.1 merged in): `npm run build` and
+`npm run lint` clean; `npm test` 407 files passed and 35 skipped (the
+local-data ones), 3572 tests passed and 324 skipped.
