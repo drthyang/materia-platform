@@ -814,6 +814,29 @@ function* refineCore(
     finalFloors,
   );
   const esds = esdsFrom(covarianceBase, reducedChi);
+  // The esds with the uncertainty of named held parameters included (`esdWith`): a second covariance, over
+  // the refined parameters and those, at this same point. No step is taken in it; the refined parameters'
+  // esds are read off its diagonal. A direction it drops means the data cannot separate the held rows from
+  // the refined ones, and the esds stay those of the refined parameters alone.
+  let esdIncludes: string[] | undefined;
+  let esdWithFailed: string | undefined;
+  const heldWith = (opts.esdWith ?? []).length === 0 ? [] : problem.parameters.filter((p) => p.fixed && !p.expression && opts.esdWith!.includes(p.id));
+  if (heldWith.length > 0) {
+    const withParams = [...freeParams, ...heldWith];
+    const withValues = [...freeValues, ...heldWith.map((p) => p.value)];
+    const { sets: withSets, plan: withPlan } = jacobianPlan(problem, withParams, withValues, undefined);
+    const withJacobian = assembleJacobian(problem, withPlan, withParams.length, current.yCalc, (yield withSets) as Float64Array[]);
+    const { jtj: withJtj } = normalEquations(withJacobian, finalResiduals);
+    const withCovariance = normalizedPseudoInverse(withJtj, opts.svdTolerance ?? 1e-6, deadColumnFloors(withPlan, withParams.length, current.yCalc, problem.weights));
+    if (withCovariance.diagnostics.zeroCount === 0) {
+      const withEsds = esdsFrom(withCovariance.covarianceBase, current.chi / Math.max(nUsed - withParams.length, 1));
+      for (let j = 0; j < n; j++) esds[j] = withEsds[j]!;
+      esdIncludes = heldWith.map((p) => p.id);
+    } else {
+      const dropped = [...new Set(withCovariance.diagnostics.droppedIndices.map((i) => withParams[i]?.id).filter((id): id is string => id !== undefined))];
+      esdWithFailed = `the data do not determine ${dropped.length > 0 ? dropped.join(", ") : "a combination of the held and the refined parameters"} together: the esds are those of the refined parameters alone`;
+    }
+  }
   for (let j = 0; j < n; j++) esd[freeIds[j]!] = esds[j]!;
   const combinationEsd: Record<string, number> = {};
   for (const c of problem.combinations ?? []) {
@@ -871,6 +894,8 @@ function* refineCore(
     atBounds: boundActiveParameters(freeParams, freeValues),
     maxShiftOverEsd: lastShift.value,
     ...(lastShift.index >= 0 ? { maxShiftParameterId: freeIds[lastShift.index]! } : {}),
+    ...(esdIncludes ? { esdIncludes } : {}),
+    ...(esdWithFailed ? { esdWithFailed } : {}),
   };
 
   const finalValues = valuesRecord(problem.parameters, freeIds, freeValues);
