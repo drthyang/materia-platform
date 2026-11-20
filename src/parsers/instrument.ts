@@ -1,8 +1,10 @@
 /**
  * Parser for instrument parameters, accepting the GSAS-II `.instprm` `key:value`
- * format (and lenient `key value` / `key=value` variants) and the FullProf
- * `.irf` resolution format. Recognizes the TOF calibration (difC/difA/difB/Zero)
- * and constant-wavelength (Lam/wavelength + Caglioti U,V,W). Unknown keys are ignored.
+ * format (one block per bank, `;`-joined pairs, and lenient `key value` /
+ * `key=value` variants), the classic GSAS `.prm` and the FullProf `.irf`
+ * resolution format. Recognizes the TOF calibration (difC/difA/difB/Zero) and
+ * constant-wavelength (Lam/wavelength + Caglioti U,V,W). Keys the app has no
+ * use for are kept as text on the bank (`texts`), not dropped.
  */
 
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
@@ -204,29 +206,201 @@ function kAlpha2Of(radiationKind: "xray" | "neutron" | undefined, lam1: number, 
   return { kAlpha2: { wavelength: lam2, ratio } };
 }
 
-function readValues(text: string): Map<string, number> {
-  const values = new Map<string, number>();
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (line === "" || line.startsWith("#")) continue;
-    // Keys may carry a dot, slash, hyphen or parentheses (GSAS-II `Polariz.`,
-    // `SH/L`, `beta-0`, `sig-1`, `I(L2)/I(L1)`).
-    const m = line.match(/^([A-Za-z0-9_./()-]+)\s*[:=\s]\s*(-?\d[\d.eE+-]*)/);
-    if (!m) continue;
-    const key = m[1]!.toLowerCase();
-    const value = parseFloat(m[2]!);
-    if (!Number.isNaN(value)) values.set(key, value);
+/** The number a value starts with (`1439.6`, `-5.3e2`, `.5`), or NaN. GSAS-II reads the whole value with Python's float(). */
+function leadingNumber(value: string): number {
+  const m = value.match(/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/);
+  return m ? Number(m[0]) : NaN;
+}
+
+/** One block of `key:value` lines: a bank of a GSAS-II `.instprm`, or a whole file that has no bank header. */
+interface KeyValueBlock {
+  /** The number on the `#Bank N:` header; null for lines under no bank header. */
+  readonly bank: number | null;
+  /** Each value as the file writes it, by the file's own key. */
+  readonly texts: Map<string, string>;
+  /** The numeric values, by lower-cased key. */
+  readonly values: Map<string, number>;
+  /** Keys whose value spans several lines between triple quotes (GSAS-II `pdabc`). */
+  readonly multiline: string[];
+}
+
+/**
+ * The bank number of a `#Bank N: …` header line, by GSAS-II's own rule
+ * (`GSASIIfiles.ReadInstprm`): a line that starts with `#` and contains `Bank`
+ * is a bank header, and its number is the second blank-separated word of the
+ * text before the first colon. Whatever follows the colon is ignored. A `#`
+ * line that names no integer there is null (a comment here; GSAS-II stops with
+ * an error on one that contains `Bank`).
+ */
+function bankHeaderNumber(line: string): number | null {
+  if (!line.startsWith("#") || !line.includes("Bank")) return null;
+  const word = line.split(":")[0]!.trim().split(/\s+/)[1];
+  return word !== undefined && /^[+-]?\d+$/.test(word) ? parseInt(word, 10) : null;
+}
+
+/**
+ * Read `key:value` text as GSAS-II reads an `.instprm`: `#Bank N:` headers
+ * start a bank's block; a line may join several pairs with `;`; line ends may
+ * be CRLF; keys come in any order (the last value of a repeated key wins, as
+ * in GSAS-II's dict); a value between triple quotes runs over several lines.
+ * More lenient than GSAS-II in three ways, for hand-written files: `key value`
+ * and `key=value` are accepted, a number may be followed by other text, and a
+ * comment line is skipped wherever it stands (GSAS-II stops reading a block at
+ * a `#` line after the first value, and fails on two comment lines in a row).
+ * Of two blocks with the same bank number the first is kept, as in GSAS-II.
+ */
+function readBlocks(text: string): KeyValueBlock[] {
+  const blocks: KeyValueBlock[] = [];
+  const open = (bank: number | null): KeyValueBlock => {
+    const block: KeyValueBlock = { bank, texts: new Map(), values: new Map(), multiline: [] };
+    blocks.push(block);
+    return block;
+  };
+  let block: KeyValueBlock | null = null;
+  const lines = text.split(/\r\n|\r|\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim();
+    if (line === "") continue;
+    if (line.startsWith("#")) {
+      const bank = bankHeaderNumber(line);
+      if (bank !== null) block = open(bank);
+      continue;
+    }
+    block ??= open(null);
+    // A multi-line value (`pdabc:"""` … `"""`): its lines are not key:value pairs.
+    const delim = line.includes('"""') ? '"""' : line.includes("'''") ? "'''" : null;
+    if (delim) {
+      const key = line.split(":")[0]!.trim();
+      if (key) block.multiline.push(key);
+      while (++i < lines.length && !lines[i]!.includes(delim)) { /* skip the value's lines */ }
+      continue;
+    }
+    for (const part of line.split(";")) {
+      // Keys may carry a dot, slash, hyphen or parentheses (GSAS-II `Polariz.`,
+      // `SH/L`, `beta-0`, `sig-1`, `I(L2)/I(L1)`).
+      const m = part.trim().match(/^([A-Za-z0-9_./()-]+)\s*(?:[:=]|\s)\s*(\S.*)$/);
+      if (!m) continue;
+      const value = m[2]!.trim();
+      block.texts.set(m[1]!, value);
+      const number = leadingNumber(value);
+      if (!Number.isNaN(number)) block.values.set(m[1]!.toLowerCase(), number);
+    }
   }
-  return values;
+  const seen = new Set<number | null>();
+  return blocks.filter((b) => b.texts.size > 0 && !seen.has(b.bank) && !!seen.add(b.bank));
 }
 
-function gsasType(text: string): string | undefined {
-  const m = text.match(/^\s*Type\s*[:=\s]\s*([A-Za-z0-9]+)/im);
-  return m?.[1]?.toUpperCase();
+/** GSAS-II's histogram type of a block (`Type:PNT`), upper-cased. */
+function gsasType(block: KeyValueBlock): string | undefined {
+  for (const [key, value] of block.texts) if (key.toLowerCase() === "type") return value.match(/^[A-Za-z0-9]+/)?.[0]?.toUpperCase();
+  return undefined;
 }
 
-export function parseInstrumentParameters(text: string): InstrumentParameters {
-  return withRecognizedName(text, parseInstrumentBase(text));
+/**
+ * What an instrument file holds for one bank that the app reads but does not
+ * use in the calculated pattern: kept so that nothing in the file is lost on
+ * read, and so the page can say what it leaves out. Raw values, in the file's
+ * own units.
+ */
+export interface InstrumentFileExtras {
+  /** The bank's scattering angle 2θ (degrees), GSAS-II `2-theta` of a TOF bank. */
+  readonly twoTheta?: number;
+  /** Total flight path (m), GSAS-II `fltPath`. */
+  readonly flightPath?: number;
+  /** GSAS-II `Azimuth` (degrees). */
+  readonly azimuth?: number;
+  /**
+   * Lorentzian terms the profile has no place for. A TOF bank's `X`, `Y`, `Z`
+   * (GSAS-II: γ = X·d + Y·d² + Z, µs): this app's TOF peak has no Lorentzian.
+   * A constant-wavelength file's `Z` (centidegrees); its X and Y are used and
+   * are on the parameters.
+   */
+  readonly lorentzX?: number;
+  readonly lorentzY?: number;
+  readonly lorentzZ?: number;
+  /** The file carries a tabulated TOF profile (GSAS-II `pdabc`), which is not read. */
+  readonly pdabc?: true;
+}
+
+/** One bank of an instrument file. */
+export interface InstrumentBank {
+  /**
+   * The bank number: the `#Bank N:` header's, else the file's own `Bank`
+   * value, else null (a file that names none; also a `.prm` or an `.irf`).
+   */
+  readonly bank: number | null;
+  /** The instrument as the app uses it. */
+  readonly parameters: InstrumentParameters;
+  /** GSAS-II's histogram type (`PNT`, `PXC`, …), when the file gives one. */
+  readonly type?: string;
+  /** Values read and kept, not used in the calculation. */
+  readonly extras: InstrumentFileExtras;
+  /** Every `key:value` of the bank as the file writes it (a GSAS-II `.instprm` only). */
+  readonly texts: ReadonlyMap<string, string>;
+}
+
+/** An instrument file as read: every bank it holds, in file order. */
+export interface InstrumentFile {
+  readonly banks: readonly InstrumentBank[];
+}
+
+/**
+ * Every bank of an instrument file. A GSAS-II `.instprm` written by "Save all
+ * profile" holds one block per bank; any other file is one bank.
+ */
+export function parseInstrumentFile(text: string): InstrumentFile {
+  const named = (inst: InstrumentParameters): InstrumentParameters => withRecognizedName(text, inst);
+  if (looksLikeFullProfIrf(text)) return { banks: [{ bank: null, parameters: named(parseFullProfIrf(text)), extras: {}, texts: new Map() }] };
+  if (looksLikeGsasPrm(text)) return { banks: [{ bank: null, parameters: named(parseGsasPrm(text)), extras: {}, texts: new Map() }] };
+  const banks: InstrumentBank[] = [];
+  for (const block of readBlocks(text)) {
+    const parameters = blockParameters(block);
+    if (!parameters) continue;
+    const type = gsasType(block);
+    banks.push({
+      bank: block.bank ?? integerOrNull(block.values.get("bank")),
+      parameters: named(parameters),
+      ...(type !== undefined ? { type } : {}),
+      extras: blockExtras(block, parameters.kind),
+      texts: block.texts,
+    });
+  }
+  if (banks.length === 0) throw new Error("Instrument file has neither difC (TOF) nor a wavelength (CW)");
+  return { banks };
+}
+
+function integerOrNull(v: number | undefined): number | null {
+  return v !== undefined && Number.isInteger(v) ? v : null;
+}
+
+/**
+ * The bank a multi-bank file opens on, as in GSAS-II: the bank with the data's
+ * own bank number when the data carry one and the file has it, else the file's
+ * lowest-numbered bank (`sorted(banklist)[0]` in `ReadInstprm`).
+ */
+export function defaultInstrumentBank(file: InstrumentFile, dataBank?: number | null): InstrumentBank {
+  const match = dataBank !== undefined && dataBank !== null ? file.banks.find((b) => b.bank === dataBank) : undefined;
+  if (match) return match;
+  const numbered = file.banks.filter((b) => b.bank !== null).sort((a, b) => a.bank! - b.bank!);
+  return numbered[0] ?? file.banks[0]!;
+}
+
+/** The bank with this number, or undefined. */
+export function instrumentBank(file: InstrumentFile, bank: number | null): InstrumentBank | undefined {
+  return file.banks.find((b) => b.bank === bank);
+}
+
+/**
+ * One instrument from a file. Of a multi-bank GSAS-II `.instprm` this is the
+ * bank asked for (an error when the file has no such bank), else the file's
+ * lowest-numbered bank, GSAS-II's default.
+ */
+export function parseInstrumentParameters(text: string, bank?: number): InstrumentParameters {
+  const file = parseInstrumentFile(text);
+  if (bank === undefined) return defaultInstrumentBank(file).parameters;
+  const chosen = instrumentBank(file, bank);
+  if (!chosen) throw new Error(`Bank ${bank} not found in the instrument file (it has ${file.banks.map((b) => (b.bank === null ? "one unnumbered bank" : `bank ${b.bank}`)).join(", ")})`);
+  return chosen.parameters;
 }
 
 /** Attach the beamline name + facility label if the header names a known instrument. */
@@ -236,11 +410,22 @@ function withRecognizedName(text: string, inst: InstrumentParameters): Instrumen
   return { ...inst, name: known.name, facility: facilityLabel(known) };
 }
 
-function parseInstrumentBase(text: string): InstrumentParameters {
-  if (looksLikeFullProfIrf(text)) return parseFullProfIrf(text);
-  if (looksLikeGsasPrm(text)) return parseGsasPrm(text);
-  const v = readValues(text);
-  const type = gsasType(text);
+function blockExtras(block: KeyValueBlock, kind: InstrumentParameters["kind"]): InstrumentFileExtras {
+  const v = block.values;
+  type NumericExtra = Exclude<keyof InstrumentFileExtras, "pdabc">;
+  const has = (key: string, as: NumericExtra): Partial<Record<NumericExtra, number>> => (v.get(key) !== undefined ? { [as]: v.get(key)! } : {});
+  return {
+    ...(kind === "tof" ? { ...has("2-theta", "twoTheta"), ...has("fltpath", "flightPath"), ...has("x", "lorentzX"), ...has("y", "lorentzY") } : {}),
+    ...has("azimuth", "azimuth"),
+    ...has("z", "lorentzZ"),
+    ...(block.multiline.some((k) => k.toLowerCase() === "pdabc") ? { pdabc: true as const } : {}),
+  };
+}
+
+/** A block's instrument, or null when it has neither difC (TOF) nor a wavelength (CW). */
+function blockParameters(block: KeyValueBlock): InstrumentParameters | null {
+  const v = block.values;
+  const type = gsasType(block);
   const difC = v.get("difc");
   if (difC !== undefined) {
     const params: Extract<InstrumentParameters, { kind: "tof" }> = {
@@ -283,5 +468,5 @@ function parseInstrumentBase(text: string): InstrumentParameters {
       ...kAlpha2Of(radiationKind, lam, v.get("lam2"), v.get("i(l2)/i(l1)") ?? 0.5),
     };
   }
-  throw new Error("Instrument file has neither difC (TOF) nor a wavelength (CW)");
+  return null;
 }
