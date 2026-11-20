@@ -391,7 +391,7 @@ function kAlpha2Of(radiationKind: "xray" | "neutron" | undefined, lam1: number, 
   return { kAlpha2: { wavelength: lam2, ratio } };
 }
 
-/** The number a value starts with (`1439.6`, `-5.3e2`, `.5`), or NaN. GSAS-II reads the whole value with Python's float(). */
+/** The number a value starts with (`6106.25`, `-5.3e2`, `.5`), or NaN. GSAS-II reads the whole value with Python's float(). */
 function leadingNumber(value: string): number {
   const m = value.match(/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/);
   return m ? Number(m[0]) : NaN;
