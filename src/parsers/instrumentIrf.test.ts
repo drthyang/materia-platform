@@ -32,13 +32,13 @@ describe("FullProf TOF .irf: the calibration line", () => {
     const bank = one(IRF_ZD2TOT);
     expect(IRF_ZD2TOT).toContain("\r\n");
     expect(bank.parameters).toEqual({
-      kind: "tof", difC: 5606.5, difA: 2.125, zero: -3.75,
-      alpha0: 1.25, alpha: 2.5, beta0: 0.085, beta1: 0.0075,
-      sig0: 6.25, sig1: -91.75, sig2: 12.5,
+      kind: "tof", difC: 6100.5, difA: 1.375, zero: -2.5,
+      alpha0: 0.8, alpha: 1.6, beta0: 0.055, beta1: 0.0045,
+      sig0: 4.75, sig1: -44.25, sig2: 9.5,
     });
     expect(bank.bank).toBe(3);
     expect(bank.format).toBe("irf");
-    expect(bank.extras).toMatchObject({ twoTheta: 65, tofRange: [800, 5, 14000], nprof: 9, lorentzY: 1, lorentzX: 0.5, lorentzZ: 0 });
+    expect(bank.extras).toMatchObject({ twoTheta: 75, tofRange: [500, 4, 12000], nprof: 9, lorentzY: 0.75, lorentzX: 0.25, lorentzZ: 0 });
     expect(bank.extras.reading).toContain("ZD2TOT read as Zero, Dtt1, Dtt2 (the order its comment line names)");
   }, T);
 
@@ -46,7 +46,7 @@ describe("FullProf TOF .irf: the calibration line", () => {
     for (const text of [IRF_D2TOF_THREE, IRF_D2TOF_THREE_BARE]) {
       const p = one(text).parameters;
       if (p.kind !== "tof") throw new Error("wrong kind");
-      expect([p.difC, p.difA, p.difB, p.zero]).toEqual([2845.5, 6.25, undefined, 8.125]);
+      expect([p.difC, p.difA, p.difB, p.zero]).toEqual([3315.5, 2.75, undefined, 5.125]);
     }
     expect(one(IRF_D2TOF_THREE).extras.reading).toBe("D2TOF read as Dtt1, Dtt2, Zero (the order its comment line names)");
     expect(one(IRF_D2TOF_THREE_BARE).extras.reading).toBe("D2TOF read as Dtt1, Dtt2, Zero (FullProf's order for 3 values)");
@@ -55,18 +55,18 @@ describe("FullProf TOF .irf: the calibration line", () => {
   it("D2TOF with four values: Dtt1, Dtt2, Dtt_1overD, Zero, as before", () => {
     const p = one(IRF_D2TOF_FOUR).parameters;
     if (p.kind !== "tof") throw new Error("wrong kind");
-    expect([p.difC, p.difA, p.difB, p.zero]).toEqual([22500.5, 1.5, -0.75, -2.5]);
+    expect([p.difC, p.difA, p.difB, p.zero]).toEqual([21000.5, 2.5, -0.75, -3.5]);
     // The bundled example and a bare four-value line read the same way.
     const bundled = parseInstrumentParameters(readFileSync("examples/mcp/powgen_600k.irf", "utf8"));
     expect(bundled).toMatchObject({ kind: "tof", difC: 22585.8, difA: 0, difB: 0, zero: 0 });
-    const bare = parseInstrumentParameters("NPROF 9\nD2TOF 22585.74023 3.91547 -0.69671 1.31354\nTWOTH 90.000\n");
-    expect(bare).toMatchObject({ difC: 22585.74023, difA: 3.91547, difB: -0.69671, zero: 1.31354 });
+    const bare = parseInstrumentParameters("NPROF 9\nD2TOF 20400.5 3.5 -0.625 1.25\nTWOTH 90.000\n");
+    expect(bare).toMatchObject({ difC: 20400.5, difA: 3.5, difB: -0.625, zero: 1.25 });
   }, T);
 
   it("ZD2TOF: the zero first; one and two values on D2TOF", () => {
-    expect(one(IRF_ZD2TOF).parameters).toMatchObject({ difC: 7478.5, difA: -1.5, zero: 1.25 });
-    expect(parseInstrumentParameters("D2TOF 7476.91 -1.54\nTWOTH 144.845\n")).toEqual({ kind: "tof", difC: 7476.91, difA: -1.54 });
-    expect(parseInstrumentParameters("D2TOF 7476.91\n")).toEqual({ kind: "tof", difC: 7476.91 });
+    expect(one(IRF_ZD2TOF).parameters).toMatchObject({ difC: 7300.5, difA: -1.25, zero: 1.25 });
+    expect(parseInstrumentParameters("D2TOF 7300.5 -1.25\nTWOTH 140.0\n")).toEqual({ kind: "tof", difC: 7300.5, difA: -1.25 });
+    expect(parseInstrumentParameters("D2TOF 7300.5\n")).toEqual({ kind: "tof", difC: 7300.5 });
   }, T);
 
   it("the comment line decides the order when it names every column, whatever the keyword's usual order", () => {
@@ -76,7 +76,7 @@ describe("FullProf TOF .irf: the calibration line", () => {
 
   it("NPROF 10: the epithermal line is the calibration, the thermal branch is kept as not used", () => {
     const bank = one(IRF_NPROF10);
-    expect(bank.parameters).toMatchObject({ difC: 7478.5, zero: 1.25 });
+    expect(bank.parameters).toMatchObject({ difC: 7300.5, zero: 1.25 });
     expect(bank.extras.thermal).toContain("ZD2TOT");
     expect(unusedNote(bank, undefined)!.line).toContain("the thermal branch");
   }, T);
@@ -96,9 +96,9 @@ describe("FullProf TOF .irf: the profile lines", () => {
     const row = (id: string) => spec.params.find((p) => p.id === id)?.value;
     expect(spec.profile.shape).toBe("tof");
     // α = alph0 + alph1/d, β = beta0 + beta1/d⁴, σ² = Sig-0 + Sig-2·d⁴ (+ Sig-1·d², see below).
-    expect([row("tof_alpha0"), row("tof_alpha1"), row("tof_beta0"), row("tof_beta1")]).toEqual([1.25, 2.5, 0.085, 0.0075]);
-    expect([row("tof_sig0"), row("tof_sig2"), row("tof_sigQ"), row("tof_betaQ")]).toEqual([6.25, 12.5, 0, 0]);
-    expect([row("tof_difC"), row("tof_difA"), row("tof_difB"), row("zero")]).toEqual([5606.5, 2.125, 0, -3.75]);
+    expect([row("tof_alpha0"), row("tof_alpha1"), row("tof_beta0"), row("tof_beta1")]).toEqual([0.8, 1.6, 0.055, 0.0045]);
+    expect([row("tof_sig0"), row("tof_sig2"), row("tof_sigQ"), row("tof_betaQ")]).toEqual([4.75, 9.5, 0, 0]);
+    expect([row("tof_difC"), row("tof_difA"), row("tof_difB"), row("zero")]).toEqual([6100.5, 1.375, 0, -2.5]);
     // Sig-1 is left out under the default (isotropic) microstrain model, as an .instprm's sig-1 is.
     expect(row("tof_sig1")).toBeUndefined();
     expect(row("mustrainIso")).toBe(1500);
@@ -107,7 +107,7 @@ describe("FullProf TOF .irf: the profile lines", () => {
   it("an instrument without alph0 still starts α₀ at 0", () => {
     const structure = parseCif(readFileSync("examples/mcp/mno.cif", "utf8"));
     const pattern = parsePowderData(tofThreeColumnDat(), { id: "d", name: "d.dat", xUnit: "tof", radiation: { kind: "neutron-tof" } });
-    const spec = buildPowderSpec(structure, pattern, { kind: "tof", difC: 5606.5, alpha: 2.5 });
+    const spec = buildPowderSpec(structure, pattern, { kind: "tof", difC: 6100.5, alpha: 1.6 });
     expect(spec.params.find((p) => p.id === "tof_alpha0")?.value).toBe(0);
   }, T);
 
@@ -119,7 +119,7 @@ describe("FullProf TOF .irf: the profile lines", () => {
     // An all-zero ALFBE is no peak shape: not taken, and said.
     const zero = one(IRF_D2TOF_THREE);
     expect(zero.extras.zeroDecay).toBe(true);
-    expect(zero.parameters).toEqual({ kind: "tof", difC: 2845.5, difA: 6.25, zero: 8.125, sig0: -24, sig1: 480.25, sig2: 42.5 });
+    expect(zero.parameters).toEqual({ kind: "tof", difC: 3315.5, difA: 2.75, zero: 5.125, sig0: -12, sig1: 390.25, sig2: 18.5 });
     expect(unusedNote(zero, undefined)!.line).toBe("Not used: Lorentzian Gam-1, Gam-2, Gam-0; Sig-1; ALFBE (all zero).");
   }, T);
 });
@@ -128,27 +128,27 @@ describe("FullProf TOF .irf: banks", () => {
   it("reads every END-separated bank of a file and offers them", () => {
     const file = parseInstrumentFile(IRF_TWO_BANKS);
     expect(file.banks.map((b) => b.bank)).toEqual([1, 4]);
-    expect(file.banks.map((b) => (b.parameters as { difC: number }).difC)).toEqual([1500.25, 8650.75]);
-    expect(instrumentBankOptions(file)!.map((o) => o.label)).toEqual(["Bank 1 · 2θ 154° · difC 1500", "Bank 4 · 2θ 120.5° · difC 8651"]);
+    expect(file.banks.map((b) => (b.parameters as { difC: number }).difC)).toEqual([1210.5, 7740.75]);
+    expect(instrumentBankOptions(file)!.map((o) => o.label)).toEqual(["Bank 1 · 2θ 20° · difC 1211", "Bank 4 · 2θ 110.5° · difC 7741"]);
     // The first bank by default, as for an .instprm.
-    expect(parseInstrumentParameters(IRF_TWO_BANKS)).toMatchObject({ difC: 1500.25 });
-    expect(parseInstrumentParameters(IRF_TWO_BANKS, 4)).toMatchObject({ difC: 8650.75, zero: 12.5 });
+    expect(parseInstrumentParameters(IRF_TWO_BANKS)).toMatchObject({ difC: 1210.5 });
+    expect(parseInstrumentParameters(IRF_TWO_BANKS, 4)).toMatchObject({ difC: 7740.75, zero: 12.5 });
   }, T);
 
   it("a one-bank .irf against the chosen data bank: by difC, never by the bank its header or name claims", () => {
     const data = parseGsasHistogram(SIX_BANK_GSA).banks;
     const ref = (n: number) => ({ bank: n, difC: data.find((b) => b.bankNumber === n)!.meta!.difC! });
-    // Headed "Bank 2", Dtt1 2845.5: it is data bank 2's (DIFC 2861.25), whatever the page's bank numbers say.
+    // Headed "Bank 2", Dtt1 3315.5: it is data bank 2's (DIFC 3310.5), whatever the page's bank numbers say.
     const file = parseInstrumentFile(IRF_D2TOF_THREE);
     expect(bankAdvice(file, file.banks[0]!, ref(2))).toBeNull();
-    // Against data bank 1 (DIFC 1490.5) it is another bank's calibration: one line, nothing to offer.
+    // Against data bank 1 (DIFC 1215.5) it is another bank's calibration: one line, nothing to offer.
     const wrong = bankAdvice(file, file.banks[0]!, ref(1))!;
     expect(wrong.line).toBe("No instrument bank for data bank 1: bank 2 is not its calibration.");
     expect(wrong.offer).toBeUndefined();
-    expect(wrong.detail).toContain("91 % from the data's DIFC 1490.5");
+    expect(wrong.detail).toContain("173 % from the data's DIFC 1215.5");
     // Headed "Bank 3" but with data bank 3's DIFC under another number: still its calibration.
     const third = parseInstrumentFile(IRF_ZD2TOT);
-    expect(bankAdvice(third, third.banks[0]!, { bank: 7, difC: 5606.5 })).toBeNull();
+    expect(bankAdvice(third, third.banks[0]!, { bank: 7, difC: 6100.5 })).toBeNull();
   }, T);
 });
 
@@ -162,7 +162,7 @@ describe("per-bank TOF data: # header lines, then TOF, intensity, error", () => 
     const pattern = parsePowderData(text, { id: "d", name: "MADEUP_Si-1.dat", xUnit: "tof", radiation: fmt.radiation });
     expect(pattern.points).toHaveLength(60);
     expect(pattern.points.every((p) => p.sigma !== undefined && p.sigma > 0)).toBe(true);
-    expect(pattern.points[0]!.x).toBeCloseTo(720, 6);
+    expect(pattern.points[0]!.x).toBeCloseTo(650, 6);
     expect(pattern.points[0]!.sigma).toBeCloseTo(0.02 + pattern.points[0]!.yObs / 50, 8);
   }, T);
 });

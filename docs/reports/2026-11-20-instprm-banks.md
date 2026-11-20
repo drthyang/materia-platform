@@ -131,13 +131,13 @@ seeds the α₀ row from it (0 when absent, as before).
 ### One bank at a time (`src/app/bankChoice.ts`, the two cards)
 
 - **Data card.** A GSAS histogram with several banks shows a chooser
-  ("Bank 3 · 2999 points · TOF 733–21991 µs"). It opens on bank 1 (the file's
+  ("Bank 3 · 60 points · TOF 800–1012 µs"). It opens on bank 1 (the file's
   first bank when it has no bank 1). Choosing another bank reads the file
   again as new data: one History step. The comment lines some reductions
-  write above each `BANK` record (`# Total flight path 21.5m, tth 15.1deg,
-  DIFC 1428.8`) are read as optional metadata.
+  write above each `BANK` record (`# Total flight path 30.1m, tth 20.0deg,
+  DIFC 1215.5`) are read as optional metadata.
 - **Instrument card.** A file with several banks shows a chooser
-  ("Bank 3 · 2θ 65° · difC 5612"). It opens on the data's bank when the file
+  ("Bank 3 · 2θ 75° · difC 6106"). It opens on the data's bank when the file
   has it, else on its lowest-numbered bank. Choosing another bank builds the
   profile rows again: one History step.
 - **Pairing.** By bank number, checked against the DIFC the data file states

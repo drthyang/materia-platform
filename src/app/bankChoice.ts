@@ -52,7 +52,7 @@ export function currentDataBank(banks: readonly GsasBank[] | null, raw: BankedFi
   return (raw?.bank !== undefined ? banks.find((b) => b.bankNumber === raw.bank) : undefined) ?? banks[0]!;
 }
 
-/** "Bank 3 · 2999 points · TOF 733–21991 µs". */
+/** "Bank 3 · 60 points · TOF 800–1012 µs". */
 export function dataBankLabel(b: GsasBank): string {
   const { min, max } = minMax(b.points.map((p) => p.x));
   const range = b.xUnit === "tof" ? `TOF ${min.toFixed(0)}–${max.toFixed(0)} µs` : `2θ ${trim(min, 2)}–${trim(max, 2)}°`;
@@ -87,7 +87,7 @@ function trim(v: number, digits: number): string {
   return String(Number(v.toFixed(digits)));
 }
 
-/** "Bank 3 · 2θ 65° · difC 5612" (TOF), "Bank 2 · λ 1.54 Å" (constant wavelength). */
+/** "Bank 3 · 2θ 75° · difC 6106" (TOF), "Bank 2 · λ 1.54 Å" (constant wavelength). */
 export function instrumentBankLabel(b: InstrumentBank): string {
   const p = b.parameters;
   const parts = [

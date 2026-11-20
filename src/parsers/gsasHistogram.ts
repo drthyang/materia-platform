@@ -70,8 +70,8 @@ export interface GsasBank {
   readonly points: readonly PowderPoint[];
   /**
    * What the comment lines just above the BANK record say of this bank, when
-   * the file has them (a reduction's `# Total flight path 21.5m, tth 15.1deg,
-   * DIFC 1428.8`). Optional metadata: nothing in the pattern depends on it.
+   * the file has them (a reduction's `# Total flight path 30.1m, tth 20.0deg,
+   * DIFC 1215.5`). Optional metadata: nothing in the pattern depends on it.
    */
   readonly meta?: GsasBankMeta;
 }

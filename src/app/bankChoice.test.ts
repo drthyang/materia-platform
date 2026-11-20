@@ -29,9 +29,9 @@ describe("a multi-bank GSAS histogram: the Data card's banks", () => {
     expect(SIX_BANK_GSA).toMatch(/[^\r]\n/);
     expect(hist.banks.map((b) => b.bankNumber)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(hist.banks.map((b) => b.points.length)).toEqual([40, 50, 60, 70, 80, 90]);
-    expect(hist.banks.map((b) => b.meta?.difC)).toEqual([1490.5, 2861.25, 5606.5, 8625.75, 1399.25, 836.25]);
-    expect(hist.banks[0]!.meta).toEqual({ flightPath: 20.1, twoTheta: 15, difC: 1490.5 });
-    expect(hist.banks[5]!.meta).toEqual({ flightPath: 20.6, twoTheta: 8.5, difC: 836.25 });
+    expect(hist.banks.map((b) => b.meta?.difC)).toEqual([1215.5, 3310.5, 6100.5, 7755.5, 10240.5, 640.5]);
+    expect(hist.banks[0]!.meta).toEqual({ flightPath: 30.1, twoTheta: 20, difC: 1215.5 });
+    expect(hist.banks[5]!.meta).toEqual({ flightPath: 30.6, twoTheta: 10, difC: 640.5 });
   }, T);
 
   it("a file without the comment lines has no metadata and reads as before", () => {
@@ -70,11 +70,11 @@ describe("a multi-bank .instprm: the Instrument card's banks", () => {
   it("offers each bank with its angle and difC", () => {
     const options = instrumentBankOptions(five)!;
     expect(options.map((o) => o.label)).toEqual([
-      "Bank 1 · 2θ 154° · difC 1500",
-      "Bank 2 · 2θ 31° · difC 2851",
-      "Bank 3 · 2θ 65° · difC 5613",
-      "Bank 4 · 2θ 120.5° · difC 8651",
-      "Bank 5 · 2θ 15° · difC 1402",
+      "Bank 1 · 2θ 20° · difC 1211",
+      "Bank 2 · 2θ 40° · difC 3320",
+      "Bank 3 · 2θ 75° · difC 6106",
+      "Bank 4 · 2θ 110.5° · difC 7741",
+      "Bank 5 · 2θ 160° · difC 10251",
     ]);
     expect(instrumentBankOptions(instrumentFileOf(SINGLE_BANK_INSTPRM))).toBeNull();
     expect(instrumentBankOptions(instrumentFileOf("not an instrument file"))).toBeNull();
@@ -88,11 +88,11 @@ describe("a multi-bank .instprm: the Instrument card's banks", () => {
 
   it("pairs by bank number and checks the pairing against the data's own DIFC", () => {
     // Same number, difC within 3 %.
-    expect(matchingInstrumentBank(five, { bank: 3, difC: 5606.5 })!.bank).toBe(3);
+    expect(matchingInstrumentBank(five, { bank: 3, difC: 6100.5 })!.bank).toBe(3);
     // Same number, but the difC is another bank's: the bank with that difC.
-    expect(matchingInstrumentBank(five, { bank: 1, difC: 5606.5 })!.bank).toBe(3);
+    expect(matchingInstrumentBank(five, { bank: 1, difC: 6100.5 })!.bank).toBe(3);
     // A data bank the file does not cover.
-    expect(matchingInstrumentBank(five, { bank: 6, difC: 836.25 })).toBeNull();
+    expect(matchingInstrumentBank(five, { bank: 6, difC: 640.5 })).toBeNull();
     // Data that state no DIFC: the number alone.
     expect(matchingInstrumentBank(five, { bank: 6 })).toBeNull();
     expect(matchingInstrumentBank(five, { bank: 2 })!.bank).toBe(2);
@@ -107,26 +107,26 @@ describe("a multi-bank .instprm: the Instrument card's banks", () => {
 
 describe("the instrument is not the data bank's: said, offered, never switched", () => {
   it("says nothing when the two belong together, or the data name no bank", () => {
-    expect(bankAdvice(five, bankOf(3), { bank: 3, difC: 5606.5 })).toBeNull();
+    expect(bankAdvice(five, bankOf(3), { bank: 3, difC: 6100.5 })).toBeNull();
     expect(bankAdvice(five, bankOf(3), { bank: 3 })).toBeNull();
     expect(bankAdvice(five, bankOf(5), null)).toBeNull();
   }, T);
 
   it("names both banks and offers the data's (the old reader's case: data bank 1, instrument bank 5)", () => {
-    const advice = bankAdvice(five, bankOf(5), { bank: 1, difC: 1490.5 })!;
+    const advice = bankAdvice(five, bankOf(5), { bank: 1, difC: 1215.5 })!;
     expect(advice.line).toBe("Data are bank 1; the instrument is bank 5.");
     expect(advice.offer).toEqual({ bank: 1, label: "Use bank 1" });
-    // 1401.5 against 1490.5: 6.0 % off, stated.
-    expect(advice.detail).toContain("6.0 % from the data's DIFC 1490.5");
+    // 10250.5 against 1215.5, stated.
+    expect(advice.detail).toContain("743 % from the data's DIFC 1215.5");
   }, T);
 
   it("offers the bank with the data's DIFC when the same-numbered bank has another difC", () => {
-    const advice = bankAdvice(five, bankOf(1), { bank: 1, difC: 5606.5 })!;
+    const advice = bankAdvice(five, bankOf(1), { bank: 1, difC: 6100.5 })!;
     expect(advice.offer).toEqual({ bank: 3, label: "Use bank 3" });
   }, T);
 
   it("says plainly that a data bank has no instrument bank, and offers none", () => {
-    const advice = bankAdvice(five, bankOf(1), { bank: 6, difC: 836.25 })!;
+    const advice = bankAdvice(five, bankOf(1), { bank: 6, difC: 640.5 })!;
     expect(advice.line).toBe("No instrument bank for data bank 6: bank 1 is not its calibration.");
     expect(advice.offer).toBeUndefined();
     expect(advice.detail).toContain("banks 1, 2, 3, 4, 5");
@@ -140,8 +140,8 @@ describe("the instrument is not the data bank's: said, offered, never switched",
     const bank = one.banks[0]!;
     // The file says Bank 2; data bank 1 with no DIFC: nothing to check, no line.
     expect(bankAdvice(one, bank, { bank: 1 })).toBeNull();
-    expect(bankAdvice(one, bank, { bank: 1, difC: 22450 })).toBeNull();
-    expect(bankAdvice(one, bank, { bank: 1, difC: 5606.5 })!.line).toBe("No instrument bank for data bank 1: bank 2 is not its calibration.");
+    expect(bankAdvice(one, bank, { bank: 1, difC: 20950 })).toBeNull();
+    expect(bankAdvice(one, bank, { bank: 1, difC: 6100.5 })!.line).toBe("No instrument bank for data bank 1: bank 2 is not its calibration.");
   }, T);
 });
 
@@ -149,8 +149,8 @@ describe("what the file has that the calculation leaves out", () => {
   it("TOF: the non-zero Lorentzian terms and sig-1, with what stands in for it", () => {
     const note = unusedNote(bankOf(1), undefined)!;
     expect(note.line).toBe("Not used: Lorentzian X, Y; sig-1.");
-    expect(note.detail).toContain("X = -0.875, Y = 0.375");
-    expect(note.detail).toContain("sig-1 = 260.75 is left out while the microstrain model is isotropic");
+    expect(note.detail).toContain("X = -0.5, Y = 0.625");
+    expect(note.detail).toContain("sig-1 = 140.25 is left out while the microstrain model is isotropic");
     expect(note.detail).toContain("1500 × 10⁻⁶");
     expect(unusedNote(bankOf(4), "isotropic")!.line).toBe("Not used: Lorentzian X, Z; sig-1.");
     // No Lorentzian in the file: sig-1 alone.
@@ -177,15 +177,15 @@ describe("what the file has that the calculation leaves out", () => {
     expect(row("tof_sig1")).toBeUndefined();
     expect(row("mustrainIso")).toMatchObject({ value: 1500, fixed: true });
     // The other terms as read, the negative sig-0 included, held fixed.
-    expect(row("tof_sig0")).toMatchObject({ value: -50.5, fixed: true });
-    expect(row("tof_sig2")).toMatchObject({ value: 40.125, fixed: true });
+    expect(row("tof_sig0")).toMatchObject({ value: -18.5, fixed: true });
+    expect(row("tof_sig2")).toMatchObject({ value: 9.75, fixed: true });
     expect(row("tof_sigQ")).toMatchObject({ value: 0, fixed: true });
-    expect(row("tof_alpha1")).toMatchObject({ value: 0.25, fixed: true });
-    expect(row("tof_beta0")).toMatchObject({ value: 0.125, fixed: true });
-    expect(row("tof_beta1")).toMatchObject({ value: 0.02, fixed: true });
+    expect(row("tof_alpha1")).toMatchObject({ value: 0.4, fixed: true });
+    expect(row("tof_beta0")).toMatchObject({ value: 0.06, fixed: true });
+    expect(row("tof_beta1")).toMatchObject({ value: 0.011, fixed: true });
     expect(row("tof_betaQ")).toMatchObject({ value: 0, fixed: true });
-    expect(row("tof_difC")).toMatchObject({ value: 1500.25, fixed: true });
-    expect(row("zero")).toMatchObject({ value: -7.5, fixed: true });
+    expect(row("tof_difC")).toMatchObject({ value: 1210.5, fixed: true });
+    expect(row("zero")).toMatchObject({ value: -4.5, fixed: true });
   }, T);
 });
 

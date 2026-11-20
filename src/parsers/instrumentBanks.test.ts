@@ -45,27 +45,27 @@ describe("GSAS-II .instprm: several banks in a file", () => {
     // Negative Gaussian terms and a large sig-q are read as written.
     const b3 = instrumentBank(file, 3)!.parameters;
     if (b3.kind !== "tof") throw new Error("wrong kind");
-    expect(b3.sig0).toBe(-206.5);
-    expect(b3.sig1).toBe(-91.75);
-    expect(b3.sigQ).toBe(788.25);
+    expect(b3.sig0).toBe(-120.5);
+    expect(b3.sig1).toBe(-44.25);
+    expect(b3.sigQ).toBe(512.75);
     // Exponent forms, as Python's float() reads them.
     const b4 = instrumentBank(file, 4)!.parameters;
     if (b4.kind !== "tof") throw new Error("wrong kind");
     expect(b4.zero).toBe(12.5);
-    expect(b4.sig1).toBe(-52.5);
+    expect(b4.sig1).toBe(-37.5);
   }, T);
 
   it("opens on the first bank, as GSAS-II, never on the last", () => {
     const first = parseInstrumentParameters(FIVE_BANK_INSTPRM);
     if (first.kind !== "tof") throw new Error("wrong kind");
-    expect(first.difC).toBe(1500.25);
-    expect(first.sig1).toBe(260.75);
+    expect(first.difC).toBe(1210.5);
+    expect(first.sig1).toBe(140.25);
   }, T);
 
   it("takes the bank asked for, and says so when the file has no such bank", () => {
     const third = parseInstrumentParameters(FIVE_BANK_INSTPRM, 3);
     if (third.kind !== "tof") throw new Error("wrong kind");
-    expect(third.difC).toBe(5612.5);
+    expect(third.difC).toBe(6105.5);
     expect(() => parseInstrumentParameters(FIVE_BANK_INSTPRM, 9)).toThrow(/Bank 9 not found/);
   }, T);
 
@@ -160,11 +160,11 @@ describe("GSAS-II .instprm: one bank, one key per line", () => {
     // No bank header: the file's own Bank value.
     expect(bank.bank).toBe(2);
     expect(bank.parameters).toEqual({
-      kind: "tof", difC: 22500.5, difA: -1.5, difB: 0, zero: 2.25,
+      kind: "tof", difC: 21000.5, difA: -1.5, difB: 0, zero: 2.25,
       alpha: 1, beta0: 0.04, beta1: 0.01, betaQ: 0,
-      sig0: 0, sig1: -80, sig2: 120, sigQ: 0,
+      sig0: 0, sig1: -60, sig2: 150, sigQ: 0,
     });
-    expect(bank.extras).toEqual({ twoTheta: 90, flightPath: 60.5, lorentzX: 0, lorentzY: 0, lorentzZ: 0 });
+    expect(bank.extras).toEqual({ twoTheta: 90, flightPath: 55.5, lorentzX: 0, lorentzY: 0, lorentzZ: 0 });
     expect(parseInstrumentParameters(SINGLE_BANK_INSTPRM)).toEqual(bank.parameters);
     // CRLF line ends change nothing.
     expect(parseInstrumentFile(SINGLE_BANK_INSTPRM.replace(/\n/g, "\r\n")).banks[0]!.parameters).toEqual(bank.parameters);
