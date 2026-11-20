@@ -1,13 +1,13 @@
 # The moments fit: a bias from the nuclear-only fit, removed by rounds
 
-Branch `fix/moments-alternation`, on `main` at fcf7257, 2026-11-19/20. No pull
-request yet.
+Branch `fix/moments-alternation`, 2026-11-19/20, draft pull request
+[#174](https://github.com/drthyang/materia-platform/pull/174).
 
-**Status.** Step 1 (the known-truth test and the plan) and step 2 (the engine
-and the app) are done. The Copilot's method, report gate, tool descriptions,
-snapshots, replays and evals are a later step and are untouched. Three choices
-are built on provisional defaults and wait for the owner; they are listed
-under [Provisional](#provisional-awaiting-the-owner).
+**Status.** Four steps, all done: the known-truth test and the plan; the
+engine and the app; what the Copilot's model reads (its tool, its method, the
+report gate, the evals); the documents. The owner decided the three open
+choices on 2026-11-20, each as built ([The owner's
+decisions](#the-owners-decisions)).
 
 **In one paragraph.** One moments fit after a nuclear-only fit read 4.06 µB for
 a true 4.2 µB (10 esd low) on a pattern calculated without the app's code.
@@ -16,7 +16,9 @@ every nuclear row held, then the scale and the background with the moments
 held, then the moments again, until no moment moves by 0.1 of its esd. It ends
 on a moments step and never refines a moment and a nuclear row together. It
 reads 4.200 over 48 seeds, the joint fit's answer, with an esd that includes
-the scale and the background and matches the scatter.
+the scale and the background and matches the scatter. The Copilot's method
+now ends on a refinement of the moments alone after its final instrument pass,
+and the report waits for it.
 
 Answers Finding 1 and Finding 2 of the demo-path physics audit of 2026-11-09
 (a read-only audit of the commensurate magnetic powder path).
@@ -43,8 +45,8 @@ ranked at 4.155 µB was taken back to 3.520 µB by Refine moments (truth 4.2).
 
 The Copilot's method ends on a final instrument pass (instrument terms, scale
 and background, the moments held), and the report gate requires that pass to
-be the last refinement. The moments are therefore never refined against the
-scale and background the report is written with. That part is the later step.
+be the last refinement. The moments were therefore never refined against the
+scale and background the report is written with.
 
 The sections down to [The ranking](#the-ranking) are the measurements taken
 before the change ("today" in them is `main`). What was built follows them.
@@ -238,9 +240,8 @@ would multiply its time). Checked whether rounds would change its answer:
 | **The cap says so.** At ten rounds the last moments step is kept and the readout says the fit did not settle, with the last shift | `momentFitReadout` (`magneticStep.ts`) |
 | **The local demo's solve** runs the rounds for its last step, and has a dry mode that writes nothing | `examples/localMagneticDemoSolve.test.ts` |
 
-Nothing the model reads was edited: no skill, tool description, gate message,
-snapshot, replay or eval. The single-crystal and mPDF moment fits are
-unchanged (they ignore the request for rounds).
+The single-crystal and mPDF moment fits are unchanged (they ignore the request
+for rounds). What the model reads changed in step 3, below.
 
 ### The stopping rule, as built
 
@@ -306,7 +307,8 @@ and the Copilot drive it (`app/momentSequenceBias.test.ts`).
 - A fit at the cap reads, in the warning colour: `wR = 7.7% · not settled
   after 10 rounds (a moment still moved by 0.12 esd)`.
 - The page's scale and background rows hold the re-refined values, and
-  History has a step for it. Undo restores them.
+  History has a step for it. Undo restores them. A model shown or continued
+  on the refinement page follows the fitted moments.
 - The "nuclear only" chip beside the ranking keeps the nuclear-only fit's wR.
 - Beside the ranking table, after a ranking: "Ranked with one moments fit per
   group; Refine moments also re-refines the scale and the background, so its
@@ -333,37 +335,247 @@ History listed the step, and Continue put the moment rows on the refinement
 page. No console error. More than one round was not shown in the browser;
 that is covered through the step's store in the tests.
 
-## What changed for what the model reads
+## What the Copilot's model reads (step 3)
 
-No text the model reads was edited, and the two model-text snapshots are
-unchanged. Values it reads do change, and the later step must account for
-them:
+### The order, and why
 
-- `refine_moments` returns the wR of the rounds, and it changes the page's
-  scale and background rows. Its description still says "the nuclear model
-  held fixed". It does not report the rounds or a fit that did not settle.
-- `magnetic_state`'s `nuclearOnlyWR` stays the nuclear-only fit's after
-  `refine_moments`.
-- `refine` with only magnetic rows free returns larger moment esds.
-- History, and so the report's list of steps, has the new step label.
-- The page's last result is cleared when the rows are handed back, as any
-  change of a row clears it. In the method's order a refinement follows, so
-  the report gate reads as before.
+1. **Stage 3, `refine_moments`**: the rounds. The moments, the scale and the
+   background settle together; the two rows go to the page.
+2. **Stage 4**: `continue_magnetic_refinement`, every nuclear row fixed,
+   `refine` of the moments alone on the refinement page (with k's components
+   where they refine). After the rounds nothing moves; this is where k
+   refines, and where the page gets a result with the moments' esds.
+3. **Stage 5, the final instrument pass**: the instrument's terms with the
+   scale and the background, the moments held.
+4. **Stage 5, the moments alone once more**: `set_free` the moments, `refine`.
+   The report quotes these.
 
-## Provisional, awaiting the owner
+The last step is the page's `refine`, not `refine_moments`, because the report
+prints the page's rows and the esds of the page's last refinement.
+`refine_moments` works on the step's candidate and leaves the page without a
+result, so a report written after it would carry no moment esds. The pass has
+just refined the scale and the background with the moments held, so the pass
+and the last refinement are one more round of the rounds, with the peak shape
+in the step between.
 
-1. **k = 0: the scale is held in every moments step**, as at k ≠ 0 (the rule
-   as written). The other choice, the scale free with the moments and the
-   background alone between, is `K0_SCALE_WITH_MOMENTS = true`, one constant.
-   It is tested: on the k = 0 ferromagnet it ends on the same moment (within
-   0.1 esd) with the same esd in 3 rounds or fewer, where the default takes 6.
-2. **The step between refines the scale and the background only.** The peak
-   width keeps its nuclear-only value. Measured cost: nothing on model A, 0.3
-   esd on each of model B's two components (above). The Copilot's final
-   instrument pass followed by a moments refinement removes it in its flow.
+**The rule for the last tweak** (the owner's: the moments stay within their
+esds across the profile pass, and a larger move means the profile trades with
+the model). `refine` of the magnetic rows alone now returns
+`momentShiftOverEsd`, the largest move of a moment in that refinement in its
+esd; after the pass, which held the moments, that is their move across the
+pass. Above 1, the pass and the moments are run once more; still above 1, the
+peak shape trades with the magnetic model: undo the passes, hold those terms,
+report it. One repeat is allowed because the first pass after a peak shape
+fitted without the magnetic intensity is a correction, not a trade, as the
+second case below shows.
+
+**Numbers.** Independent MnWO₄, through the page's own Refine (four seeds
+each; the reference is a fit of scale, background, width and moments
+together, which no step runs):
+
+| | moved across the pass | from that joint fit after the last step | wR: stage 4 → pass → last |
+| --- | --- | --- | --- |
+| model A, one row | 0.04–0.05 esd | 0.01 esd | 5.013 → 4.973 → 4.973 % (seed 0) |
+| model B, two rows | 0.27–0.31 esd each | 0.01, 0.00 esd | 5.077 → 5.025 → 5.025 % (seed 0) |
+
+Stage 4 after the rounds moved no moment by more than 0.1 esd. So the order
+ends on the joint answer, and the 0.3 esd the held width cost model B
+([Finding 1](#finding-1-in-numbers)) is gone.
+
+The scripted run on the simulated Mn₃Ga 30 K pattern (k = 0, P2₁′/m′, six
+amplitudes, simulated by the app's own model from the published structure; the
+peak shape there is never refined with the magnetic intensity in the model
+before the pass), each amplitude against its simulated value:
+
+| | the six amplitudes, in esd from the simulated values | \|M\| on the three Mn (true 2.527, 2.829, 2.530 µB) |
+| --- | --- | --- |
+| the method before this change (one moments fit, the pass, the report) | −6.1, −2.4, +1.1, −1.1, −4.6, −3.8 at stage 4 | 2.15–2.83 as the old replay quoted |
+| `refine_moments` (8 rounds), stage 4 | −1.8, +0.3, +0.2, −0.6, −0.4, −0.4 | 2.46, 2.82, 2.51 |
+| the pass, the moments (moved 1.7 esd) | −0.4, −0.3, −0.5, +0.1, −1.0, +0.4 | |
+| the pass and the moments once more (moved 0.36 esd) | 0.0, −0.1, −0.6, +0.2, −0.6, +0.6 | 2.52, 2.82, 2.52 |
+
+A third run moved them by 0.23 esd. The first pass's 1.7 esd took every
+amplitude toward its simulated value: a correction. Read as a trade and
+undone, the result would have been worse, which is why the rule repeats the
+pass once before it calls a trade.
+
+### Every string the model reads that changed
+
+**`refine_moments`, description** (in both model-text snapshots)
+
+- Old: "Powder page only. Fit the chosen group's moment amplitudes against the
+  pattern, the nuclear model held fixed. Returns wR and the moments (µB)."
+- New: "Powder page only. Fit the chosen group's moment amplitudes in rounds:
+  the moments (nuclear rows held), then the scale and background (moments
+  held), until no moment moves by 0.1 esd; at most 10 rounds, ending on the
+  moments. The page's scale and background rows take the re-refined values.
+  Returns wR, the rounds, the moments (µB) and their esds. "not settled": the
+  data do not determine a moment; tie or hold it."
+
+**`refine_moments`, result**
+
+- Old: "Moments fitted: wR 4.82%."
+- New: "Moments fitted, settled in 8 rounds: wR 4.82%. The page's scale and
+  background rows hold the re-refined values." or "Moments fitted, not settled
+  after 10 rounds, a moment still moved by 0.12 esd: wR …".
+- Its `chosen` view: each amplitude with its esd ("mom_Mn1_0_0 = 1.497 ±
+  0.044"), and `momentsFit`: "settled in 8 rounds; the esds include the scale
+  and the background". `magnetic_state` shows the same.
+- Its approval card: "…, nuclear model held" → "…, nuclear structure held,
+  scale and background re-refined".
+
+**`magnetic_state` / `get_state`, the step's `next` line**
+
+- Old: "refine_moments: fit the chosen group's moments, the nuclear model
+  held" → New: "refine_moments: fit the chosen group's moments (the nuclear
+  structure held; the scale and the background re-refined with the magnetic
+  model)".
+- Old: "the moments are fitted: refine the nuclear and magnetic models
+  together on the refinement step, then report the group, k and the moments
+  with what the powder cannot tell" → New: "the moments are fitted:
+  continue_magnetic_refinement puts them on the refinement step; report the
+  group, k and the moments with what the powder cannot tell". The old line
+  told the model to refine nuclear and magnetic together, against the rule.
+  After a fit that did not settle it starts "the moments fit did not settle
+  (…): tie or hold the component the data do not determine, or refine_moments
+  again; then".
+
+**`refine`, result, for a refinement of the magnetic rows alone**: two new
+fields, `momentShiftOverEsd` and `esdsInclude: "the scale and the background
+(held)"`.
+
+**The report gate** (`reportNotYet`), two messages now
+
+- Before a pass, line "Not yet: the final instrument pass" as before. In its
+  message "ends with a final instrument pass (magnetic-analysis Stage 5)" →
+  "ends with a final instrument pass and then the moments again
+  (magnetic-analysis Stage 5)", and "Then write the report, quoting the fit
+  before and after the pass." → "Then refine the moments alone once more, and
+  write the report, quoting the fit before and after the pass."
+- New, after a pass, until the last converged refinement is of the magnetic
+  rows alone, line "Not yet: the moments after the instrument pass": "Not yet.
+  The final instrument pass is done; my-rietveld-workflow's magnetic step ends
+  on the moments (magnetic-analysis Stage 5): the pass moved the scale, the
+  background and the peak shape under them. Hold every nuclear row (set_free:
+  fix the instrument's terms, the scale and the background; free the moments,
+  and k's components if they refined) and refine to convergence. That
+  refinement's momentShiftOverEsd is the moments' move across the pass: above
+  1, run the pass and the moments once more; still above 1, the peak shape
+  trades with the moments: undo the passes, hold the terms that correlate with
+  them, and say so. Then write the report, quoting the fit before and after
+  the pass."
+- The gate knows a pass has run from the History's path to the page as it
+  stands (undo takes it off), or, on a page with no History, from what this
+  run saw. Every other gate is as it was.
+
+**The skill `magnetic-analysis`** (its body is held to 10 000 characters: 9995
+before, 9996 now, so each addition is paid for by a cut)
+
+- Stage 3, item 3: "`refine_moments`, the nuclear model held. Check the
+  result:" → "`refine_moments` (rounds with the scale and background: notes).
+  Check the result:" with a new first check, "Not settled: tie or hold the
+  component the data do not determine, and say so."
+- Stage 4, its rule: "The user's rule: the moments refine against the nuclear
+  model as a fixed reference. The scale, background, cell, instrument terms,
+  positions, ADPs and occupancies stay at their nuclear values (until Stage
+  5)" → "The user's rule: the moments refine with the nuclear model held. The
+  scale and background stay as `refine_moments` left them, the rest at its
+  nuclear values (until Stage 5)".
+- Stage 5, its title: "the final instrument pass (always; the report waits for
+  it)" → "the final instrument pass, then the moments (always; the report
+  waits)"; and a new closing paragraph: "Then the moments alone once more; the
+  report quotes these. If that `refine`'s `momentShiftOverEsd` (their move
+  across the pass) is above 1, repeat the pass and the moments; still above 1,
+  the peak shape trades with the model: `undo` the passes, hold those terms,
+  report it."
+- Cut to make room: the opening paragraph shortened ("written from the app's
+  workflow and the magnetic knowledge base; the user has not been interviewed
+  on it yet, so" → "a draft the user has not been interviewed on:"); Stage 4's
+  "`show_magnetic_model` instead holds the moments." (its tool description
+  says it); the tool table's rows "The step's state" and "Residual peaks"
+  (the same tool names on both sides); the three reference lines shortened.
+- Its notes (read on demand, not budgeted): a new section on the rounds with
+  the MnWO₄ numbers and the hand alternation over MCP; the Stage 5 note
+  rewritten for the last moments refinement, with the two cases above.
+
+**The report's sentence** (`magneticReportSection`, the current layout only;
+the frozen layout's words are unchanged): "Moments refined against the powder
+pattern with the nuclear model held; the moment esds come from that fit." gains
+"and include the uncertainty of the scale and the background" when they do.
+The report's step list shows "Moments refined (scale and background
+re-refined)" for the step the page records.
+
+Not changed: the system prompt, `continue_magnetic_refinement`,
+`show_magnetic_model`, `my-rietveld-workflow` and its MCP tool map (they name
+no sequence that changed).
+
+### Re-baselined
+
+- `src/agent/__snapshots__/model-text.arm-b.md` and `model-text.arm-c.md`:
+  one line each, the `refine_moments` description.
+- `docs/AGENT_TOOLS.md` (generated): the same description.
+- `src/agent/replay/demoReplays.ts`, `magnetic-30k`: `refine_moments` after
+  the group is chosen; the pass frees the scale and the background with the
+  peak shape, as the skill says; then the moments, the pass and the moments
+  once more, and the report. Its narration quotes the new numbers.
+  `evals/replays.ts` takes its good run from it; its bad run now also shows
+  the new check failing.
+- `src/agent/evals/checks.ts`: a new check, `magneticEndsOnMoments` ("ends the
+  magnetic step on the moments, after the final instrument pass"), on
+  `magnetic-30k`; `graders.test.ts` has its cases. `docs/AGENT_EVALS.md`: 60 of
+  67 checks shown to catch their failure (59 of 66 before), and the scenario's
+  line.
+- `src/agent/reportGate.test.ts`: rewritten for the two conditions and the
+  History's path.
+- `src/agent/magneticTools.test.ts`: the result line's pattern.
+- `src/docsCounts.test.ts`: no count of its own moved.
+
+The local eval gate (the scripted, no-model replays CI runs:
+`evals/evals.test.ts`, `replay/replay.test.ts`, `graders.test.ts`,
+`heldOut.test.ts`): all pass. Each scenario's good run passes its checks, each
+bad run fails the checks written against it, and the `magnetic-30k` replay
+runs the new order through the executor and its gate to a written report.
+
+### Token cost
+
+- The model text sent with every request: arm B 92 318 → 92 589 bytes, arm C
+  85 394 → 85 665 bytes. +271 bytes each (+0.3 %), about 70 to 90 tokens.
+  It is one tool description. Longer wordings pushed the local-model context
+  estimate over its next 8 192-token step in `chat.test.ts`; the description
+  was cut until it did not.
+- The skill, read once per magnetic analysis: +1 character.
+- The notes, read only when the model opens them: 3 618 → 5 770 bytes, about
+  +600 tokens.
+- Tool results: `refine_moments` about +110 characters and an esd per
+  amplitude; `refine` of the moments alone about +70; the new gate message
+  about 640, only when the report is asked for too early.
+- A run of the method is longer by one `set_free` and one `refine` (two of
+  each when the pass repeats).
+
+### Live scenarios to run again, with the owner's yes
+
+No live model was run. The scripted runs show the tools and the gate work;
+only a live run shows a model follows the new text.
+
+- `magnetic-30k` (changed most: new check, new ending, the repeat rule).
+- `magnetic-structure` and `magnetic-step-first` (`refine_moments` and the
+  step's `next` line changed).
+- `local-data-user-flow` where the data are (its magnetic part reads the same
+  tools).
+- One non-magnetic powder scenario as a control (`full-refinement`): the
+  model text grew by one description.
+
+## The owner's decisions
+
+Decided 2026-11-20, each as built:
+
+1. **k = 0: the scale is held in every moments step**, as at k ≠ 0 ("we
+   usually don't refine the scale"). `K0_SCALE_WITH_MOMENTS` stays `false`;
+   the other choice remains behind that constant and is tested.
+2. **The step between refines the scale and the background only**, no peak
+   width.
 3. **The wording**: "Nuclear structure held; scale and background re-refined
-   with the magnetic model." It is one constant (`MOMENT_ROUNDS_SUMMARY`),
-   shown in the readout's details and in the step's help.
+   with the magnetic model."
 
 ## Tests
 
@@ -372,13 +584,17 @@ New, and failing on `main`:
 - `core/refinement/engine.test.ts`, "esdWith": the joint fit's esd from a fit
   of one parameter with the other named, by hand as well; the fallback when
   the two cannot be told apart; the same under the parallel driver.
-- `app/momentSequenceBias.test.ts` (20 tests, 19 s), through the step: A over
-  48 seeds within 3.5 esd each, the mean within its error, the scatter of the
-  esd's size, the first eight equal to the joint fit in moment and esd; B;
-  the ranking's one fit pinned; the rows handed back and the moments-only
-  Refine after Continue; the baseline; Cancel in the second round and a model
-  changed under a fit; the cap (two rounds allowed) and its message; the
-  readout; k = 0 through the step, both choices; noise-free data.
+- `app/momentSequenceBias.test.ts` (24 tests, about 25 s), through the step:
+  A over 48 seeds within 3.5 esd each, the mean within its error, the scatter
+  of the esd's size, the first eight equal to the joint fit in moment and esd;
+  B; the ranking's one fit pinned; the rows handed back and the moments-only
+  Refine after Continue; the baseline; a model shown or continued on the page
+  following the fit; Cancel in the second round and a model changed under a
+  fit; the cap (two rounds allowed) and its message; the readout; k = 0
+  through the step, both choices; the method's order (the moments, the pass,
+  the moments) against a joint fit with the width; noise-free data.
+- `agent/reportGate.test.ts`: the two conditions of the gate, and the pass on
+  the History's path. `agent/evals/graders.test.ts`: the new check.
 
 Existing tests changed, and why:
 
@@ -394,10 +610,9 @@ Existing tests changed, and why:
   until the owner runs the solve.
 
 Re-read and unchanged, passing: `app/powderPage.test.ts`,
-`app/mcifMagneticModel.test.ts`, `agent/magneticTools.test.ts`,
-`agent/strongMagneticPeaks.test.ts`, `agent/pages/stamp.test.ts`,
-`agent/toolScope.test.ts`, `agent/reportGate.test.ts`, the replay and grader
-tests, the model-text snapshots, `core/workflow/k0MagneticBias.test.ts`,
+`app/mcifMagneticModel.test.ts`, `agent/strongMagneticPeaks.test.ts`,
+`agent/pages/stamp.test.ts`, `agent/toolScope.test.ts`,
+`core/workflow/k0MagneticBias.test.ts`,
 `core/magnetic/momentRestarts.test.ts`, `workers/magneticMultiStart*.test.ts`,
 and the published Mn₃Ga comparisons (`mn3ga350KGolden.test.ts`,
 `magneticCif.test.ts`), which call none of the changed code.
@@ -409,46 +624,67 @@ the files their own gates ask for are not in the data folder.
 
 ## What it means for the validation
 
-Arm A's pinned results did not move: no replay, grader or snapshot test
-changed. A live run's `refine_moments` now returns the settled moments, so
-arms B and C will read different numbers from it; the method and the gate
-that use them are the later step, and a re-baseline belongs with it.
+Arm A (the scripted runs): the `magnetic-30k` replay was rewritten for the new
+order and passes its scenario's checks, the new one included; every other
+replay and grader is unchanged and passes. Arms B and C (live models) read a
+changed `refine_moments`, a changed `next` line and, with the skills, a method
+that ends differently: the scenarios listed under [Live scenarios to run
+again](#live-scenarios-to-run-again-with-the-owners-yes) are a new baseline,
+not a comparison with the old runs. `magnetic-30k` has one more check than the
+runs on record.
+
+## The documents (step 4), and two gaps closed
+
+- `docs/USER_GUIDE.md`: Step 5 (what Refine moments does, its line, Cancel,
+  "not settled"), the ranking (why its wR and moments differ from Refine
+  moments), Refine of the moments alone, and the Copilot's rules.
+- `docs/LIMITATIONS.md`, Magnetic structures: what works now, and what
+  remains (below).
+- `docs/VALIDATION.md`: the known-truth row.
+- `README.md`: the sentence on the magnetic step's order and the gate.
+- `docs/demo-qa.md`: Refine moments' time since the rounds (0.9 s on the demo
+  page). `docs/DEMO_SCRIPT.md` needed nothing: it shows the ranking, whose
+  description still holds.
+- `docs/AGENT_EVALS.md`: the check count and the scenario's line.
+- `CHANGELOG.md`, Unreleased: Changed (Refine moments; the Copilot's method)
+  and Fixed (the bias; k = 0; the esd).
+
+**A model shown on the refinement page follows Refine moments.** The step
+hands the fitted model with the rows; a page that shows that same model (by
+group, k and sites), through Show or through Continue's rows, shows it at the
+fitted moments. A page showing another model keeps it. The History step is
+recorded only when something on the page moved.
+
+**The nuclear-only baseline in the project file: not done.** It would add a
+field to the saved session, which is a change of the project format, if an
+additive one. Left as it is, and listed below.
 
 ## Not done
 
-- The three provisional choices above.
-- The Copilot's method, report gate, tool descriptions, snapshots, replays
-  and evals. Until then the model is not told that `refine_moments` changes
-  the scale and the background, nor when a fit did not settle.
-- The documents: USER_GUIDE, LIMITATIONS, README, VALIDATION, DEMO_SCRIPT,
-  demo-qa, CHANGELOG. They describe the old Refine moments.
-- The report's sentence about the moments ("the moment esds come from that
-  fit") is unchanged; it does not yet say what the esds include.
-- The owner's solution file for the local demo.
-- A model shown on the refinement pattern (Show) keeps the moments it was
-  shown with: a later Refine moments re-refines the page's scale and
-  background but does not update that preview, as before.
+- The owner's solution file for the local demo. It is theirs to regenerate:
+  `LOCAL_MAGNETIC_SOLVE=1 MATERIA_DATA_DIR=<the data folder> npx vitest run
+  src/examples/localMagneticDemoSolve.test.ts` (`=dry` writes nothing). The
+  moment in it goes from 2.508 to 2.597 µB, with the scale, the background and
+  the fit's wR.
+- Live runs of the scenarios above.
+- The rule for the last tweak is the method's text and a number the tool
+  returns (`momentShiftOverEsd`); the gate does not enforce it.
 - The recorded nuclear-only baseline lives in the step, not in the project:
   a reopened project shows the page's own value.
+- Over MCP there is no `refine_moments` and no `esdWith`: the skill's notes
+  say to alternate `refine_magnetic_powder` by hand.
 - Single crystal and mPDF moment fits: not measured, not changed.
-- Peak-shape rows, positions or ADPs in the rounds: not built, not tested.
-- More than one extra phase's scale in the rounds: built (every untied scale
-  row; both scales on the public demo), not tested against a known truth.
+- Peak-shape rows, positions or ADPs in the rounds: not built (the owner's
+  decision for the peak shape), not tested.
+- More than one phase's scale in the rounds: built (every untied scale row;
+  both scales on the public demo), not tested against a known truth.
 - A second k ≠ 0 compound, and a time-of-flight profile, by independent
   calculation.
 - The audit's Findings 3–5.
 
 ## Checks
 
-At the code's head (defc04f; the commit after it only fills in this section):
-`npm run build`, `npm run lint`, and `npm test` once: 404 files passed, 36
-skipped (data-gated or opt-in); 3575 tests passed, 336 skipped; 125 s.
-
-Also run: the four local-data test files read-only against the owner's data
-folder (two ran, two skipped by their own gates), the local solve in its dry
-mode (21 s; no file in the data folder changed), and the browser check above
-on the built app. Not run: the 200- and 1000-seed scripts (step 1's results
-stand), any live Copilot run or eval, any paid API.
+CHECKS_PLACEHOLDER
 
 The many-seed tables (step 1) are from
 
@@ -457,5 +693,5 @@ MOMENT_SEQUENCE_SEEDS=200 MOMENT_SEQUENCE_OUT=<folder> npx vitest run src/app/mo
 MOMENT_SEQUENCE_RANK=12   MOMENT_SEQUENCE_OUT=<folder> npx vitest run src/app/momentSequenceSeeds.test.ts
 ```
 
-(8.5 and 5.5 minutes on a laptop; skipped in the suite; not re-run for step
-2). They use the test's own harness, whose joint fit the step now equals.
+(8.5 and 5.5 minutes on a laptop; skipped in the suite; not re-run after step
+1). They use the test's own harness, whose joint fit the step now equals.
