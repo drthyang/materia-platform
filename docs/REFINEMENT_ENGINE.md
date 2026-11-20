@@ -97,7 +97,15 @@ where `r_i = √w_i · (y_obs,i − y_calc,i)` and `J_ij = ∂r_i/∂p_j`.
 - **Bounds.** A trial step is clamped into `[min, max]`, and a parameter that
   ends on a bound is reported in `atBounds`. Each shift is also capped at 5× the
   parameter's current magnitude, so one ill-conditioned step cannot throw the
-  model out of its basin. An isotropic B is bounded below at 0: the engine
+  model out of its basin. A parameter numerically at zero (its whole value
+  moves the calculated pattern by less than a part per million of the pattern:
+  an exact 0, or round-off such as 1e-15 Å) has no magnitude to cap by. Its
+  first trial of a cycle is unlimited. Once a trial is rejected, a non-linear
+  one is capped at 5× the r.m.s. magnitude of the free parameters of its kind
+  that are not at zero, then a third of that on each further rejected trial
+  (`zeroShiftCaps`). Without this a mode amplitude at 0 beside a small kicked
+  order parameter, whose column is weak, was given a step of ångströms that no
+  damping tried could shrink, and the fit stalled at once. An isotropic B is bounded below at 0: the engine
   never lets it go negative, so a B the data push below 0 ends on that bound.
   The engine does not change it; on the powder page the B-at-0 rule
   ([`diagnostics/zeroAdp.ts`](../src/core/diagnostics/zeroAdp.ts)) proposes a
