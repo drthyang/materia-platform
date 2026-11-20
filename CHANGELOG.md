@@ -7,6 +7,38 @@ release fixes bugs.
 
 ## [Unreleased]
 
+### Added
+
+- **One bank at a time.** A GSAS histogram with several banks and an
+  instrument file with several banks each show a bank chooser on their card.
+  The instrument opens on the data's bank; when the two do not belong
+  together (by bank number, checked against the DIFC the data file states)
+  the Instrument card says so in one line and offers the right bank. The bank
+  is one History step and is saved with the project (an optional field; older
+  projects open unchanged). A joint fit of several banks is not available
+  ([report](docs/reports/2026-11-20-instprm-banks.md)).
+- **What an instrument file has that the fit does not use**: one line on the
+  Instrument card (a time-of-flight file's Lorentzian X, Y, Z or GAMMA; sig-1
+  while the microstrain model is isotropic), with each term's treatment
+  behind "?".
+- **FullProf `.irf` profile lines** for time of flight: `SIGMA` and `ALFBE`
+  start the width and decay rows, `GAMMA`, `TWOTH` and `TOFRG` are read and
+  kept, and several banks separated by `END` are offered.
+
+### Fixed
+
+- **A GSAS-II `.instprm` with several banks** gave the values of its last
+  bank; it now opens on the first, as GSAS-II, or on the data's.
+- **A GSAS-II `.instprm` with several `key:value` pairs on a line** (joined
+  by `;`, as GSAS-II's default sets are) gave only the first pair of each
+  line.
+- **A FullProf `.irf` whose `D2TOF` line has three values** (`Dtt1 Dtt2
+  Zero`) had its zero read as the 1/d term; `ZD2TOF` and `ZD2TOT` lines were
+  refused.
+- **The bundled POWGEN `.instprm`** could not be read by GSAS-II because of
+  its second comment line; no value changes.
+- `docs/LIMITATIONS.md` no longer lists Kα₂ doublets as missing.
+
 ## [0.5.1] - 2026-11-20
 
 A patch release: fixes found on phones, tablets and a browser without WebGL,

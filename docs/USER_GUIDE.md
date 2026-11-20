@@ -143,7 +143,13 @@ A refinement follows seven steps. This section covers steps 1–4, and
 ### Refine the atomic structure
 
 Check the **Instrument** card first: it shows the beamline when known, and the
-wavelength or difC. Time-of-flight data need a TOF instrument file with difC;
+wavelength or difC. A file with several banks (a GSAS-II `.instprm` saved
+with "Save all profile", a FullProf `.irf` with `END` between banks, a GSAS
+histogram with several `BANK` records) is read one bank at a time: pick the
+bank on the **Data** and **Instrument** cards. The instrument opens on the
+data's bank, and the card says when the two do not belong together and offers
+the right one. A line "Not used: …" names what the file has that the fit
+leaves out; its "?" gives the details. Time-of-flight data need a TOF instrument file with difC;
 without one, the pattern is view-only. On load, only the scale, the background
 and the cell are free, so the first **Refine** is safe.
 
