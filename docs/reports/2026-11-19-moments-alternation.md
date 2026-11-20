@@ -440,7 +440,15 @@ that use them are the later step, and a re-baseline belongs with it.
 
 ## Checks
 
-CHECKS_PLACEHOLDER
+At the code's head (defc04f; the commit after it only fills in this section):
+`npm run build`, `npm run lint`, and `npm test` once: 404 files passed, 36
+skipped (data-gated or opt-in); 3575 tests passed, 336 skipped; 125 s.
+
+Also run: the four local-data test files read-only against the owner's data
+folder (two ran, two skipped by their own gates), the local solve in its dry
+mode (21 s; no file in the data folder changed), and the browser check above
+on the built app. Not run: the 200- and 1000-seed scripts (step 1's results
+stand), any live Copilot run or eval, any paid API.
 
 The many-seed tables (step 1) are from
 
