@@ -142,6 +142,19 @@ approximate, however plausible its output looks.
 **Not yet**
 - The magnetic kernel inside magnetic refinement.
 
+## 3D views
+
+**Supported**
+- The 3D models (structure, moments, distortion-mode arrows) are drawn with
+  WebGL 2. Nothing else needs it: refinement, the plots, the symmetry tools
+  and every export work in a browser without WebGL.
+
+**Not yet**
+- A drawing without WebGL. Where the browser gives no WebGL context (graphics
+  acceleration off, a blocked GPU, some remote desktops) each 3D card shows
+  "3D view unavailable" with how to check behind its "?" (`chrome://gpu`;
+  Firefox `about:support`), and no model.
+
 ## Symmetry
 
 **Supported**

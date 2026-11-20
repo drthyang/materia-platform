@@ -9,23 +9,6 @@ release fixes bugs.
 
 ### Changed
 
-- **k-point names from the Bilbao server's convention** (THY-73). Stars are
-  named as Bilbao's KVEC names them (CDML's labels, in the conventional
-  reciprocal basis of the ITA standard setting): every point of symmetry of
-  the cubic, tetragonal-P, orthorhombic-P and hexagonal lattices (A on
-  P6₃/mmc, Z and R on P4/mmm, X, Y, S, U, T on Pnma, fcc K…) and the
-  rhombohedral T, L and F, and a point on a line by the line and its
-  coordinates: "Δ (0, 0, 1/2)" and "Σ (0, 1/2, 1/2)" on F-43m. Irrep labels
-  follow: "A irrep 1 of 3", "Δ (0, 0, 1/2) irrep 2 of 4"; their numbers
-  (THY-64) do not change. Where no name could be written with confidence the
-  coordinates stay ("k = (0, 0, 1)" on I4/mmm). The Agent reads these names
-  in its tools; `list_subgroups`' k filter takes "Δ", "DT" or the
-  coordinates. Mode CIFs write a line's star as "DT". Saved projects keep
-  the labels they were saved with.
-- **A label-provider seam** (ADR 0004): each irrep carries a fingerprint,
-  and the label shown comes from a provider, generic by default, so CDML
-  labels from a permitted table could be added later without changing the
-  engine, the numbering or saved projects. No table ships.
 - **Refine moments runs as rounds** (powder page). The moments with every
   nuclear row held, then the scale and the background with the moments held,
   then the moments again, until no moment moves by 0.1 of its esd; at most
@@ -62,6 +45,56 @@ release fixes bugs.
   the magnetic parameters alone now quotes esds that include them (scatter /
   esd 0.98 over 1000 seeds), and the report says so.
 
+## [0.5.1] - 2026-11-20
+
+A patch release: fixes found on phones, tablets and a browser without WebGL,
+Bilbao's k-point names, and a setup manual for the Copilot. No refinement
+result changes.
+
+### Added
+
+- **A setup manual for the Copilot** ([docs/COPILOT_SETUP.md](docs/COPILOT_SETUP.md)):
+  an API key, the local proxy, Ollama, LM Studio and any OpenAI-compatible
+  server, step by step, with checks and the common failures (#172).
+
+### Fixed
+
+- **Layout on phones, tablets and beside a docked Copilot** (#170): no failed
+  request on page load (the development-only demo probe is out of the
+  production build), the parameter table's columns keep apart, the moment
+  field shows its value whole, tree rows and titles are no longer cut, the
+  posterior table shows that it scrolls, and the reason "Magnetic PDF →" is
+  disabled opens by touch ([report](docs/reports/2026-11-12-device-qa-layout.md)).
+- **The bundled GaTa₄Se₈ example's data header** no longer carries local file
+  paths (#173).
+- **A browser without WebGL no longer loses the page.** Loading a structure
+  with WebGL unavailable replaced the workbench by "This structure and data
+  cannot be calculated" (the 3D view's renderer threw). Each 3D card now
+  shows "3D view unavailable: WebGL is not available in this browser." with
+  how to check behind "?", its legend as plain dots and its downloads kept;
+  a context the browser drops later is announced and redrawn when it
+  returns. Refinement, plots and exports never needed WebGL and work as usual
+  ([report](docs/reports/2026-11-20-no-webgl.md)).
+
+### Changed
+
+- **k-point names from the Bilbao server's convention** (THY-73). Stars are
+  named as Bilbao's KVEC names them (CDML's labels, in the conventional
+  reciprocal basis of the ITA standard setting): every point of symmetry of
+  the cubic, tetragonal-P, orthorhombic-P and hexagonal lattices (A on
+  P6₃/mmc, Z and R on P4/mmm, X, Y, S, U, T on Pnma, fcc K…) and the
+  rhombohedral T, L and F, and a point on a line by the line and its
+  coordinates: "Δ (0, 0, 1/2)" and "Σ (0, 1/2, 1/2)" on F-43m. Irrep labels
+  follow: "A irrep 1 of 3", "Δ (0, 0, 1/2) irrep 2 of 4"; their numbers
+  (THY-64) do not change. Where no name could be written with confidence the
+  coordinates stay ("k = (0, 0, 1)" on I4/mmm). The Agent reads these names
+  in its tools; `list_subgroups`' k filter takes "Δ", "DT" or the
+  coordinates. Mode CIFs write a line's star as "DT". Saved projects keep
+  the labels they were saved with.
+- **A label-provider seam** (ADR 0004): each irrep carries a fingerprint,
+  and the label shown comes from a provider, generic by default, so CDML
+  labels from a permitted table could be added later without changing the
+  engine, the numbering or saved projects. No table ships.
 ## [0.5.0] - 2026-11-07
 
 ### Added
