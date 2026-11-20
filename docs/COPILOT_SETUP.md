@@ -58,7 +58,8 @@ Works on the live site and on a local server. The model runs at Anthropic and
 is billed to your key.
 
 1. Create a key in the [Anthropic Console](https://console.anthropic.com/)
-   (**not checked**: no real key was used for this manual).
+   (**not checked**: no key was pasted into the browser for this manual; a
+   real key was used only through the [local proxy](#3-local-proxy)).
 2. In the Copilot settings, pick **Anthropic**, then **API key**.
 3. Paste the key in **Anthropic API key**. The chip changes from
    **No API key** to **Anthropic API**, and the message box opens.
@@ -183,10 +184,11 @@ settings.
 2. Send a message ([First run](#7-first-run)). "With a key" only means a key
    was found. Whether the key is valid shows on the first message.
 
-A live answer through the proxy was **not checked** for this manual, because
-no real key was used. What was run: the proxy with no key, the proxy with a
-placeholder key (Anthropic refuses it), and a scripted conversation played
-through the proxy route.
+Checked with a real key, passed to `npm run dev` in the shell: one short
+question to Claude Haiku 5.5 on the Mn₃Ga demo was answered in about four
+seconds. Also run: the proxy with no key, the proxy with a placeholder key
+(Anthropic refuses it), and a scripted conversation played through the proxy
+route.
 
 ### Common failures
 
@@ -451,5 +453,7 @@ Each entry: what you see, why, what to do.
 - Ollama 0.40.16 with `gemma4:26b`: model list, and one message.
 - LM Studio 0.4.26: server start with and without CORS, model list. No model
   loaded.
-- Not run: a live answer from Anthropic (no real key), any OpenAI-compatible
-  server, the live `https` site with a local model.
+- Anthropic: one live answer through the local proxy (Claude Haiku 5.5). A
+  live answer in API key mode was not run.
+- Not run: any OpenAI-compatible server, the live `https` site with a local
+  model.
