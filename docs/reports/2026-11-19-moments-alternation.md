@@ -684,7 +684,27 @@ additive one. Left as it is, and listed below.
 
 ## Checks
 
-CHECKS_PLACEHOLDER
+At the code's head (c40fc2d, with origin/main at 7832daf merged in; the commit
+after it only fills in this section): `npm run build`, `npm run lint`, and
+`npm test` once: 404 files passed, 36 skipped (data-gated or opt-in); 3584
+tests passed, 336 skipped; 135 s.
+
+Also run:
+
+- step 2: the four local-data test files read-only against the owner's data
+  folder (two ran, two skipped by their own gates); the local solve in its
+  dry mode (21 s; no file in the data folder changed); the browser check on
+  the built app;
+- step 3: the scripted eval gate (in the suite); the `magnetic-30k` replay's
+  numbers read from its own run;
+- step 4: a second browser check of the final build on the public demo: Show
+  on refinement pattern (page wR 5.02 % at the seed moments), Refine moments
+  (4.2 %, one round), the History step after the Show step, and the
+  refinement page at wR 4.24 % with the model at the fitted moments; no
+  console error.
+
+Not run: the 200- and 1000-seed scripts (step 1's results stand), any live
+Copilot run or eval, any paid API, the solve that writes the owner's file.
 
 The many-seed tables (step 1) are from
 
