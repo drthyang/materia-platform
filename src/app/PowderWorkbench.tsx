@@ -94,7 +94,7 @@ import { type Session, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSessio
 import {
   BACKGROUND_TERMS, backgroundTermsEntry, curvesGoodnessOfFit, extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
   powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR as weightedROf, withAnisotropicAdp, withAntisitePair, withBackgroundTerms,
-  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMomentRoundRows, momentRoundValues, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf, magneticModelSummary,
+  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMomentRoundRows, momentRoundValues, momentEsdOptions, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf, magneticModelSummary,
   changed, snapshotHolds, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
 import { zeroAdpStepLabel, type ZeroAdpChoice, type ZeroAdpFix, type ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
@@ -700,11 +700,16 @@ export function PowderWorkbench({
       if (magneticApplied) {
         await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
         const coRefined = momentRowsFree();
+        // Magnetic rows alone free (the moments, and k): the nuclear model is held, and the moment esds carry the
+        // uncertainty of the scale and the background (powderPage.ts, momentEsdOptions).
+        const momentsOnly = "esdWith" in momentEsdOptions(session);
         const result = await powderFit({ maxIterations: 20 });
         setPage((p) => withFit(p, result));
+        const wR = `wR = ${(100 * (result.agreement.rWeighted ?? 0)).toFixed(2)}%`;
         setMessage(
-          `${coRefined ? "Nuclear + magnetic" : "Nuclear (magnetic model held)"} refinement ${result.status}: ` +
-          `wR = ${(100 * (result.agreement.rWeighted ?? 0)).toFixed(2)}%.`,
+          momentsOnly
+            ? `Moments refinement ${result.status} (nuclear model held): ${wR}.${result.diagnostics?.esdIncludes?.length ? " The moment esds include the scale and the background." : result.diagnostics?.esdWithFailed ? " The moment esds are of the moments alone: the data do not separate them from the scale and the background." : ""}`
+            : `${coRefined ? "Nuclear + magnetic" : "Nuclear (magnetic model held)"} refinement ${result.status}: ${wR}.`,
         );
         stepHistory?.requestStep("refine", coRefined ? "Refine nuclear + magnetic" : "Refine (magnetic model held)");
         return null;

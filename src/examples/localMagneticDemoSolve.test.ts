@@ -23,6 +23,7 @@ import { momentCartesian } from "@/core/magnetic/moment";
 import { formatMagneticSymbol } from "@/core/magnetic/bnsOg";
 import { buildFor, fitRows, momentParameters, rankCandidates, type MagneticFit } from "@/app/magneticStep";
 import { noiseOf, RANK_RESTARTS } from "@/core/magnetic/momentRestarts";
+import { alternateMoments } from "@/core/magnetic/momentAlternation";
 import { withinNoiseOfBest } from "@/core/diagnostics/hamilton";
 import { RANK_NOISE_ALPHA } from "@/core/diagnostics/thresholds";
 import { fCritical } from "@/core/math/fDistribution";
@@ -51,26 +52,34 @@ import type { Vec3 } from "@/core/math/types";
  *      top-down: the maximal group with the fewest moment parameters among
  *      those within the noise of the best fit, by Hamilton's test at 5 %
  *      (topDownGroup below states N, m and b);
- *   4. the magnetic refinement of the chosen candidate, with only the magnetic
- *      parameters free (magnetic-analysis, Stage 4): its moments, and k's
- *      components where the little group lets k move.
- *      The nuclear model of step 1 is the fixed reference: the scale,
- *      background, cell, instrument terms, positions, ADPs and occupancies
- *      stay at their nuclear values. The converged values are written to the
- *      solution file (and echoed as JSON).
+ *   4. the magnetic refinement of the chosen candidate, as the page's Refine
+ *      moments runs it (core/magnetic/momentAlternation.ts): the moments (and
+ *      k's components where the little group lets k move) with every nuclear
+ *      row held, then the scale and the background with the moments held,
+ *      then the moments again, until they settle; it ends on a moments step.
+ *      The nuclear structure of step 1 is the fixed reference: the cell, the
+ *      instrument terms, the positions, ADPs and occupancies stay at their
+ *      nuclear values. The scale and the background do not: the nuclear-only
+ *      fit of step 1 took up magnetic intensity in them, and a moment fitted
+ *      against those is too small (docs/reports/2026-11-19-moments-alternation.md).
+ *      The converged values are written to the solution file (and echoed as JSON).
  *
  * Slow (minutes) and needs the git-ignored data/ folder, so it runs only with
  * LOCAL_MAGNETIC_SOLVE=1. Ordinary CI never executes it.
+ * LOCAL_MAGNETIC_SOLVE=dry runs it and writes nothing: the solution file stays
+ * as it is.
  */
 
 const CIF = `${LOCAL_DATA.magneticTof}/structure_100K.cif`;
 const INST = `${LOCAL_DATA.magneticTof}/instrument_bank3.instprm`;
 const GSA = `${LOCAL_DATA.magneticTof}/PG3_powder_6K.gsa`;
 const has = !!process.env.LOCAL_MAGNETIC_SOLVE && !!LOCAL_REFERENCES?.magneticTof && dataExists(CIF) && dataExists(INST) && dataExists(GSA);
+/** Run the solve and leave the solution file alone. */
+const DRY = process.env.LOCAL_MAGNETIC_SOLVE === "dry";
 const K: Vec3 = LOCAL_REFERENCES?.magneticTof?.k ?? [0, 0, 0];
 
 describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with the app's own tools", () => {
-  it("nuclear refinement → k-search → candidate ranking → magnetic refinement (moments only, nuclear held)", { timeout: 40 * 60 * 1000 }, async () => {
+  it("nuclear refinement → k-search → candidate ranking → magnetic refinement (moments in rounds with the scale and the background, the nuclear structure held)", { timeout: 40 * 60 * 1000 }, async () => {
     const structure = parseCif(readData(CIF), "local");
     const instrument = parseInstrumentParameters(readData(INST));
     if (instrument.kind !== "tof") throw new Error("bank-3 instprm should be TOF");
@@ -173,13 +182,14 @@ describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with
     console.log(`[local] baseline nuclear wR ${(100 * nuclearWr).toFixed(2)}% · Hamilton at α = ${RANK_NOISE_ALPHA}, N = ${ranked[0]!.dof + ranked[0]!.parameters} points: ${equivalent.length} group(s) within the noise of the best (${equivalent.map((r) => r.label).join("; ")}) → top-down: ${chosen.label} (index ${chosen.index}, m = ${chosen.parameters})`);
     const best = chosen;
 
-    // 4. The magnetic refinement of the chosen candidate: only the magnetic
-    //    parameters free (magnetic-analysis, Stage 4). The moments refine
-    //    against the nuclear model of step 1 as a fixed reference: every
-    //    nuclear row (scale, background, cell, instrument terms, positions,
-    //    ADPs, occupancies) stays at its nuclear value — freed, they trade with
-    //    the moments, and the esds hide it. k's free components refine too
-    //    where the little group lets k move (a k at a zone-boundary point has none).
+    // 4. The magnetic refinement of the chosen candidate, as the page's Refine
+    //    moments runs it: rounds of the magnetic rows (every nuclear row held)
+    //    and of the scale and the background (the magnetic rows held), ending
+    //    on a moments step. The cell, the instrument terms, the positions, ADPs
+    //    and occupancies stay at their nuclear values; no step frees a magnetic
+    //    and a nuclear row together. k's free components refine with the
+    //    moments where the little group lets k move (a k at a zone-boundary
+    //    point has none).
     const bestBuild = buildOf(best.ops.map((o) => ({ ...parseXyz(o.xyz), timeReversal: o.timeReversal })));
     const kRows = propagationKParameters(structure, bestBuild.magnetic);
     console.log(`[local] k rows: ${kRows.params.length > 0 ? kRows.params.map((p) => p.id).join(", ") : `none — ${kRows.notes.join("; ")}`}`);
@@ -188,14 +198,19 @@ describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with
     const free = finalParams.filter((p) => !p.fixed).map((p) => p.id);
     expect(free.length).toBeGreaterThan(0);
     expect(free.every((id) => magneticRows.some((p) => p.id === id))).toBe(true);
-    const fitted = refine(
-      buildMagneticPowderProblem(structure, bestBuild.magnetic, pattern, finalParams, [...spec.bindings, ...bestBuild.bindings, ...kRows.bindings], spec.profile),
-      { maxIterations: 20 },
-    );
+    const reRefined = nuclear.filter((p) => (p.kind === "scale" || p.kind === "background") && !p.expression).map((p) => p.id);
+    const rounds = await alternateMoments({
+      rows: finalParams, momentIds: free, betweenIds: reRefined,
+      fit: (rows, options) => refine(buildMagneticPowderProblem(structure, bestBuild.magnetic, pattern, rows, [...spec.bindings, ...bestBuild.bindings, ...kRows.bindings], spec.profile), options),
+    });
+    if (!rounds) throw new Error("the rounds were cancelled");
+    const fitted = rounds.result;
     const finalValues: Record<string, number> = {};
-    for (const p of finalParams) finalValues[p.id] = fitted.parameters[p.id] ?? p.value;
-    // The nuclear model is the reference the moments are measured against: not one of its rows moved.
-    for (const p of nuclear) expect(finalValues[p.id], p.id).toBe(p.value);
+    for (const p of finalParams) finalValues[p.id] = rounds.values[p.id] ?? p.value;
+    // The nuclear structure is the reference the moments are measured against: of the nuclear rows only the scale and the background moved.
+    for (const p of nuclear) if (!reRefined.includes(p.id)) expect(finalValues[p.id], p.id).toBe(p.value);
+    expect(rounds.settled).toBe(true);
+    console.log(`[local] rounds: ${rounds.rounds}, last shift ${rounds.lastShiftOverEsd.toFixed(3)} esd · re-refined ${reRefined.join(", ")}`);
     const finalWr = fitted.agreement.rWeighted ?? NaN;
     const finalMag = applyMagneticMoments(bestBuild.magnetic, bestBuild.bindings, finalValues);
     const esd = fitted.esd ?? {};
@@ -212,7 +227,7 @@ describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with
     let sizeVar = 0;
     free.forEach((a, i) => free.forEach((b, j) => { sizeVar += grad[i]! * grad[j]! * (esd[a] ?? NaN) * (esd[b] ?? NaN) * rho(a, b); }));
     const sizeEsd = Math.sqrt(sizeVar);
-    console.log(`[local] magnetic refinement (free: ${free.join(", ")}; every nuclear row held): wR ${(100 * finalWr).toFixed(3)}% GoF ${(fitted.agreement.goodnessOfFit ?? NaN).toFixed(2)} (${fitted.status}) · ranked ${(100 * best.wR).toFixed(3)}% · |M| ${size.toFixed(3)}(${sizeEsd.toFixed(3)}) µB`);
+    console.log(`[local] magnetic refinement (free in the moments steps: ${free.join(", ")}; the scale and the background between them): wR ${(100 * finalWr).toFixed(3)}% GoF ${(fitted.agreement.goodnessOfFit ?? NaN).toFixed(2)} (${fitted.status}) · ranked ${(100 * best.wR).toFixed(3)}% · |M| ${size.toFixed(3)}(${sizeEsd.toFixed(3)}) µB`);
     console.log(`[local] moments: ${free.map((id) => `${id} ${finalValues[id]!.toFixed(3)}±${(esd[id] ?? NaN).toFixed(3)}`).join(" · ")} · components per site: ${finalMag.moments.map((m) => `${m.siteLabel} (${m.components.map((c) => c.toFixed(3)).join(", ")})`).join(" ")} · correlations reported: ${correlations.map((c) => `${c.parameterIdA}~${c.parameterIdB} ${c.coefficient.toFixed(2)}`).join(", ") || "none"}`);
     const solution = {
       k: K,
@@ -221,10 +236,13 @@ describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with
       ions,
       backgroundTerms: 6,
       params: Object.fromEntries(Object.entries(finalValues).map(([k, v]) => [k, Number(v.toPrecision(10))])),
-      /** The rows the final step refined: the magnetic parameters only (the moments, and k's free components). */
+      /** The rows the moments steps refined: the magnetic parameters only (the moments, and k's free components). */
       free,
+      /** The nuclear rows the rounds re-refined with the magnetic model, between the moments steps: the scale and the background. */
+      reRefined,
+      rounds: rounds.rounds,
       nuclearWr: Number(nuclearWr.toPrecision(6)),
-      /** wR of the magnetic refinement (moments only, the nuclear model held). */
+      /** wR of the magnetic refinement (the last moments step of the rounds). */
       magneticWr: Number(finalWr.toPrecision(6)),
       /** |M| (µB) of the tied cations and its esd: the demo test checks the demo carries it. */
       moment: Number(size.toPrecision(6)),
@@ -238,8 +256,11 @@ describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with
       solvedAt: new Date().toISOString(),
     };
     const out = resolve(DATA_DIR, localMagneticDemoFiles(LOCAL_DATA).solution);
-    writeFileSync(out, JSON.stringify(solution, null, 2) + "\n");
-    console.log(`[local] solution written to ${out}`);
+    if (DRY) console.log(`[local] dry run: ${out} is left as it is`);
+    else {
+      writeFileSync(out, JSON.stringify(solution, null, 2) + "\n");
+      console.log(`[local] solution written to ${out}`);
+    }
     console.log("[local-json] " + JSON.stringify(solution));
     expect(finalWr).toBeLessThan(nuclearWr);
     // The ranking fitted the same free rows from the same nuclear model: the final step converges it, never above it.

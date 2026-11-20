@@ -1632,9 +1632,9 @@ let <b>Refine moments</b> fit them here against the pattern{magneticFit?.alterna
                   </button>
                 )}
                 {fitReadout && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: fitReadout.warning ? theme.noteInk : theme.secondary, fontFamily: themeMono }}>
-                    {fitReadout.line}
-                    {fitReadout.details && <InfoBadge width={340} ariaLabel="About this moments fit" text={fitReadout.details} />}
+                  <span style={{ fontSize: 12.5, color: fitReadout.warning ? theme.noteInk : theme.secondary, fontFamily: themeMono, minWidth: 0 }}>
+                    {/* The line opens its own details: a finger gets the line to tap, not the dot. */}
+                    {fitReadout.details ? <InfoBadge width={340} label={fitReadout.line} text={fitReadout.details} /> : fitReadout.line}
                   </span>
                 )}
                 {onApply && (
