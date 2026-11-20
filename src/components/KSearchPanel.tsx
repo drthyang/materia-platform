@@ -46,7 +46,7 @@ import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { downloadText } from "@/app/download";
 import { card as themeCard, color as theme, mono as themeMono, uppercaseLabel as themeLabel, resetRangeBtn, space, toolbarBtn } from "@/app/theme";
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
-import { MagneticStep, NO_RANK, handoff, peakKey, stepPeaks, type AppliedModelView, type MagneticFit, type ResidualPeak, type StepInputs } from "@/app/magneticStep";
+import { MagneticStep, NO_RANK, RANK_SINGLE_FIT_NOTE, handoff, momentFitReadout, peakKey, stepPeaks, type AppliedModelView, type MagneticFit, type ResidualPeak, type StepInputs } from "@/app/magneticStep";
 
 // Lazy so three.js stays in its own chunk (only loaded when a group is previewed).
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
@@ -158,7 +158,9 @@ export function KSearchPanel({
   onApply,
   onContinue,
   allowRefineK = false,
-  baselineAgreement = null,
+  baselineAgreement: pageBaselineAgreement = null,
+  nuclearValues,
+  onMomentFit,
   preselect = null, onReportModel,
   agentHandleRef,
 }: {
@@ -208,6 +210,9 @@ export function KSearchPanel({
   allowRefineK?: boolean;
   /** The nuclear-only agreement (fraction) the candidate fits are compared against. */
   baselineAgreement?: number | null;
+  /** The page's scale and background rows as they stand, and where a moments fit's rounds hand them back (magneticStep.ts, StepInputs). */
+  nuclearValues?: Readonly<Record<string, number>>;
+  onMomentFit?: (held: Readonly<Record<string, number>>) => void;
   /**
    * A magnetic model to open ON — the session's applied model (an mCIF load, a
    * bundled demo, a reopened project, a previous Continue). Its k is set, its
@@ -237,13 +242,15 @@ export function KSearchPanel({
     ...(nuclearResidualPeaks ? { nuclearResidualPeaks } : {}),
     applied,
     fit: magneticFit ?? null,
-    baselineAgreement,
+    baselineAgreement: pageBaselineAgreement,
+    ...(nuclearValues ? { nuclearValues } : {}),
+    ...(onMomentFit ? { onMomentFit } : {}),
     allowRefineK,
     fitContext,
     preselect,
     ...(onApply ? { onApply } : {}),
     ...(onContinue ? { onContinue } : {}),
-  }), [structure, residualPeaks, nuclearResidualPeaks, applied, magneticFit, baselineAgreement, allowRefineK, fitContext, preselect, onApply, onContinue]);
+  }), [structure, residualPeaks, nuclearResidualPeaks, applied, magneticFit, pageBaselineAgreement, nuclearValues, onMomentFit, allowRefineK, fitContext, preselect, onApply, onContinue]);
   const latestInputs = useRef(inputs);
   useLayoutEffect(() => {
     latestInputs.current = inputs;
@@ -319,7 +326,10 @@ export function KSearchPanel({
   // Which symmetry framework drives the group selection: the Shubnikov
   // (magnetic space group) route or the representation-analysis (irrep) route.
   // Both converge on a magnetic space group whose moments are previewed below.
-  const { framework, irreps: chosenIrreps, chosen: selIdx, open: openIndices, amps, refineK, refining } = s;
+  const { framework, irreps: chosenIrreps, chosen: selIdx, open: openIndices, amps, refineK, refining, refineRound } = s;
+  // The nuclear-only agreement the step compares with: the one from before a moments fit's rounds re-refined the scale
+  // and the background, while the page holds those rows (magneticStep.ts).
+  const baselineAgreement = view.baselineAgreement;
   // The moment model's ties: same-site moments, an |M| tie across sublattices
   // (same size, own symmetry-fixed directions) within each element or across
   // all selected sites (the high-entropy case), with per-sublattice flips.
@@ -378,6 +388,10 @@ export function KSearchPanel({
 
   // The moments fit's readout, for the model and data it was run on.
   const refineWR = view.fitWR;
+  const fitReadout = useMemo(
+    () => (refineWR != null ? momentFitReadout(view.agreementLabel, refineWR, view.fitRounds, Object.fromEntries((view.build?.params ?? []).map((p) => [p.id, p.label]))) : null),
+    [refineWR, view.agreementLabel, view.fitRounds, view.build],
+  );
 
   /** Confirm a k: apply it, and drop the previous k's group pick. */
   const applyK = (kk: Vec3): void => step.setK(kk);
@@ -1212,6 +1226,9 @@ export function KSearchPanel({
                       nuclear only · {agreementLabel} {(100 * baselineAgreement).toFixed(2)}%
                     </span>
                   )}
+                  {!rank.running && rank.total > 0 && bestRanked && magneticFit?.alternates && (
+                    <span style={{ fontSize: 12, color: theme.secondary }}>{RANK_SINGLE_FIT_NOTE}</span>
+                  )}
                   {!rank.running && rank.total > 0 && bestRanked && (
                     <span style={{ fontSize: 12, color: theme.secondary }}>rows sorted by fit · ≈ within the noise of the best fit (Hamilton's test) · ★ the first of those top-down: no other contains it, then the lowest index and the fewest moment parameters · click a row to preview it with its refined moments</span>
                   )}
@@ -1488,8 +1505,9 @@ export function KSearchPanel({
             info={
               <>
                 The chosen group's symmetry-allowed moment amplitudes (µ<sub>B</sub>). Edit them, or
-                let <b>Refine moments</b> fit them here against the pattern (nuclear model held
-                fixed, shared scale) — the 3D model updates live. <b>Show on refinement pattern</b>{" "}
+let <b>Refine moments</b> fit them here against the pattern{magneticFit?.alternates
+                  ? <> (nuclear structure held; the scale and the background are re-refined with the magnetic model between moments steps)</>
+                  : <> (nuclear model held fixed, shared scale)</>} — the 3D model updates live. <b>Show on refinement pattern</b>{" "}
                 overlays this model on the refinement plot; <b>Continue in refinement page</b> adds
                 the moment parameters to the main refinement, where Refine fits nuclear + magnetic
                 together.
@@ -1606,10 +1624,18 @@ export function KSearchPanel({
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 10, rowGap: 8, flexWrap: "wrap" }}>
                 <button style={{ ...btn, marginTop: 0, opacity: canRefine && !refining ? 1 : 0.5 }} onClick={runRefine} disabled={!canRefine || refining}>
-                  {refining ? "Refining…" : "Refine moments"}
+                  {refining ? (refineRound ? `Refining… round ${refineRound.round}` : "Refining…") : "Refine moments"}
                 </button>
-                {refineWR != null && (
-                  <span style={{ fontSize: 12.5, color: theme.secondary, fontFamily: themeMono }}>{agreementLabel} = {(100 * refineWR).toFixed(1)}%</span>
+                {refining && magneticFit?.alternates && (
+                  <button style={ghostBtn} onClick={() => step.cancelRefine()} title="Stop after the fit that is running; the moments and the page stay as they were before Refine moments">
+                    Cancel
+                  </button>
+                )}
+                {fitReadout && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: fitReadout.warning ? theme.noteInk : theme.secondary, fontFamily: themeMono }}>
+                    {fitReadout.line}
+                    {fitReadout.details && <InfoBadge width={340} ariaLabel="About this moments fit" text={fitReadout.details} />}
+                  </span>
                 )}
                 {onApply && (
                   <button

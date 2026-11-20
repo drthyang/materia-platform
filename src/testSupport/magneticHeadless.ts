@@ -13,7 +13,7 @@ import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { powderCurves } from "@/core/workflow/powder";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { MagneticStep, type AppliedModelView, type StepInputs } from "@/app/magneticStep";
-import { magneticApplied, magneticModelSummary, powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR, withMagneticModelRows, withMagneticPreview, type FitWindow, type PowderCompute } from "@/app/powderPage";
+import { magneticApplied, magneticModelSummary, momentRoundValues, powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR, withMagneticModelRows, withMagneticPreview, withMomentRoundRows, type FitWindow, type PowderCompute } from "@/app/powderPage";
 
 /** The curves of a session, the magnetic model's contribution included. */
 export function sessionCurves(s: Session): ReturnType<typeof powderCurves> {
@@ -39,13 +39,23 @@ export interface StepPage {
   readonly window: FitWindow | null;
 }
 
-/** The step over a page the caller owns (`page` / `set`), as the panel's over the workbench's. */
+/** The step's handle over a page the caller owns (`page` / `set`), as the panel's over the workbench's. */
 export function magneticHandle(
   page: () => StepPage,
   set: (s: Session) => void,
   openStep: (step: 0 | 1) => void,
   opts: { readonly instrument?: InstrumentParameters; readonly client?: PowderCompute } = {},
 ): MagneticAgentHandle {
+  return magneticStepOn(page, set, openStep, opts).handle;
+}
+
+/** The step itself over that page: its store, for what the handle does not show (the view, a running fit's round, Cancel). */
+export function magneticStepOn(
+  page: () => StepPage,
+  set: (s: Session) => void,
+  openStep: (step: 0 | 1) => void,
+  opts: { readonly instrument?: InstrumentParameters; readonly client?: PowderCompute } = {},
+): MagneticStep {
   // The inputs as the workbench gives them to the panel, made again only when the page changes.
   let last: { readonly session: Session; readonly window: FitWindow | null; readonly inputs: StepInputs } | null = null;
   const inputs = (): StepInputs => {
@@ -61,6 +71,9 @@ export function magneticHandle(
       // A view-only TOF page, which the compute client does not refine, fits in this thread.
       fit: powderMomentFit(viewOnly ? null : opts.client ?? null, s, window),
       baselineAgreement: s.pattern.points.length > 0 ? weightedR(s, powderPageCurves(s).nuclear, window) : null,
+      nuclearValues: momentRoundValues(s),
+      // The rows a fit's rounds refined go onto the page, as the workbench puts them.
+      onMomentFit: (held) => set(withMomentRoundRows(page().session, held)),
       allowRefineK: true,
       fitContext: `${s.pattern.id}|${s.pattern.points.length}|${window ? `${window.min}–${window.max}` : "all"}`,
       preselect: s.magnetic ?? null,
@@ -73,5 +86,5 @@ export function magneticHandle(
     last = { session: s, window, inputs: next };
     return next;
   };
-  return new MagneticStep(inputs).handle;
+  return new MagneticStep(inputs);
 }

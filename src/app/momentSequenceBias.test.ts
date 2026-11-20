@@ -1,39 +1,85 @@
 import { describe, it, expect } from "vitest";
 import {
   caseOf, cleanPoints, noisy, nuclearOnlyRows, powderMomentFit, sequence, sessionOf, Fitter,
-  AUDIT_PATTERN, FIT_RANGE, MODEL_A, MODEL_B, MODEL_F_K0,
+  AUDIT_PATTERN, FIT_RANGE, MODEL_A, MODEL_A_K0, MODEL_B, MODEL_F_K0, type Case,
 } from "@/testSupport/momentSequenceCase";
-import { CELL, GAMMA_R0_HALF, j0Mn2, momentSize, reflection } from "@/testSupport/independentMnwo4";
-import { fitMoments, fitRows } from "@/app/magneticStep";
-import { magneticHandle } from "@/testSupport/magneticHeadless";
-import type { RefinementParameter } from "@/core/refinement/types";
+import { CELL, GAMMA_R0_HALF, j0Mn2, momentSize, reflection, type SpinModel } from "@/testSupport/independentMnwo4";
+import { MagneticStep, fitMoments, fitRows, momentFitReadout, MOMENT_ROUNDS_SUMMARY, type MomentRounds } from "@/app/magneticStep";
+import { magneticStepOn } from "@/testSupport/magneticHeadless";
+import { momentEsdOptions, momentRoundValues, powderFit, powderPageCurves, weightedR, withMomentRoundRows } from "@/app/powderPage";
+import { alternateMoments, ALTERNATION_MAX_ROUNDS, K0_SCALE_WITH_MOMENTS } from "@/core/magnetic/momentAlternation";
+import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
+import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
+import { refine } from "@/core/refinement/engine";
+import { ComputeClient } from "@/workers/computeClient";
+import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
 
 /**
  * KNOWN TRUTH, from a calculation that shares no code with `src/core`
  * (testSupport/independentMnwo4.ts): the moments fit of the powder page on a
- * synthetic magnetic MnWO₄, k = (½, 0, 0).
+ * synthetic magnetic MnWO₄, k = (½, 0, 0) and k = 0.
  *
- * Finding 1 of the 2026-11-09 audit: the page's sequence "nuclear model first,
- * then the moments with every nuclear row held" gives a moment several esds
- * low. The nuclear-only fit takes up the satellites it does not model in its
- * background and scale, and the moments are then measured against those.
- * Alternating "scale + background with the moments held, then the moments
- * again" reaches the joint fit's answer without a joint step.
+ * Finding 1 of the 2026-11-09 audit: one moments fit after a nuclear-only fit
+ * gives a moment several esds low. The nuclear-only fit takes up the magnetic
+ * intensity it does not model in its background and scale, and the moments are
+ * then measured against those. Finding 2: the moments-only esd leaves out the
+ * uncertainty of the held scale.
  *
- * Finding 2: the moments-only esd leaves out the uncertainty of the held scale.
+ * The step's Refine moments now runs as rounds (core/magnetic/
+ * momentAlternation.ts): the moments, then the scale and the background with
+ * the moments held, then the moments again, until they settle; it ends on a
+ * moments step, hands the re-refined rows to the page, and quotes esds that
+ * include them. These tests drive the step itself (MagneticStep, as the panel
+ * and the Agent drive it) and compare it with the truth and with the joint fit
+ * of the test's own harness (momentSequenceCase.ts), which no step of the app
+ * runs. The ranking's fits stay one fit each, by decision; that is pinned too.
  *
- * Nothing in the app is changed yet (docs/reports/2026-11-19-moments-alternation.md
- * is the plan). So this file states today's behaviour as it is:
- *  - "documented bias" pins the size of the bias today; it goes when the fix lands;
- *  - `it.fails` states what the fix must make true, and turns red the day it is
- *    true, so the marker cannot be forgotten;
- *  - the alternation here is the test's own (momentSequenceCase.ts): the
- *    statement of the design the fix will be compared with.
- * The 200-seed tables of the report come from momentSequenceSeeds.test.ts.
+ * The many-seed tables of docs/reports/2026-11-19-moments-alternation.md come
+ * from momentSequenceSeeds.test.ts.
  */
 
 const SEEDS = [0, 1, 2, 3, 4, 5, 6, 7];
 const mean = (v: readonly number[]): number => v.reduce((a, b) => a + b, 0) / v.length;
+const sd = (v: readonly number[]): number => Math.sqrt(v.reduce((a, b) => a + (b - mean(v)) ** 2, 0) / (v.length - 1));
+
+/** The page after its nuclear-only fit of a noisy pattern, and the step on it (the store the panel renders and the Agent drives). */
+function pageOf(c: Case, seed: number | "clean"): { step: MagneticStep; session: () => Session; set: (s: Session) => void; fitter: Fitter; nuclearOnly: Session } {
+  const points = seed === "clean" ? cleanPoints(c.clean) : noisy(c.clean, seed);
+  let session = sessionOf(c, points, nuclearOnlyRows(c, points));
+  const nuclearOnly = session;
+  const step = magneticStepOn(() => ({ session, window: FIT_RANGE }), (s) => { session = s; }, () => {});
+  step.handle.setK([c.k[0], c.k[1], c.k[2]]);
+  step.handle.selectIons(["Mn1"]);
+  return { step, session: () => session, set: (s) => { session = s; }, fitter: new Fitter(c, points), nuclearOnly };
+}
+
+/** The step's id of the group the pattern was made in. */
+function truthId(c: Case, step: MagneticStep): string {
+  const sig = magneticOperationSignature(c.build.magnetic.operations!);
+  const i = step.view().reps.findIndex((r) => magneticOperationSignature(r.candidate.operations) === sig);
+  expect(i).toBeGreaterThanOrEqual(0);
+  return `G${i + 1}`;
+}
+
+interface Refined {
+  readonly moment: number;
+  /** The free moment rows' values and esds, in row order. */
+  readonly components: readonly number[];
+  readonly esd: readonly number[];
+  readonly rounds: MomentRounds;
+  readonly page: ReturnType<typeof pageOf>;
+}
+
+/** Choose the true group and click Refine moments. */
+async function refineMoments(model: SpinModel, seed: number | "clean", terms = 6): Promise<Refined> {
+  const c = caseOf(model, terms);
+  const page = pageOf(c, seed);
+  page.step.handle.choose(truthId(c, page.step));
+  expect(await page.step.refineMoments()).not.toBeNull();
+  const v = page.step.view();
+  const ids = fitRows(c.build).filter((p) => !p.fixed).map((p) => p.id);
+  return { moment: page.fitter.moment(v.resolvedAmps), components: ids.map((id) => v.resolvedAmps[id]!), esd: ids.map((id) => v.fitRounds!.esd[id]!), rounds: v.fitRounds!, page };
+}
 
 describe("the independent generator, against hand calculations", () => {
   const RAD = Math.PI / 180;
@@ -98,7 +144,7 @@ describe("noise-free: the app's moments fit against the independent pattern", ()
     expect(Math.abs(s.truthHeld.components[1]!) / 2).toBeCloseTo(rounding, 7);
   });
 
-  it("today's sequence is biased with no noise at all: the bias is the sequence's, not the statistics'", () => {
+  it("one fit after a nuclear-only fit is biased with no noise at all: the bias is the sequence's, not the statistics'", () => {
     const c = caseOf(MODEL_A, 6);
     const s = sequence(c, cleanPoints(c.clean), 4);
     expect(s.steps[0]!.moment).toBeCloseTo(4.062, 2);
@@ -112,118 +158,300 @@ describe("noise-free: the app's moments fit against the independent pattern", ()
   });
 });
 
-describe("Finding 1 — the page's moments fit after a nuclear-only fit (independent MnWO4, 8 fixed seeds)", () => {
-  /** The page's own fit: powderMomentFit → momentFitRequest, every nuclear row held, from the page's seeds. */
-  async function pageMoment(model: typeof MODEL_A, seed: number): Promise<{ moment: number; fullEsd: number }> {
-    const c = caseOf(model, 6);
-    const points = noisy(c.clean, seed);
-    const nuclear = nuclearOnlyRows(c, points);
-    const fit = await fitMoments(powderMomentFit(null, sessionOf(c, points, nuclear), FIT_RANGE), c.build);
-    const f = new Fitter(c, points);
-    const rows: RefinementParameter[] = [...nuclear, ...fitRows(c.build, fit.values)];
-    const esd = f.covarianceEsd(rows, fit.values, (p) => p.kind === "momentMode" || p.kind === "scale" || p.kind === "background");
-    return { moment: f.moment(fit.values), fullEsd: Object.entries(esd).find(([id]) => id.startsWith("mom_"))![1] };
-  }
-
-  it("documented bias (today): 4.2 µ_B comes out near 4.06, about 9 esd low, in every seed", async () => {
-    const runs = await Promise.all(SEEDS.map((seed) => pageMoment(MODEL_A, seed)));
-    const m = mean(runs.map((r) => r.moment));
-    console.log(`[moment-bias] today, page fit, model A, ${SEEDS.length} seeds: ${m.toFixed(4)} µB (truth 4.2), per seed ${runs.map((r) => `${r.moment.toFixed(3)}(${(1000 * r.fullEsd).toFixed(0)})`).join(" ")}`);
-    expect(m).toBeGreaterThan(4.04);
-    expect(m).toBeLessThan(4.09);
-    for (const r of runs) expect((r.moment - 4.2) / r.fullEsd).toBeLessThan(-6);
-  }, 60_000);
-
-  it.fails("TARGET (red until the fix): the page's moments fit lands within 3 esd of 4.2 µ_B in every seed", async () => {
-    const runs = await Promise.all(SEEDS.map((seed) => pageMoment(MODEL_A, seed)));
-    for (const r of runs) expect(Math.abs(r.moment - 4.2) / r.fullEsd).toBeLessThan(3);
-  }, 60_000);
-
-  it("the alternation removes it without a joint step: one moment row", () => {
+describe("Finding 1 — Refine moments after a nuclear-only fit (independent MnWO4, fixed seeds, through the step)", () => {
+  it("one moment row: 4.2 µ_B within 3 esd in every seed, the joint fit's answer, the scatter as the esd says", async () => {
     const c = caseOf(MODEL_A, 6);
-    const runs = SEEDS.map((seed) => sequence(c, noisy(c.clean, seed), 5));
-    const at = (r: number): number => mean(runs.map((s) => s.steps[r]!.moment));
-    const joint = mean(runs.map((s) => s.joint.moment));
-    console.log(`[moment-bias] model A, ${SEEDS.length} seeds: today ${at(0).toFixed(4)}, rounds 1–5 ${[1, 2, 3, 4, 5].map((r) => at(r).toFixed(4)).join(" ")}, joint ${joint.toFixed(4)}, truth held ${mean(runs.map((s) => s.truthHeld.moment)).toFixed(4)}`);
-    expect(at(0) - 4.2).toBeLessThan(-0.12);
-    expect(Math.abs(at(1) - joint)).toBeGreaterThan(0.02); // one round is not enough
-    expect(Math.abs(at(4) - joint)).toBeLessThan(0.002);
-    for (const s of runs) {
-      // Every seed, in the last moments step's own esd: within 0.05 of the joint fit after five rounds, the shift then below 0.05.
-      expect(Math.abs(s.steps[5]!.moment - s.joint.moment) / s.steps[5]!.quotedEsd[0]!).toBeLessThan(0.05);
-      expect(s.steps[5]!.shiftOverEsd!).toBeLessThan(0.05);
-      // The rounds refine the scale and the background only: the width keeps its nuclear-only value.
-      expect(s.steps[5]!.width).toBe(s.steps[0]!.width);
+    // Forty-eight seeds for the scatter (known to ±10 %; the first sixteen alone read 0.66), the first eight against the joint fit.
+    const all = await Promise.all(Array.from({ length: 48 }, (_, seed) => refineMoments(MODEL_A, seed)));
+    const runs = all.slice(0, SEEDS.length);
+    const joint = SEEDS.map((seed) => sequence(c, noisy(c.clean, seed), 0).joint);
+    const m = mean(all.map((r) => r.moment));
+    const scatter = sd(all.map((r) => r.moment));
+    const esd = mean(all.map((r) => r.esd[0]!));
+    console.log(`[moment-rounds] model A, ${all.length} seeds: ${m.toFixed(4)} µB (truth 4.2), rounds ${Math.min(...all.map((r) => r.rounds.count))}–${Math.max(...all.map((r) => r.rounds.count))} · scatter ${scatter.toFixed(4)} / esd ${esd.toFixed(4)} = ${(scatter / esd).toFixed(2)} · first eight ${runs.map((r) => `${r.moment.toFixed(3)}(${(1000 * r.esd[0]!).toFixed(0)})`).join(" ")}, joint ${mean(joint.map((j) => j.moment)).toFixed(4)}`);
+    for (const r of all) {
+      expect(Math.abs(r.moment - 4.2) / r.esd[0]!).toBeLessThan(3.5);
+      expect(r.rounds.settled).toBe(true);
     }
-    // And the joint fit is the truth within the noise of eight seeds (esd 0.010 each).
-    expect(Math.abs(joint - 4.2)).toBeLessThan(0.012);
+    runs.forEach((r, i) => {
+      expect(Math.abs(r.moment - 4.2) / r.esd[0]!, `seed ${i}`).toBeLessThan(3);
+      // The joint fit of the scale, the background and the moment, which no step of the app runs: the same moment, the same esd.
+      expect(Math.abs(r.moment - joint[i]!.moment) / r.esd[0]!, `seed ${i}`).toBeLessThan(0.05);
+      expect(r.esd[0]! / joint[i]!.quotedEsd[0]!, `seed ${i}`).toBeCloseTo(1, 2);
+      expect(r.rounds.settled).toBe(true);
+      expect(r.rounds.count).toBeGreaterThanOrEqual(3);
+      expect(r.rounds.count).toBeLessThanOrEqual(6);
+      expect(r.rounds.lastShiftOverEsd).toBeLessThan(0.1);
+    });
+    // The bias is gone: the mean is the truth within its own error (esd/√48, and the app's rounded γr₀/2 at +0.0007).
+    expect(Math.abs(m - 4.2)).toBeLessThan(3 * esd / Math.sqrt(all.length) + 0.001);
+    // And the esd is the scatter's size: 0.88 here, 0.98 over 1000 seeds (the report). One fit's own esd read 0.70 of its scatter, 10 esd off the truth.
+    expect(scatter / esd).toBeGreaterThan(0.75);
+    expect(scatter / esd).toBeLessThan(1.25);
   }, 60_000);
 
-  it("and with two moment rows (3.0 â + 2.0 ĉ)", () => {
+  it("two moment rows (3.0 â + 2.0 ĉ): each within 3 esd, the joint fit's answer", async () => {
     const c = caseOf(MODEL_B, 6);
-    const runs = SEEDS.map((seed) => sequence(c, noisy(c.clean, seed), 5));
-    const at = (r: number, i: number): number => mean(runs.map((s) => Math.abs(s.steps[r]!.components[i]!)));
-    console.log(`[moment-bias] model B, ${SEEDS.length} seeds: today ${at(0, 0).toFixed(4)}, ${at(0, 1).toFixed(4)} · 4 rounds ${at(4, 0).toFixed(4)}, ${at(4, 1).toFixed(4)} · joint ${mean(runs.map((s) => Math.abs(s.joint.components[0]!))).toFixed(4)}, ${mean(runs.map((s) => Math.abs(s.joint.components[1]!))).toFixed(4)}`);
-    expect(at(0, 0) - 3).toBeLessThan(-0.09);
-    expect(at(0, 1) - 2).toBeLessThan(-0.01);
-    for (const s of runs) {
-      for (const i of [0, 1]) expect(Math.abs(s.steps[5]!.components[i]! - s.joint.components[i]!) / s.steps[5]!.quotedEsd[i]!).toBeLessThan(0.05);
-    }
-    expect(Math.abs(mean(runs.map((s) => s.joint.moment)) - momentSize([3, 0, 2]))).toBeLessThan(0.015);
+    const runs = await Promise.all(SEEDS.map((seed) => refineMoments(MODEL_B, seed)));
+    const joint = SEEDS.map((seed) => sequence(c, noisy(c.clean, seed), 0).joint);
+    const at = (i: number): number => mean(runs.map((r) => Math.abs(r.components[i]!)));
+    console.log(`[moment-rounds] model B, ${SEEDS.length} seeds: ${at(0).toFixed(4)}, ${at(1).toFixed(4)} (truth 3, 2), rounds ${runs.map((r) => r.rounds.count).join(" ")}`);
+    runs.forEach((r, s) => {
+      [3, 2].forEach((truth, i) => {
+        expect(Math.abs(Math.abs(r.components[i]!) - truth) / r.esd[i]!, `seed ${s} row ${i}`).toBeLessThan(3);
+        expect(Math.abs(r.components[i]! - joint[s]!.components[i]!) / r.esd[i]!, `seed ${s} row ${i}`).toBeLessThan(0.05);
+      });
+      expect(r.rounds.settled).toBe(true);
+    });
+    expect(Math.abs(mean(runs.map((r) => r.moment)) - momentSize([3, 0, 2]))).toBeLessThan(0.015);
   }, 60_000);
-});
 
-describe("Finding 2 — the esd of a moment (independent MnWO4)", () => {
-  it("the moments-only esd is 11 % below the esd from the covariance that includes the scale and the background", () => {
+  it("the ranking's fit stays one fit, by decision: the true group ranks at 4.06, and Refine moments then gives 4.20", async () => {
     const c = caseOf(MODEL_A, 6);
-    const s = sequence(c, noisy(c.clean, 0), 5);
-    const last = s.steps[5]!;
-    expect(last.fullEsd[0]! / last.quotedEsd[0]!).toBeGreaterThan(1.1);
-    expect(last.fullEsd[0]! / last.quotedEsd[0]!).toBeLessThan(1.15);
-    // That covariance, taken at the alternation's end with no step, is the joint fit's own esd (the engine's).
-    expect(last.fullEsd[0]! / s.joint.quotedEsd[0]!).toBeCloseTo(1, 2);
-    // The contraction of the alternation follows from the same number: 1 − (moments-only / full)².
-    const predicted = 1 - (last.quotedEsd[0]! / last.fullEsd[0]!) ** 2;
-    const left = s.steps.map((x) => Math.abs(x.moment - s.joint.moment));
-    expect(left[2]! / left[1]!).toBeCloseTo(predicted, 1);
+    const page = pageOf(c, 0);
+    const id = truthId(c, page.step);
+    await page.step.rank("all", 2);
+    const before = page.session();
+    const ranked = page.step.handle.state().candidates.find((g) => g.id === id)!.fit!;
+    expect(page.step.handle.state().best).toBe(id);
+    expect(ranked.moments[0]!.muB).toBeCloseTo(4.064, 2);
+    // A ranking fits every group against the page as it stands, and changes no row of it.
+    expect(page.session()).toBe(before);
+    // The same single fit, asked of the page's fit without rounds.
+    const single = await fitMoments(powderMomentFit(null, page.session(), FIT_RANGE), c.build);
+    expect(single.rounds).toBeUndefined();
+    expect(page.fitter.moment(single.values)).toBeCloseTo(ranked.moments[0]!.muB, 6);
+    page.step.handle.choose(id);
+    const wR = await page.step.refineMoments();
+    // Lower than the ranking table's wR for the same group: the line beside the table says why.
+    expect(wR!).toBeLessThan(ranked.wR! - 0.015);
+    expect(page.step.handle.state().selected!.moments[0]!.muB).toBeCloseTo(4.203, 2);
   }, 60_000);
 });
 
-describe("k = 0 — a ferromagnet on the nuclear lines (independent MnWO4)", () => {
-  it("documented bias (today): with the scale held, as the step's Refine moments holds it, 4.2 µ_B comes out near 3.5", () => {
-    const c = caseOf(MODEL_F_K0, 6);
-    const held = sequence(c, noisy(c.clean, 0), 8);
-    const free = sequence(c, noisy(c.clean, 0), 3, ["background"], ["scale", "background", "peakWidth"], ["scale"]);
-    console.log(`[moment-bias] k = 0 ferromagnet, seed 0: scale held ${held.steps.map((x) => x.moment.toFixed(3)).join(" ")} (joint ${held.joint.moment.toFixed(3)}) · scale free with the moments ${free.steps.map((x) => x.moment.toFixed(3)).join(" ")}`);
-    expect(held.steps[0]!.moment).toBeLessThan(3.6);
-    // The alternation still closes, but by 0.4 a round where k ≠ 0 gave 0.2: the scale and the moment trade.
-    const left = held.steps.map((x) => Math.abs(x.moment - held.joint.moment));
-    expect(left[4]! / left[3]!).toBeGreaterThan(0.3);
-    expect(left[4]! / left[3]!).toBeLessThan(0.5);
-    // With the scale free beside the moments (the ranking's freeScale) two rounds over the background are enough.
-    expect(Math.abs(free.steps[0]!.moment - held.joint.moment)).toBeLessThan(0.12);
-    expect(Math.abs(free.steps[2]!.moment - held.joint.moment)).toBeLessThan(0.002);
+describe("the rows Refine moments hands back to the page", () => {
+  it("the page takes the re-refined scale and background; a moments-only Refine there then moves nothing, with the joint fit's esd", async () => {
+    const c = caseOf(MODEL_A, 6);
+    const r = await refineMoments(MODEL_A, 0);
+    const { page } = r;
+    const held = r.rounds.held;
+    // The scale and the six background terms, and no other row.
+    expect(Object.keys(held).sort()).toEqual(["bkg0", "bkg1", "bkg2", "bkg3", "bkg4", "bkg5", "scale"]);
+    expect(momentRoundValues(page.session())).toEqual(held);
+    expect(held.scale).not.toBe(momentRoundValues(page.nuclearOnly).scale);
+    const moved = page.session().powderParams.filter((p, i) => p.value !== page.nuclearOnly.powderParams[i]!.value).map((p) => p.id);
+    expect(moved.sort()).toEqual(Object.keys(held).sort());
+    // The width, which the nuclear-only fit left 1 % wide, is no part of the rounds.
+    expect(page.session().powderParams.find((p) => p.id === "width")!.value).toBe(page.nuclearOnly.powderParams.find((p) => p.id === "width")!.value);
+
+    // Continue: the moment rows join the page's rows, free; every nuclear row is held, as the method's Stage 4 sets it.
+    page.step.continueToRefinement(false);
+    const session = page.session();
+    const free = session.powderParams.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
+    expect(free).toEqual(["mom_Mn1_0"]);
+    expect(momentEsdOptions(session)).toEqual({ esdWith: Object.keys(held) });
+    const client = new ComputeClient();
+    const result = await powderFit(client, { session, instrument: DEFAULT_INSTRUMENT, fitRange: FIT_RANGE, result: null }, { maxIterations: 20 });
+    // The Refine button's fit of the moments alone: nothing moves, and the esd is the one a joint fit quotes, keyed by the moment row only.
+    expect(Math.abs(result.parameters.mom_Mn1_0! - r.components[0]!) / result.esd.mom_Mn1_0!).toBeLessThan(0.1);
+    expect(Object.keys(result.esd)).toEqual(["mom_Mn1_0"]);
+    expect(result.diagnostics?.esdIncludes).toEqual(Object.keys(held));
+    const joint = sequence(c, noisy(c.clean, 0), 0).joint;
+    expect(result.esd.mom_Mn1_0! / joint.quotedEsd[0]!).toBeCloseTo(1, 2);
+    // Finding 2: the moments-only esd of the same fit is 11 % smaller.
+    const alone = refine(buildMagneticPowderProblem(session.structure, session.magnetic!, session.pattern, session.powderParams, session.powderBindings, session.powderProfile, FIT_RANGE), { maxIterations: 20 });
+    expect(result.esd.mom_Mn1_0! / alone.esd.mom_Mn1_0!).toBeGreaterThan(1.1);
+    expect(result.esd.mom_Mn1_0! / alone.esd.mom_Mn1_0!).toBeLessThan(1.15);
+
+    // Why the rows must reach the page: on the nuclear-only scale and background the same Refine takes the moment back.
+    const without = withMomentRoundRows(session, momentRoundValues(page.nuclearOnly));
+    const back = await powderFit(client, { session: without, instrument: DEFAULT_INSTRUMENT, fitRange: FIT_RANGE, result: null }, { maxIterations: 20 });
+    expect(back.parameters.mom_Mn1_0!).toBeCloseTo(4.064, 2);
+    // A free set with a nuclear row in it asks for nothing: its esds are its own.
+    expect(momentEsdOptions({ ...session, powderParams: session.powderParams.map((p) => (p.id === "scale" ? { ...p, fixed: false } : p)) })).toEqual({});
   }, 60_000);
 
-  it("documented (today): the step's Refine moments holds the scale at k = 0, where its ranking frees it", async () => {
-    const c = caseOf(MODEL_F_K0, 6);
+  it("the nuclear-only agreement the step compares with is the one from before the rounds, while the page holds their rows", async () => {
+    const c = caseOf(MODEL_A, 6);
+    const page = pageOf(c, 0);
+    const live = (): number => weightedR(page.session(), powderPageCurves(page.session()).nuclear, FIT_RANGE);
+    const before = page.step.handle.state().baselineAgreement!;
+    expect(before).toBeCloseTo(live(), 12);
+    page.step.handle.choose(truthId(c, page.step));
+    const wR = (await page.step.refineMoments())!;
+    // The page's own nuclear curve now carries a scale and background fitted with the magnetic model: it reads worse than the nuclear-only fit did.
+    expect(live()).toBeGreaterThan(before + 0.002);
+    expect(page.step.handle.state().baselineAgreement).toBe(before);
+    expect(wR).toBeLessThan(before);
+    // A second Refine moments starts from the settled rows: one round takes up what the first left (under 0.1 esd), and the baseline is kept.
+    const first = page.step.handle.state().selected!.moments[0]!.muB;
+    await page.step.refineMoments();
+    expect(page.step.view().fitRounds!.count).toBe(1);
+    expect(Math.abs(page.step.handle.state().selected!.moments[0]!.muB - first)).toBeLessThan(0.1 * page.step.view().fitRounds!.esd.mom_Mn1_0!);
+    expect(page.step.handle.state().baselineAgreement).toBe(before);
+    // Once the page's rows are no longer the ones the fit handed back (a nuclear refinement, a reset, an undo), the page's own value stands again.
+    page.set(withMomentRoundRows(page.session(), momentRoundValues(page.nuclearOnly)));
+    expect(page.step.handle.state().baselineAgreement).toBeCloseTo(before, 12);
+    page.set(withMomentRoundRows(page.session(), { scale: 0.079 }));
+    expect(page.step.handle.state().baselineAgreement).toBeCloseTo(live(), 12);
+    expect(page.step.handle.state().baselineAgreement).not.toBe(before);
+  }, 60_000);
+});
+
+describe("Cancel, and the cap", () => {
+  it("Cancel in the second round: the page, the amplitudes and the readout are as before Refine moments", async () => {
+    const c = caseOf(MODEL_A, 6);
+    const page = pageOf(c, 0);
+    page.step.handle.choose(truthId(c, page.step));
+    const session = page.session();
+    const amps = page.step.view().resolvedAmps;
+    const seen: (number | null)[] = [];
+    const off = page.step.subscribe(() => {
+      const round = page.step.state().refineRound?.round ?? null;
+      if (seen.at(-1) !== round) seen.push(round);
+      if (round === 2) page.step.cancelRefine();
+    });
+    const running = page.step.refineMoments();
+    expect(page.step.state().refining).toBe(true);
+    expect(await running).toBeNull();
+    off();
+    // It showed its rounds as they started, and stopped in the second.
+    expect(seen).toEqual([null, 1, 2, null]);
+    expect(page.step.state().refining).toBe(false);
+    expect(page.step.state().refineRound).toBeNull();
+    expect(page.session()).toBe(session);
+    expect(page.step.view().resolvedAmps).toEqual(amps);
+    expect(page.step.view().fitWR).toBeNull();
+    expect(page.step.state().nuclearOnly).toBeNull();
+    // And the next Refine moments runs to its end.
+    expect(await page.step.refineMoments()).not.toBeNull();
+    expect(page.step.view().fitRounds!.settled).toBe(true);
+    expect(page.session()).not.toBe(session);
+  }, 60_000);
+
+  it("a model changed under a running fit stops it the same way", async () => {
+    const c = caseOf(MODEL_A, 6);
+    const page = pageOf(c, 0);
+    page.step.handle.choose(truthId(c, page.step));
+    const session = page.session();
+    const off = page.step.subscribe(() => {
+      if (page.step.state().refineRound?.round === 1 && page.step.state().chosen !== null) page.step.choose(null);
+    });
+    expect(await page.step.refineMoments()).toBeNull();
+    off();
+    expect(page.session()).toBe(session);
+    expect(page.step.state().refining).toBe(false);
+  }, 60_000);
+
+  it("the cap: a fit that has not settled keeps its last moments step and says so", async () => {
+    const c = caseOf(MODEL_A, 6);
     const points = noisy(c.clean, 0);
-    let session = sessionOf(c, points, nuclearOnlyRows(c, points));
-    // The step itself (MagneticStep, as the panel and the Agent drive it), on the page after its nuclear-only fit.
-    const step = magneticHandle(() => ({ session, window: FIT_RANGE }), (s) => { session = s; }, () => {});
-    step.setK([0, 0, 0]);
-    step.selectIons(["Mn1"]);
-    // P2/c with one moment row: the group the pattern was made in (2 and −1 unprimed keep a moment along b on both Mn).
-    const truth = step.state().candidates.find((g) => g.symbol === "P2/c");
-    expect(truth?.id).toBe("G1");
-    await step.rank("all", 2);
-    const ranked = step.state().candidates.find((g) => g.id === "G1")!.fit!.moments[0]!.muB;
-    step.choose("G1");
-    await step.refineMoments();
-    const refined = step.state().selected!.moments[0]!.muB;
-    console.log(`[moment-bias] k = 0 ferromagnet through the step: ranked (scale free) ${ranked.toFixed(3)} µB, then Refine moments (scale held) ${refined.toFixed(3)} µB; truth 4.2`);
-    expect(ranked).toBeGreaterThan(4.1);
-    // Refine moments, started from the ranked values, takes the moment back to the nuclear-only scale's answer.
-    expect(refined).toBeLessThan(3.6);
+    const session = sessionOf(c, points, nuclearOnlyRows(c, points));
+    const rows = [...session.powderParams, ...fitRows(c.build)];
+    const steps: string[][] = [];
+    const out = (await alternateMoments({
+      rows, momentIds: ["mom_Mn1_0"], betweenIds: Object.keys(momentRoundValues(session)), maxRounds: 2,
+      fit: (r, options) => {
+        steps.push(r.filter((p) => !p.fixed).map((p) => p.id));
+        return refine(buildMagneticPowderProblem(c.structure, c.build.magnetic, session.pattern, r, [...c.bindings, ...c.build.bindings], session.powderProfile, FIT_RANGE), options);
+      },
+    }))!;
+    // Two rounds are not enough here (2.4 esd still to go in the second): stopped at the cap, on a moments step.
+    expect(out.rounds).toBe(2);
+    expect(out.settled).toBe(false);
+    expect(out.lastShiftOverEsd).toBeGreaterThan(1);
+    expect(steps.map((s) => (s.length === 1 && s[0] === "mom_Mn1_0" ? "moments" : "between"))).toEqual(["moments", "between", "moments", "between", "moments"]);
+    // No step frees a moment and a nuclear row together.
+    for (const s of steps) expect(s.includes("mom_Mn1_0") && s.length > 1).toBe(false);
+    expect(Object.keys(out.result.esd)).toEqual(["mom_Mn1_0"]);
+    const rounds: MomentRounds = { held: out.held, count: out.rounds, settled: out.settled, lastShiftOverEsd: out.lastShiftOverEsd, esd: { mom_Mn1_0: out.result.esd.mom_Mn1_0! }, esdIncludes: out.result.diagnostics?.esdIncludes ?? [] };
+    const said = momentFitReadout("wR", out.result.agreement.rWeighted!, rounds);
+    expect(said.warning).toBe(true);
+    expect(said.line).toMatch(/^wR = \d+\.\d% · not settled after 2 rounds \(a moment still moved by \d+\.\d\d esd\)$/);
+    expect(said.details).toContain("The last moments step is kept.");
+    expect(ALTERNATION_MAX_ROUNDS).toBe(10);
+  }, 60_000);
+
+  it("the readout: the result first on one line, the provisional wording behind it", async () => {
+    const r = await refineMoments(MODEL_A, 0);
+    const said = momentFitReadout("wR", r.page.step.view().fitWR!, r.rounds, { mom_Mn1_0: "Mn1 moment" });
+    expect(said.line).toBe("wR = 5.0% · settled in 4 rounds");
+    expect(said.warning).toBe(false);
+    expect(said.details!.startsWith(MOMENT_ROUNDS_SUMMARY)).toBe(true);
+    expect(MOMENT_ROUNDS_SUMMARY).toBe("Nuclear structure held; scale and background re-refined with the magnetic model.");
+    expect(said.details).toContain("Esd: Mn1 moment ± 0.010, with the uncertainty of the scale and the background included.");
+    // A fit that ran no rounds (a page whose fit has none) reads as it did.
+    expect(momentFitReadout("wR2", 0.0731, null)).toEqual({ line: "wR2 = 7.3%", warning: false, details: null });
+  }, 60_000);
+});
+
+describe("k = 0 (independent MnWO4): Refine moments no longer undoes the ranking", () => {
+  it("a ferromagnet on the nuclear lines: ranked at 4.155, refined to 4.2 within 3 esd, the scale held in every moments step", async () => {
+    const c = caseOf(MODEL_F_K0, 6);
+    const page = pageOf(c, 0);
+    const id = truthId(c, page.step);
+    expect(page.step.handle.state().candidates.find((g) => g.id === id)!.symbol).toBe("P2/c");
+    await page.step.rank("all", 2);
+    const ranked = page.step.handle.state().candidates.find((g) => g.id === id)!.fit!.moments[0]!.muB;
+    page.step.handle.choose(id);
+    await page.step.refineMoments();
+    const v = page.step.view();
+    const refined = page.step.handle.state().selected!.moments[0]!.muB;
+    const esd = v.fitRounds!.esd.mom_Mn1_0!;
+    const joint = sequence(c, noisy(c.clean, 0), 0).joint;
+    console.log(`[moment-rounds] k = 0 ferromagnet through the step: ranked (one fit, scale free) ${ranked.toFixed(3)} µB, Refine moments ${refined.toFixed(3)}(${(1000 * esd).toFixed(0)}) in ${v.fitRounds!.count} rounds; joint ${joint.moment.toFixed(3)}; truth 4.2`);
+    // The ranking's one fit frees the scale at k = 0 and is 1–2 % low (its background is the nuclear-only fit's).
+    expect(ranked).toBeCloseTo(4.155, 2);
+    // Before the rounds this took the ranked moment down to 3.52.
+    expect(refined).toBeGreaterThan(ranked);
+    expect(Math.abs(refined - 4.2) / esd).toBeLessThan(3);
+    // What is left when a shift falls below 0.1 esd is that shift times r/(1 − r): 0.07 esd at this case's contraction of 0.41 a round.
+    expect(Math.abs(refined - joint.moment) / esd).toBeLessThan(0.1);
+    expect(v.fitRounds!.settled).toBe(true);
+    // The scale and the moment trade here: more rounds than at k ≠ 0, inside the cap.
+    expect(v.fitRounds!.count).toBeGreaterThanOrEqual(5);
+    expect(v.fitRounds!.count).toBeLessThanOrEqual(8);
+    // The esd carries the trade: 30 % above the moments-only one.
+    expect(esd / joint.quotedEsd[0]!).toBeCloseTo(1, 2);
+    expect(K0_SCALE_WITH_MOMENTS).toBe(false);
+  }, 60_000);
+
+  it("an antiferromagnet in the cell: within 3 esd in four seeds", async () => {
+    const runs = await Promise.all([0, 1, 2, 3].map((seed) => refineMoments(MODEL_A_K0, seed)));
+    console.log(`[moment-rounds] k = 0 antiferromagnet: ${runs.map((r) => `${r.moment.toFixed(3)}(${(1000 * r.esd[0]!).toFixed(0)}) in ${r.rounds.count}`).join(" ")}`);
+    for (const r of runs) {
+      expect(Math.abs(r.moment - 4.2) / r.esd[0]!).toBeLessThan(3);
+      expect(r.rounds.settled).toBe(true);
+    }
+  }, 60_000);
+
+  it("the other choice, kept behind K0_SCALE_WITH_MOMENTS: the scale free with the moments ends on the same moment in fewer rounds", async () => {
+    const c = caseOf(MODEL_F_K0, 6);
+    const held = await refineMoments(MODEL_F_K0, 0);
+    const page = pageOf(c, 0);
+    // What the step passes when the switch is on: freeScale with the rounds.
+    const free = await fitMoments(powderMomentFit(null, page.session(), FIT_RANGE), c.build, undefined, { freeScale: true, rounds: {} });
+    expect(free.rounds!.settled).toBe(true);
+    expect(free.rounds!.count).toBeLessThanOrEqual(3);
+    expect(free.rounds!.count).toBeLessThan(held.rounds.count);
+    expect(Math.abs(page.fitter.moment(free.values) - held.moment) / held.esd[0]!).toBeLessThan(0.1);
+    // The scale it refined with the moments is handed back with the background, and the esd is the same.
+    expect(Object.keys(free.rounds!.held).sort()).toEqual(Object.keys(held.rounds.held).sort());
+    expect(free.rounds!.held.scale! / held.rounds.held.scale!).toBeCloseTo(1, 2);
+    expect(free.rounds!.esd.mom_Mn1_0! / held.esd[0]!).toBeCloseTo(1, 2);
+  }, 60_000);
+});
+
+describe("noise-free through the step: the rounds end on the truth, not on the cap", () => {
+  it("k = (½, 0, 0) and the k = 0 ferromagnet", async () => {
+    const a = await refineMoments(MODEL_A, "clean");
+    const f = await refineMoments(MODEL_F_K0, "clean");
+    console.log(`[moment-rounds] noise-free: A ${a.moment.toFixed(4)} in ${a.rounds.count}, k = 0 ferromagnet ${f.moment.toFixed(4)} in ${f.rounds.count}`);
+    // The esds shrink with the misfit on such data, so a shift cannot be measured in them: the rounds stop when it is negligible.
+    for (const r of [a, f]) {
+      expect(r.rounds.settled).toBe(true);
+      expect(r.rounds.count).toBeLessThanOrEqual(ALTERNATION_MAX_ROUNDS);
+      expect(r.moment).toBeCloseTo(4.2, 2);
+    }
   }, 60_000);
 });

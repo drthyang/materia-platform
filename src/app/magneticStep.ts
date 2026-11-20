@@ -21,6 +21,7 @@ import { magneticSubgroupLattice, latticeRepresentatives, maximalWithMoment, typ
 import { buildMagneticModel, type MagneticModelBuild } from "@/core/magnetic/momentModel";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { fitMomentsWithRestarts, RANK_RESTARTS, type MomentFit } from "@/core/magnetic/momentRestarts";
+import { ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE, K0_SCALE_WITH_MOMENTS } from "@/core/magnetic/momentAlternation";
 import { momentCartesian } from "@/core/magnetic/moment";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { resolveTies } from "@/core/refinement/constraints";
@@ -191,6 +192,40 @@ export interface FitOptions {
    * taken up part of their intensity.
    */
   readonly freeScale?: boolean;
+  /**
+   * Run the fit as rounds (core/magnetic/momentAlternation.ts): the moments,
+   * then the scale and the background with the moments held, then the moments
+   * again, until they settle. The step's Refine moments asks for them; the
+   * ranking's fits do not (one fit per start). A page whose fit has no rounds
+   * (single crystal, mPDF) runs its one fit.
+   */
+  readonly rounds?: {
+    /** Asked between the fits: true stops them, and the fit returns `cancelled`. */
+    readonly cancelled?: () => boolean;
+    readonly onRound?: (round: number, maxRounds: number) => void;
+  };
+}
+
+/** What a fit run as rounds adds to its moments (FitOptions.rounds). */
+export interface MomentRounds {
+  /** The nuclear rows the rounds refined (the scale and the background), by id, at the end: the page takes them. */
+  readonly held: Readonly<Record<string, number>>;
+  readonly count: number;
+  /** False when the cap was reached with a moment still moving. */
+  readonly settled: boolean;
+  /** The largest shift of a moment row over the last round, in its esd. */
+  readonly lastShiftOverEsd: number;
+  /** The moment rows' esds from the last moments step, with `esdIncludes`' uncertainty in them. */
+  readonly esd: Readonly<Record<string, number>>;
+  /** The held rows whose uncertainty the esds include; empty when the covariance with them could not be formed. */
+  readonly esdIncludes: readonly string[];
+}
+
+/** A step's fit: its moments, and what the rounds did where it ran as rounds. */
+export interface StepMomentFit extends MomentFit {
+  readonly rounds?: MomentRounds;
+  /** The rounds were stopped (FitOptions.rounds.cancelled): nothing of them is to be kept. */
+  readonly cancelled?: boolean;
 }
 
 /**
@@ -205,7 +240,7 @@ export interface MagneticFit {
     momentParams: readonly RefinementParameter[],
     momentBindings: readonly ParameterBinding[],
     options?: FitOptions,
-  ) => Promise<MomentFit>;
+  ) => Promise<StepMomentFit>;
   /** The agreement's name: "wR" (powder), "wR2" (single crystal), "Rw" (mPDF). */
   readonly agreementLabel: string;
   /**
@@ -221,6 +256,8 @@ export interface MagneticFit {
    * (docs/reports/2026-10-19-magnetic-step.md).
    */
   readonly nestedStarts?: boolean;
+  /** This fit runs as rounds when asked (FitOptions.rounds): the powder page's. The panel then says what the rounds do. */
+  readonly alternates?: boolean;
 }
 
 /**
@@ -238,8 +275,45 @@ export function fitRows(build: MagneticModelBuild, start?: Readonly<Record<strin
 }
 
 /** One fit of a model's moments, from a start. */
-export function fitMoments(fit: MagneticFit, build: MagneticModelBuild, start?: Readonly<Record<string, number>>, options?: FitOptions): Promise<MomentFit> {
+export function fitMoments(fit: MagneticFit, build: MagneticModelBuild, start?: Readonly<Record<string, number>>, options?: FitOptions): Promise<StepMomentFit> {
   return fit.refine(build.magnetic, fitRows(build, start), build.bindings, options);
+}
+
+/**
+ * What Refine moments did, in the words the page shows. PROVISIONAL wording,
+ * awaiting the owner's confirmation (docs/reports/2026-11-19-moments-alternation.md).
+ */
+export const MOMENT_ROUNDS_SUMMARY = "Nuclear structure held; scale and background re-refined with the magnetic model.";
+
+/** Beside the ranking table, on a page whose Refine moments runs as rounds: why a group's wR there can read higher. */
+export const RANK_SINGLE_FIT_NOTE = "Ranked with one moments fit per group; Refine moments also re-refines the scale and the background, so its wR can read lower.";
+
+/**
+ * A moments fit's readout: one plain line with the result first, and the
+ * details for its "?". `warning` when the rounds reached their cap with a
+ * moment still moving.
+ */
+export function momentFitReadout(agreementLabel: string, wR: number, rounds: MomentRounds | null, names: Readonly<Record<string, string>> = {}): { readonly line: string; readonly warning: boolean; readonly details: string | null } {
+  const fit = `${agreementLabel} = ${(100 * wR).toFixed(1)}%`;
+  // A fit with nothing between its moments steps (no free scale or background row) is one fit, as it was.
+  if (!rounds || (rounds.count === 0 && rounds.esdIncludes.length === 0)) return { line: fit, warning: false, details: null };
+  const n = `${rounds.count} round${rounds.count === 1 ? "" : "s"}`;
+  const line = rounds.settled
+    ? `${fit} · settled in ${n}`
+    : `${fit} · not settled after ${n} (a moment still moved by ${rounds.lastShiftOverEsd.toFixed(2)} esd)`;
+  const esds = Object.entries(rounds.esd).filter(([, e]) => e > 0).map(([id, e]) => `${names[id] ?? id} ± ${e.toPrecision(2)}`);
+  const details = [
+    MOMENT_ROUNDS_SUMMARY,
+    "Each round refines the scale and the background with the moments held, then the moments with every nuclear row held. The fit ends on a moments step; moments and nuclear rows never refine together.",
+    rounds.settled
+      ? `Settled: in the last round no moment moved by more than ${ALTERNATION_SHIFT_TOLERANCE} of its esd.`
+      : `Not settled: after ${rounds.count} rounds (the most a fit runs is ${ALTERNATION_MAX_ROUNDS}) a moment still moved by ${rounds.lastShiftOverEsd.toFixed(2)} of its esd. The last moments step is kept. A moment the data do not determine does this; run Refine moments again, or tie or drop that component.`,
+    "The page's scale and background rows now hold the re-refined values (one History step).",
+    ...(esds.length > 0
+      ? [`Esd${esds.length === 1 ? "" : "s"}: ${esds.join(", ")}${rounds.esdIncludes.length > 0 ? ", with the uncertainty of the scale and the background included" : " (of the moments alone: the covariance with the scale and the background could not be formed)"}.`]
+      : []),
+  ].join(" ");
+  return { line, warning: !rounds.settled, details };
 }
 
 // ── the ranking ─────────────────────────────────────────────────────────────
@@ -455,6 +529,18 @@ export interface StepInputs {
   /** The page's moments fit; null where there is nothing to fit against. */
   readonly fit: MagneticFit | null;
   readonly baselineAgreement: number | null;
+  /**
+   * The page's rows a fit run as rounds refines beside the moments (the scale
+   * and the background), by id, as they stand: the step knows by them whether
+   * the page still holds what its last fit handed back.
+   */
+  readonly nuclearValues?: Readonly<Record<string, number>>;
+  /**
+   * Take the nuclear rows a fit's rounds refined (`MomentRounds.held`): the
+   * page writes them onto its rows, as one History step. Without it a page
+   * keeps its nuclear-only scale and background under the fitted moments.
+   */
+  readonly onMomentFit?: (held: Readonly<Record<string, number>>) => void;
   /** The page refines k with the moments (powder). */
   readonly allowRefineK: boolean;
   /** The data and the fit window, as a key: a new one drops the ranking and the fit readout. */
@@ -522,9 +608,18 @@ export interface StepState {
   /** Continue hands k over to refine with the moments. */
   readonly refineK: boolean;
   readonly rank: StepRank;
-  /** The chosen model's moments fit, for the model and data it was run on (fitKey). */
-  readonly fitWR: { readonly on: string; readonly wR: number | null } | null;
+  /** The chosen model's moments fit, for the model and data it was run on (fitKey), and its rounds where it ran as rounds. */
+  readonly fitWR: { readonly on: string; readonly wR: number | null; readonly rounds?: MomentRounds } | null;
   readonly refining: boolean;
+  /** The round a running fit is in, of at most `max`; null before the first and when none runs. */
+  readonly refineRound: { readonly round: number; readonly max: number } | null;
+  /**
+   * The nuclear-only agreement from before a fit's rounds changed the page's
+   * scale and background, with the rows the rounds handed back and the data
+   * and window it is for. It stands while the page holds those rows: the
+   * page's own nuclear-only curve is then no longer the nuclear-only fit's.
+   */
+  readonly nuclearOnly: { readonly wR: number; readonly held: Readonly<Record<string, number>>; readonly on: string } | null;
 }
 
 /** No ranking: before one, or once the model or data it ran on have changed. */
@@ -581,6 +676,21 @@ export interface StepView {
   readonly maximal: readonly boolean[];
   /** The chosen model's fit while it is for this model and data. */
   readonly fitWR: number | null;
+  /** That fit's rounds, where it ran as rounds. */
+  readonly fitRounds: MomentRounds | null;
+  /**
+   * The nuclear-only agreement the step compares with: the one recorded
+   * before a fit's rounds while the page holds the rows they handed back,
+   * else the page's own.
+   */
+  readonly baselineAgreement: number | null;
+}
+
+/** Whether the page's rows are the ones a fit's rounds handed back, value for value. */
+function holdsRows(held: Readonly<Record<string, number>>, page: Readonly<Record<string, number>> | undefined): boolean {
+  if (!page) return false;
+  const ids = Object.keys(held);
+  return ids.length > 0 && ids.every((id) => page[id] === held[id]);
 }
 
 function sameDeps(a: readonly unknown[], b: readonly unknown[]): boolean {
@@ -677,6 +787,8 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
     rows, includedSignature, results, kClass, reps, lgSize, dims, irrepAnalysis, combo, comboRepIdx, chosenOps, options, build, kRows, canRefineK,
     resolvedAmps, applied, kUnsupported, canFit, canRefine, agreementLabel: at.fit?.agreementLabel ?? "wR", rankKey, fitKey, rankResults, best, noise, twins, maximal,
     fitWR: s.fitWR && s.fitWR.on === fitKey ? s.fitWR.wR : null,
+    fitRounds: s.fitWR && s.fitWR.on === fitKey ? s.fitWR.rounds ?? null : null,
+    baselineAgreement: s.nuclearOnly && s.nuclearOnly.on === at.fitContext && holdsRows(s.nuclearOnly.held, at.nuclearValues) ? s.nuclearOnly.wR : at.baselineAgreement,
   };
 }
 
@@ -691,6 +803,7 @@ export class MagneticStep {
   private s: StepState;
   private readonly listeners = new Set<() => void>();
   private cancelRequested = false;
+  private refineCancelRequested = false;
   private seenPreselect: MagneticModel | null = null;
   private seenPeaks = "";
   private readonly slots: StepSlots = new Map();
@@ -716,6 +829,8 @@ export class MagneticStep {
       rank: NO_RANK,
       fitWR: null,
       refining: false,
+      refineRound: null,
+      nuclearOnly: null,
     };
     // The sections open to start: those of the maximal groups that carry a moment at k = 0.
     const v0 = this.view(this.s, at);
@@ -975,7 +1090,19 @@ export class MagneticStep {
     if (this.s.rank.on === on) this.commit({ ...this.s, rank: { ...this.s.rank, running: false } });
   }
 
-  /** Fit the chosen model's moments (the page's own restarts), its amplitudes then the fitted ones. */
+  /** Stop a running Refine moments after the fit it is in: the page and the amplitudes stay as they were before it. */
+  cancelRefine(): void {
+    this.refineCancelRequested = true;
+  }
+
+  /**
+   * Fit the chosen model's moments, its amplitudes then the fitted ones. On a
+   * page whose fit runs as rounds (powder: momentAlternation.ts) the scale and
+   * the background are re-refined with the magnetic model between moments
+   * steps; the page takes those rows (onMomentFit), and the nuclear-only
+   * agreement from before stays the step's baseline. Stopped, or with the
+   * model or data changed under it, the fit leaves everything as it was.
+   */
   async refineMoments(): Promise<number | null> {
     this.sync();
     const at = this.inputs();
@@ -983,15 +1110,33 @@ export class MagneticStep {
     if (!v.canRefine || !v.build || !at.fit) return null;
     const build = v.build;
     const on = v.fitKey;
-    this.commit({ ...this.s, refining: true, fitWR: null });
+    const before = this.s.fitWR;
+    const baseline = v.baselineAgreement;
+    this.refineCancelRequested = false;
+    // A change of what the fit means stops it, as a click on Cancel does.
+    const stopped = (): boolean => this.refineCancelRequested || this.view().fitKey !== on;
+    this.commit({ ...this.s, refining: true, refineRound: null, fitWR: null });
     try {
-      const { values, agreement } = await fitMoments(at.fit, build, v.resolvedAmps);
+      const out = await fitMoments(at.fit, build, v.resolvedAmps, {
+        ...(K0_SCALE_WITH_MOMENTS && this.s.k.every((x) => Math.abs(x) < 1e-9) ? { freeScale: true } : {}),
+        rounds: { cancelled: stopped, onRound: (round, max) => this.commit({ ...this.s, refineRound: { round, max } }) },
+      });
+      if (out.cancelled || stopped()) {
+        this.commit({ ...this.s, fitWR: before });
+        return null;
+      }
       const amps: Record<string, number> = { ...this.s.amps };
-      for (const p of build.params) amps[p.id] = values[p.id] ?? amps[p.id]!;
-      this.commit({ ...this.s, amps, fitWR: { on, wR: agreement } });
-      return agreement;
+      for (const p of build.params) amps[p.id] = out.values[p.id] ?? amps[p.id]!;
+      // The rows the rounds moved go to the page, with the nuclear-only agreement they would otherwise overwrite.
+      const now = this.inputs();
+      const held = out.rounds?.held;
+      const moved = !!held && !!now.onMomentFit && Object.keys(held).some((id) => now.nuclearValues?.[id] !== held[id]);
+      if (moved) now.onMomentFit!(held);
+      const kept = held && now.onMomentFit && Object.keys(held).length > 0 && baseline != null ? { nuclearOnly: { wR: baseline, held, on: now.fitContext } } : {};
+      this.commit({ ...this.s, amps, fitWR: { on, wR: out.agreement, ...(out.rounds ? { rounds: out.rounds } : {}) }, ...kept });
+      return out.agreement;
     } finally {
-      this.commit({ ...this.s, refining: false });
+      this.commit({ ...this.s, refining: false, refineRound: null });
     }
   }
 
@@ -1050,7 +1195,7 @@ export class MagneticStep {
           candidates: v.reps.map((r, i) => candidateView(r, i, v.dims[i] ?? 0, v.maximal[i] ?? false, v.rankResults[r.candidate.id])),
           selected: chosen && v.build && v.applied ? selectionView(chosen, s.chosen!, at.structure, v.build.params, v.resolvedAmps, v.applied, v.fitWR) : null,
           ties: { sameSite: s.ties.sameSite, magnitudes: v.options.magnitudes },
-          baselineAgreement: at.baselineAgreement,
+          baselineAgreement: v.baselineAgreement,
           best: v.best ? candidateId(v.reps.findIndex((r) => r.candidate.id === v.best!.id)) : null,
           withinNoise: v.noise.map((id) => candidateId(v.reps.findIndex((r) => r.candidate.id === id))),
           powderTwins: v.twins.map((id) => candidateId(v.reps.findIndex((r) => r.candidate.id === id))),

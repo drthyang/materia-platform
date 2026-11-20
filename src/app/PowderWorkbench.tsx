@@ -94,7 +94,7 @@ import { type Session, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSessio
 import {
   BACKGROUND_TERMS, backgroundTermsEntry, curvesGoodnessOfFit, extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
   powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR as weightedROf, withAnisotropicAdp, withAntisitePair, withBackgroundTerms,
-  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf, magneticModelSummary,
+  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMomentRoundRows, momentRoundValues, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf, magneticModelSummary,
   changed, snapshotHolds, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
 import { zeroAdpStepLabel, type ZeroAdpChoice, type ZeroAdpFix, type ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
@@ -905,6 +905,17 @@ export function PowderWorkbench({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for activeWindow
     [client, session, tofViewOnly, activeWindow?.min, activeWindow?.max],
   );
+
+  // The rows a moments fit's rounds refine beside the moments (the scale and the background), as the page holds them:
+  // the step knows by them whether the page still carries what its last fit handed back.
+  const momentRoundRows = useMemo(() => momentRoundValues(session), [session]);
+
+  /** A moments fit's rounds re-refined the scale and the background with the magnetic model: the page takes them, as one History step. */
+  const takeMomentRoundRows = useCallback((held: Readonly<Record<string, number>>): void => {
+    change((s) => withMomentRoundRows(s, held));
+    stepHistory?.requestStep("magnetic", "Moments refined (scale and background re-refined)");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- change and the History binding are the page's own
+  }, [stepHistory]);
 
   /** "Show on refinement pattern": put a candidate model on the session WITHOUT
    *  its parameter rows — the refinement page then plots nuclear + this model
@@ -1744,6 +1755,8 @@ export function PowderWorkbench({
               focusFitToken={focusFitToken}
               magneticFit={powderMagneticFit}
               baselineAgreement={nuclearWr}
+              nuclearValues={momentRoundRows}
+              onMomentFit={takeMomentRoundRows}
               preselect={session.magnetic ?? null}
               onApply={applyMagneticPreview}
               onContinue={continueRefinementWithMagnetic}
