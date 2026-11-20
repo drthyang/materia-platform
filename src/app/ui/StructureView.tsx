@@ -30,6 +30,8 @@ import { cssZoom } from "@/app/ui/cssZoom";
 import { buildCellAtoms, displayMoment, magneticSupercell, type MomentEntry } from "@/app/ui/cellModel";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { atomArrows } from "@/app/ui/modeFold";
+import { View3DBoundary, View3DFallback } from "@/app/ui/View3DFallback";
+import { createRenderer, webglAvailable, WEBGL_LOST_HELP, WEBGL_LOST_LINE } from "@/app/ui/webglSupport";
 import {
   BOND_COLORS,
   BOND_RADIUS,
@@ -185,7 +187,23 @@ export interface StandardCellOverlay {
   readonly label: string;
 }
 
-export function StructureView({
+/**
+ * The 3D model in its own boundary: without WebGL the card shows one line in
+ * place of the canvas (the legend as plain dots, the downloads kept), and any
+ * other error from the 3D layer is caught here, so it never reaches the
+ * workbench's boundary and takes the page with it.
+ */
+export function StructureView(props: StructureViewProps): JSX.Element {
+  return (
+    <View3DBoundary resetKeys={[props.structure]} header={<ExportButtons exports={props.exports} />}>
+      <StructureScene {...props} />
+    </View3DBoundary>
+  );
+}
+
+export type StructureViewProps = Parameters<typeof StructureScene>[0];
+
+function StructureScene({
   structure,
   moments,
   propagation,
@@ -240,6 +258,12 @@ export function StructureView({
   minCanvasHeight?: number;
 }): JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  // Asked once per page (webglSupport.ts). Without WebGL no renderer is ever
+  // built: the card shows a line, and everything else on the page is unaffected.
+  const glOk = webglAvailable();
+  // The browser can take a context back at any time (driver reset, GPU process
+  // restart); three.js redraws when it returns, and the card says so meanwhile.
+  const [contextLost, setContextLost] = useState(false);
   // By value, so a host that rebuilds the list each render does not rebuild the scene.
   const highlightKey = highlightSites && highlightSites.length > 0 ? highlightSites.join("\u0000") : "";
   const [showBondLengths, setShowBondLengths] = useState(false);
@@ -385,7 +409,7 @@ export function StructureView({
 
   useEffect(() => {
     const mount = mountRef.current;
-    if (!mount) return;
+    if (!mount || !glOk) return;
     const width = mount.clientWidth || 480;
     const height = mount.clientHeight || 360;
     const aspect = width / height;
@@ -759,6 +783,11 @@ export function StructureView({
       });
     };
     controls.addEventListener("change", requestRender);
+    const glCanvas = renderer.domElement;
+    const onContextLost = (e: Event): void => { e.preventDefault(); setContextLost(true); };
+    const onContextRestored = (): void => { setContextLost(false); requestRender(); };
+    glCanvas.addEventListener("webglcontextlost", onContextLost);
+    glCanvas.addEventListener("webglcontextrestored", onContextRestored);
     sceneRef.current = { camera, controls, centerV, span, render: requestRender };
     renderOnce(); // one synchronous frame so a still is present even if rAF is throttled
     const io = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver((entries) => {
@@ -794,6 +823,10 @@ export function StructureView({
       ro.disconnect();
       io?.disconnect();
       controls.removeEventListener("change", requestRender);
+      // Before forceContextLoss below, which is a loss of our own making.
+      glCanvas.removeEventListener("webglcontextlost", onContextLost);
+      glCanvas.removeEventListener("webglcontextrestored", onContextRestored);
+      setContextLost(false);
       controls.dispose();
       renderer.dispose();
       try { renderer.forceContextLoss(); } catch { /* free the WebGL context for rebuilds */ }
@@ -802,7 +835,7 @@ export function StructureView({
     // lightLevel and finish are intentionally NOT dependencies: their knobs
     // mutate the live lights/materials below without rebuilding the scene.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atoms, corners, center, span, showBondLengths, bondStyle, bondColor, bondHidden, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements, highlightKey, frame]);
+  }, [atoms, corners, center, span, showBondLengths, bondStyle, bondColor, bondHidden, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements, highlightKey, frame, glOk]);
 
   // Light knob → in-place intensity update, drawn on the next frame.
   useEffect(() => {
@@ -831,19 +864,32 @@ export function StructureView({
   // Re-render the legend swatches whenever the elements, finish, or light change
   // so they stay identical to the atoms on screen.
   useEffect(() => {
-    if (uniqueElements.length === 0) return;
+    // Without WebGL (or with a swatch context that fails or is lost) the legend
+    // keeps its plain coloured dots: `atomSwatches` stays empty.
+    if (uniqueElements.length === 0 || !glOk) return;
     let gl = swatchGLRef.current;
     if (!gl) {
       const canvas = document.createElement("canvas");
       canvas.width = 128;
       canvas.height = 128;
-      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      const renderer = createRenderer(() => new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }));
+      if (!renderer) return;
       renderer.setSize(128, 128, false);
+      canvas.addEventListener("webglcontextlost", () => {
+        if (swatchGLRef.current?.canvas === canvas) swatchGLRef.current = null;
+        setAtomSwatches({});
+      });
       gl = { renderer, canvas };
       swatchGLRef.current = gl;
     }
-    setAtomSwatches(renderAtomSwatches(uniqueElements, finish, lightLevel, gl));
-  }, [uniqueElements, finish, lightLevel]);
+    let swatches: Record<string, string> = {};
+    try {
+      swatches = renderAtomSwatches(uniqueElements, finish, lightLevel, gl);
+    } catch (error) {
+      console.warn("[3D view] legend swatches could not be drawn:", error);
+    }
+    setAtomSwatches(swatches);
+  }, [uniqueElements, finish, lightLevel, glOk]);
 
   // Release the swatch renderer's WebGL context on unmount.
   useEffect(() => () => {
@@ -859,6 +905,28 @@ export function StructureView({
     return (
       <div style={{ height: 360, display: "grid", placeItems: "center", color: theme.secondary, fontSize: 13 }}>
         No atomic sites to display.
+      </div>
+    );
+  }
+  if (!glOk) {
+    // No WebGL: the line in the canvas's place, the downloads and the legend
+    // (plain dots) kept; the scene's knobs have nothing to act on and are left out.
+    return (
+      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+        {exports && exports.length > 0 && (
+          <div className="wb-3d-toolbar" style={{ display: "flex", marginBottom: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, alignItems: "center" }}>
+            <ExportButtons exports={exports} />
+          </div>
+        )}
+        <View3DFallback minHeight={Math.min(minCanvasHeight, 160)} />
+        <div className="wb-3d-legend" style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary, alignItems: "center" }}>
+          {uniqueElements.map((el) => (
+            <span key={el} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 15, height: 15, borderRadius: "50%", background: elementColor(el), display: "inline-block" }} />
+              {el}
+            </span>
+          ))}
+        </div>
       </div>
     );
   }
@@ -896,38 +964,13 @@ export function StructureView({
             </span>
           </span>
         )}
-        {exports && exports.length > 0 && (
-          <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {exports.map((x) => (
-              <button
-                key={x.label}
-                onClick={x.run}
-                title={x.title}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 4,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 6,
-                  padding: "1px 8px",
-                  fontSize: 11.5,
-                  fontFamily: "inherit",
-                  cursor: "pointer",
-                  background: "#fff",
-                  color: theme.ink,
-                }}
-              >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <path d="M12 3v12" />
-                  <path d="M7 12l5 5 5-5" />
-                  <path d="M4 21h16" />
-                </svg>
-                {x.label}
-              </button>
-            ))}
-          </span>
-        )}
+        <ExportButtons exports={exports} />
       </div>
+      {contextLost && (
+        <div role="status" style={{ marginBottom: 6, fontSize: 12.5, color: theme.secondary }}>
+          <InfoBadge width={280} label={WEBGL_LOST_LINE} text={WEBGL_LOST_HELP} />
+        </div>
+      )}
       <div ref={mountRef} className="wb-3d-canvas" style={{ width: "100%", flex: 1, minHeight: minCanvasHeight, cursor: "grab", borderRadius: 10, overflow: "hidden" }} />
       {/* The gesture hint (left) and the view presets (right, above the
           legend): look straight down an axis. */}
@@ -1010,5 +1053,41 @@ function ViewerToggle({ label, checked, onChange, disabled = false }: { label: s
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       {label}
     </label>
+  );
+}
+
+/** The viewer's downloads (see `exports`): kept when the model cannot be drawn. */
+function ExportButtons({ exports }: { exports?: readonly StructureExport[] | undefined }): JSX.Element | null {
+  if (!exports || exports.length === 0) return null;
+  return (
+    <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
+        {exports.map((x) => (
+          <button
+            key={x.label}
+            onClick={x.run}
+            title={x.title}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 6,
+              padding: "1px 8px",
+              fontSize: 11.5,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              background: "#fff",
+              color: theme.ink,
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 3v12" />
+              <path d="M7 12l5 5 5-5" />
+              <path d="M4 21h16" />
+            </svg>
+            {x.label}
+          </button>
+        ))}
+    </span>
   );
 }
