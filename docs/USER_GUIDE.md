@@ -271,7 +271,9 @@ work the same way. The line under each plot names the main gestures for your
 device (⌘ on a Mac, Ctrl elsewhere, a pinch on a touch screen); hover, focus
 or tap it for the rest. The 3D models carry the same kind of line beside
 their View a / b / c chip: scroll or pinch to zoom, drag to rotate, and
-right-drag, Shift + drag or two fingers to pan.
+right-drag, Shift + drag or two fingers to pan. The 3D models need WebGL: in a
+browser without it their cards show "3D view unavailable" (the "?" says how
+to check), and everything else works as usual.
 
 - **Cursor.** Hover the plot. A vertical line marks the data point under the
   pointer. The readout gives x in the axis unit (2θ °, TOF µs, d Å, Q Å⁻¹ or
