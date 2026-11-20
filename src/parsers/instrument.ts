@@ -29,7 +29,7 @@ const GSAS_SIG2_TO_FWHM2 = 8 * Math.log(2); // σ² → FWHM² (≈ 5.545)
 
 /** True for a FullProf `.irf` resolution file (keyword-led lines, not key:value). */
 function looksLikeFullProfIrf(text: string): boolean {
-  return /^\s*(JOBT|PROF|WAVE|THRG|GEOM|TOFRG|D2TOF|NPROF)\b/im.test(text);
+  return /^\s*(JOBT|PROF|WAVE|THRG|GEOM|TOFRG|D2TOF|ZD2TOF|D2TOT|ZD2TOT|NPROF)\b/im.test(text);
 }
 
 /** Numeric tokens of a line, or [] if it is a comment / keyword-led line. */
@@ -48,24 +48,209 @@ function irfKeyword(text: string, key: string): number[] | null {
 }
 
 /**
- * Parse a FullProf `.irf`. Constant-wavelength files (WAVE + a bare U V W X Y Z
- * line, e.g. D1B/D20) become a CW instrument with Caglioti U,V,W; TOF files
- * (D2TOF: Dtt1 Dtt2 Dtt_1overD Zero) become a TOF calibration. The numerical
- * per-d profile table (NPROF 9) is not consumed — only the calibration is.
+ * A FullProf time-of-flight calibration line, read by its keyword and the
+ * number of values, as FullProf documents them (FullProf news, 12 October
+ * 2003: "Instrumental resolution function (IRF) files have been implemented
+ * for TOF patterns"; 2004: the zero point as a third item of D2TOF; 18 April
+ * 2011: ZD2TOF and ZD2TOT; manual, appendix "CODFIL.pcr", LINE 14 and LINE 16):
+ *
+ *   D2TOF   Dtt1 [Dtt2 [Zero]]              NPROF 9:  TOF = Zero + Dtt1·d + Dtt2·d²
+ *   D2TOF   Dtt1 Dtt2 Dtt_1overD Zero       the four-value line of newer files
+ *                                           (POWGEN's): + Dtt_1overD/d, as the
+ *                                           file's own comment line and FullProf's
+ *                                           PCR header name the columns
+ *   ZD2TOF  Zero Dtt1 [Dtt2]                the same, zero first
+ *   D2TOT   Dtt1t Dtt2t x-cross Width [Zerot]   NPROF 10, thermal neutrons:
+ *   ZD2TOT  Zerot Dtt1t Dtt2t [x-cross Width]   TOFt = Zerot + Dtt1t·d − Dtt2t/d,
+ *                                           mixed with the epithermal line by
+ *                                           ncross = ½ erfc(Width·(x-cross − 1/d))
+ *
+ * So the trailing T is the thermal branch of NPROF 10's two-branch relation.
+ * This app has one relation, TOF = Zero + difC·d + difA·d² + difB/d, which is
+ * NPROF 9's with Dtt1 = difC, Dtt2 = difA, Dtt_1overD = difB, in µs and Å,
+ * no conversion.
+ *
+ * A file that says NPROF 9 and gives only a thermal-style line with three
+ * values and no crossover (facility files written this way exist) is read as
+ * Zero, Dtt1, Dtt2 of NPROF 9: a relation with no crossover is one branch, and
+ * FullProf, run on such a file with Res = 5, lists the three values in its own
+ * PCR as Zero, Dtt1 and Dtt2 with Dtt_1overd = 0.
+ *
+ * When the comment line above names the columns (`!  Dtt1t  Dtt2t  Zerot`) and
+ * names as many as there are values, the names decide the order; else the
+ * keyword and the count. `reading` says which was taken.
+ */
+interface IrfCalibration {
+  readonly difC: number;
+  readonly difA?: number;
+  readonly difB?: number;
+  readonly zero?: number;
+  /** How the line was read, for the page to say. */
+  readonly reading: string;
+  /** The thermal branch of an NPROF 10 file, which the app has no place for. */
+  readonly thermal?: string;
+}
+
+type IrfColumn = "dtt1" | "dtt2" | "dtt1overd" | "zero" | "xcross" | "width";
+
+/** A column named in a comment line, or null for any other word. */
+function irfColumnName(word: string): IrfColumn | null {
+  const w = word.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/t$/, "");
+  if (w === "dtt1") return "dtt1";
+  if (w === "dtt2") return "dtt2";
+  if (w === "dtt1overd" || w === "dt1overd") return "dtt1overd";
+  if (w === "zero") return "zero";
+  if (w === "xcross") return "xcross";
+  if (w === "width") return "width";
+  return null;
+}
+
+const IRF_ORDER: Readonly<Record<string, Readonly<Record<number, readonly IrfColumn[]>>>> = {
+  D2TOF: { 1: ["dtt1"], 2: ["dtt1", "dtt2"], 3: ["dtt1", "dtt2", "zero"], 4: ["dtt1", "dtt2", "dtt1overd", "zero"] },
+  ZD2TOF: { 2: ["zero", "dtt1"], 3: ["zero", "dtt1", "dtt2"], 4: ["zero", "dtt1", "dtt2", "dtt1overd"] },
+  D2TOT: { 2: ["dtt1", "dtt2"], 3: ["dtt1", "dtt2", "zero"], 4: ["dtt1", "dtt2", "xcross", "width"], 5: ["dtt1", "dtt2", "xcross", "width", "zero"] },
+  ZD2TOT: { 3: ["zero", "dtt1", "dtt2"], 5: ["zero", "dtt1", "dtt2", "xcross", "width"] },
+};
+
+/** The lines of one bank of an `.irf` (FullProf separates banks with END). */
+function irfCalibration(lines: readonly string[], nprof: number | undefined): IrfCalibration | null {
+  const found = new Map<string, { values: number[]; columns: readonly IrfColumn[]; byComment: boolean }>();
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i]!.trim().match(/^(Z?D2TO[FT])\s+(.+)$/);
+    if (!m || found.has(m[1]!)) continue;
+    const values = m[2]!.trim().split(/\s+/).map(Number).filter(Number.isFinite);
+    if (values.length === 0) continue;
+    // The comment line directly above, when it names every column.
+    const above = i > 0 ? lines[i - 1]!.trim() : "";
+    const named = /^[!#]/.test(above) ? above.replace(/^[!#]+/, "").trim().split(/\s+/).map(irfColumnName) : [];
+    const byComment = named.length === values.length && named.every((n) => n !== null) && new Set(named).size === named.length && named.includes("dtt1");
+    const columns = byComment ? (named as IrfColumn[]) : IRF_ORDER[m[1]!]?.[values.length];
+    if (!columns) throw new Error(`FullProf .irf: a ${m[1]} line with ${values.length} value${values.length === 1 ? "" : "s"} is not a form FullProf documents, and no comment line above it names the columns`);
+    found.set(m[1]!, { values, columns, byComment });
+  }
+  const pick = (key: string): { keyword: string; values: number[]; columns: readonly IrfColumn[]; byComment: boolean } | null => (found.has(key) ? { keyword: key, ...found.get(key)! } : null);
+  const epithermal = pick("ZD2TOF") ?? pick("D2TOF");
+  const thermal = pick("ZD2TOT") ?? pick("D2TOT");
+  const line = epithermal ?? thermal;
+  if (!line) return null;
+  const value = (name: IrfColumn): number | undefined => {
+    const at = line.columns.indexOf(name);
+    return at >= 0 ? line.values[at] : undefined;
+  };
+  const crossover = line.columns.includes("xcross") || line.columns.includes("width");
+  if (!epithermal && (nprof === 10 || crossover)) {
+    throw new Error(`FullProf .irf: only the thermal line ${line.keyword} of NPROF 10 (TOF = Zerot + Dtt1t·d − Dtt2t/d with a crossover to the epithermal line) is given; this relation is not available here`);
+  }
+  const order = line.columns.map((c) => ({ dtt1: "Dtt1", dtt2: "Dtt2", dtt1overd: "Dtt_1overD", zero: "Zero", xcross: "x-cross", width: "Width" })[c]).join(", ");
+  const reading = `${line.keyword} read as ${order} (${line.byComment ? "the order its comment line names" : `FullProf's order for ${line.values.length} value${line.values.length === 1 ? "" : "s"}`})`
+    + (!epithermal ? ": TOF = Zero + Dtt1·d + Dtt2·d², as FullProf's NPROF 9 takes this line" : "");
+  const difC = value("dtt1");
+  if (difC === undefined) return null;
+  const difA = value("dtt2");
+  const difB = value("dtt1overd");
+  const zero = value("zero");
+  return {
+    difC,
+    ...(difA !== undefined ? { difA } : {}),
+    ...(difB !== undefined ? { difB } : {}),
+    ...(zero !== undefined ? { zero } : {}),
+    reading,
+    ...(epithermal && thermal ? { thermal: `${thermal.keyword} (NPROF 10's thermal-neutron branch and its crossover)` } : {}),
+  };
+}
+
+/** The values after a keyword at the start of one of these lines. */
+function irfValues(lines: readonly string[], key: string): number[] | null {
+  for (const l of lines) {
+    const m = l.trim().match(new RegExp(`^${key}\\s+(.+)$`));
+    if (m) return m[1]!.trim().split(/\s+/).map(Number).filter(Number.isFinite);
+  }
+  return null;
+}
+
+/**
+ * One bank of a FullProf TOF `.irf` (NPROF 9: back-to-back exponentials
+ * convolved with a pseudo-Voigt). Its profile lines map onto this app's TOF
+ * terms where the two are the same function of d (manual, appendix
+ * "CODFIL.pcr", "Profile parameters-I, T.O.F", LINE 27 and LINE 30), µs and Å
+ * in both, no conversion:
+ *
+ *   SIGMA  Sig-2 Sig-1 Sig-0    σ² = Sig-2·d⁴ + Sig-1·d² + Sig-0 (variance)
+ *                               → sig2, sig1, sig0
+ *   ALFBE  alph0 beta0 alph1 beta1   α = alph0 + alph1/d, β = beta0 + beta1/d⁴
+ *                               → alpha0, alpha (the 1/d term), beta0, beta1
+ *   GAMMA  Gam-2 Gam-1 Gam-0    Lorentzian FWHM γ = Gam-2·d² + Gam-1·d + Gam-0:
+ *                               GSAS-II's Y, X, Z. The TOF peak here has no
+ *                               Lorentzian, so these are kept and not used.
+ *
+ * An ALFBE line of four zeros gives no peak (both decay rates zero): it is
+ * taken as not given, and the page starts from its generic values. A
+ * tabulated profile (LIST_SIG_GAM_ALF_BET…) is not read.
+ */
+function parseIrfTofBank(lines: readonly string[]): InstrumentBank | null {
+  const nprof = irfValues(lines, "NPROF")?.[0];
+  const cal = irfCalibration(lines, nprof);
+  if (!cal) return null;
+  const sigma = irfValues(lines, "SIGMA");
+  const gamma = irfValues(lines, "GAMMA");
+  const alfbe = irfValues(lines, "ALFBE");
+  const alfbeGiven = alfbe && alfbe.length >= 4 && alfbe.slice(0, 4).some((v) => v !== 0) ? alfbe : null;
+  const twoTheta = irfValues(lines, "TWOTH")?.[0];
+  const tofrg = irfValues(lines, "TOFRG");
+  const table = lines.some((l) => /^\s*LIST_?[A-Z_]*(SIG|ALF)/.test(l));
+  // "! ---- Bank 2  CWL = 1.5" in a comment: a hint of the bank's number, no more.
+  const hint = lines.map((l) => l.match(/^\s*[!#].*\bBank\s+(\d+)\b/i)?.[1]).find((n) => n !== undefined);
+  const { reading, thermal, ...calibration } = cal;
+  const parameters: InstrumentParameters = {
+    kind: "tof",
+    ...calibration,
+    ...(alfbeGiven ? { alpha0: alfbeGiven[0]!, alpha: alfbeGiven[2]!, beta0: alfbeGiven[1]!, beta1: alfbeGiven[3]! } : {}),
+    ...(sigma && sigma.length >= 3 ? { sig0: sigma[2]!, sig1: sigma[1]!, sig2: sigma[0]! } : {}),
+  };
+  return {
+    bank: hint !== undefined ? parseInt(hint, 10) : null,
+    parameters,
+    format: "irf",
+    extras: {
+      ...(twoTheta !== undefined ? { twoTheta } : {}),
+      ...(gamma && gamma.length >= 3 ? { lorentzX: gamma[1]!, lorentzY: gamma[0]!, lorentzZ: gamma[2]! } : {}),
+      ...(tofrg && tofrg.length >= 3 ? { tofRange: [tofrg[0]!, tofrg[1]!, tofrg[2]!] as const } : {}),
+      ...(nprof !== undefined ? { nprof } : {}),
+      ...(alfbe && !alfbeGiven ? { zeroDecay: true as const } : {}),
+      ...(table ? { profileTable: true as const } : {}),
+      ...(thermal ? { thermal } : {}),
+      reading,
+    },
+    texts: new Map(),
+  };
+}
+
+/** The banks of a FullProf TOF `.irf`: one per END-separated block that has a calibration line. */
+function parseFullProfTofBanks(text: string): InstrumentBank[] {
+  const banks: InstrumentBank[] = [];
+  let block: string[] = [];
+  const close = (): void => {
+    const bank = parseIrfTofBank(block);
+    if (bank) banks.push(bank);
+    block = [];
+  };
+  for (const line of text.split(/\r\n|\r|\n/)) {
+    if (/^\s*END\b/.test(line)) close();
+    else block.push(line);
+  }
+  close();
+  // Bank numbers are a hint from a comment: kept only when every bank has one and no two agree.
+  const numbers = banks.map((b) => b.bank);
+  const usable = numbers.every((n) => n !== null) && new Set(numbers).size === numbers.length;
+  return usable ? banks : banks.map((b, i) => ({ ...b, bank: banks.length > 1 ? i + 1 : b.bank }));
+}
+
+/**
+ * Parse a constant-wavelength FullProf `.irf` (WAVE + a bare U V W X Y Z line,
+ * e.g. D1B/D20) into a CW instrument with Caglioti U,V,W. TOF files go through
+ * parseFullProfTofBanks.
  */
 function parseFullProfIrf(text: string): InstrumentParameters {
-  const d2tof = irfKeyword(text, "D2TOF");
-  if (d2tof && d2tof.length >= 1) {
-    const [dtt1, dtt2, dtt1overD, zero] = d2tof;
-    return {
-      kind: "tof",
-      difC: dtt1!,
-      ...(dtt2 !== undefined ? { difA: dtt2 } : {}),
-      ...(dtt1overD !== undefined ? { difB: dtt1overD } : {}),
-      ...(zero !== undefined ? { zero } : {}),
-    };
-  }
-
   const wave = irfKeyword(text, "WAVE");
   if (wave && wave.length >= 1) {
     const jobt = text.match(/^\s*JOBT\s+([A-Za-z]+)/im)?.[1]?.toUpperCase();
@@ -88,7 +273,7 @@ function parseFullProfIrf(text: string): InstrumentParameters {
     };
   }
 
-  throw new Error("FullProf .irf: neither a WAVE (CW) nor a D2TOF (TOF) calibration found");
+  throw new Error("FullProf .irf: neither a WAVE (CW) nor a D2TOF / ZD2TOF (TOF) calibration found");
 }
 
 /**
@@ -320,6 +505,18 @@ export interface InstrumentFileExtras {
   readonly lorentzZ?: number;
   /** The file carries a tabulated TOF profile (GSAS-II `pdabc`), which is not read. */
   readonly pdabc?: true;
+  /** A FullProf `.irf`: its TOFRG line (TOF min, step, max, µs). */
+  readonly tofRange?: readonly [number, number, number];
+  /** A FullProf `.irf`: the profile function number it was made for (NPROF). */
+  readonly nprof?: number;
+  /** A FullProf `.irf` whose ALFBE line is four zeros: no decay rates given. */
+  readonly zeroDecay?: true;
+  /** A FullProf `.irf` with a tabulated profile (LIST_SIG_GAM_ALF_BET…), which is not read. */
+  readonly profileTable?: true;
+  /** A FullProf NPROF 10 file's thermal-branch line, which the app has no place for. */
+  readonly thermal?: string;
+  /** A FullProf `.irf`: how its calibration line was read (keyword, order, why). */
+  readonly reading?: string;
 }
 
 /** One bank of an instrument file. */
@@ -331,6 +528,8 @@ export interface InstrumentBank {
   readonly bank: number | null;
   /** The instrument as the app uses it. */
   readonly parameters: InstrumentParameters;
+  /** The file's format: a GSAS-II `.instprm`, a FullProf `.irf`, a classic GSAS `.prm`. */
+  readonly format: "instprm" | "irf" | "prm";
   /** GSAS-II's histogram type (`PNT`, `PXC`, …), when the file gives one. */
   readonly type?: string;
   /** Values read and kept, not used in the calculation. */
@@ -350,8 +549,12 @@ export interface InstrumentFile {
  */
 export function parseInstrumentFile(text: string): InstrumentFile {
   const named = (inst: InstrumentParameters): InstrumentParameters => withRecognizedName(text, inst);
-  if (looksLikeFullProfIrf(text)) return { banks: [{ bank: null, parameters: named(parseFullProfIrf(text)), extras: {}, texts: new Map() }] };
-  if (looksLikeGsasPrm(text)) return { banks: [{ bank: null, parameters: named(parseGsasPrm(text)), extras: {}, texts: new Map() }] };
+  if (looksLikeFullProfIrf(text)) {
+    const tof = parseFullProfTofBanks(text);
+    if (tof.length > 0) return { banks: tof.map((b) => ({ ...b, parameters: named(b.parameters) })) };
+    return { banks: [{ bank: null, parameters: named(parseFullProfIrf(text)), format: "irf", extras: {}, texts: new Map() }] };
+  }
+  if (looksLikeGsasPrm(text)) return { banks: [{ bank: null, parameters: named(parseGsasPrm(text)), format: "prm", extras: {}, texts: new Map() }] };
   const banks: InstrumentBank[] = [];
   for (const block of readBlocks(text)) {
     const parameters = blockParameters(block);
@@ -361,6 +564,7 @@ export function parseInstrumentFile(text: string): InstrumentFile {
       bank: block.bank ?? integerOrNull(block.values.get("bank")),
       parameters: named(parameters),
       ...(type !== undefined ? { type } : {}),
+      format: "instprm",
       extras: blockExtras(block, parameters.kind),
       texts: block.texts,
     });
@@ -412,7 +616,7 @@ function withRecognizedName(text: string, inst: InstrumentParameters): Instrumen
 
 function blockExtras(block: KeyValueBlock, kind: InstrumentParameters["kind"]): InstrumentFileExtras {
   const v = block.values;
-  type NumericExtra = Exclude<keyof InstrumentFileExtras, "pdabc">;
+  type NumericExtra = "twoTheta" | "flightPath" | "azimuth" | "lorentzX" | "lorentzY" | "lorentzZ";
   const has = (key: string, as: NumericExtra): Partial<Record<NumericExtra, number>> => (v.get(key) !== undefined ? { [as]: v.get(key)! } : {});
   return {
     ...(kind === "tof" ? { ...has("2-theta", "twoTheta"), ...has("fltpath", "flightPath"), ...has("x", "lorentzX"), ...has("y", "lorentzY") } : {}),

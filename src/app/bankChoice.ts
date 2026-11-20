@@ -231,22 +231,36 @@ export function unusedNote(bank: InstrumentBank | null, mustrain: MustrainModel 
   const e = bank.extras;
   const p = bank.parameters;
   const lorentz = ([["X", e.lorentzX], ["Y", e.lorentzY], ["Z", e.lorentzZ]] as const).filter(([, v]) => v !== undefined && v !== 0);
-  const lorentzText = lorentz.map(([k, v]) => `${k} = ${v}`).join(", ");
   if (p.kind === "tof") {
+    // A FullProf .irf names the same terms its own way: γ = Gam-2·d² + Gam-1·d + Gam-0 is GSAS-II's Y, X, Z.
+    const irf = bank.format === "irf";
+    const lorentzNames = irf ? { X: "Gam-1", Y: "Gam-2", Z: "Gam-0" } : { X: "X", Y: "Y", Z: "Z" };
+    const sig1Name = irf ? "Sig-1" : "sig-1";
     // sig-1 has a row only under the generalized (Stephens) microstrain model; otherwise an isotropic microstrain stands in for the d² term.
     const sig1Dropped = (mustrain ?? "isotropic") !== "generalized" && p.sig1 !== undefined && p.sig1 !== 0;
     const items = [
-      ...(lorentz.length > 0 ? [`Lorentzian ${lorentz.map(([k]) => k).join(", ")}`] : []),
-      ...(sig1Dropped ? ["sig-1"] : []),
+      ...(lorentz.length > 0 ? [`Lorentzian ${lorentz.map(([k]) => lorentzNames[k]).join(", ")}`] : []),
+      ...(sig1Dropped ? [sig1Name] : []),
       ...(e.pdabc ? ["the pdabc table"] : []),
+      ...(e.profileTable ? ["the tabulated profile"] : []),
+      ...(e.thermal ? ["the thermal branch"] : []),
+      ...(e.zeroDecay ? ["ALFBE (all zero)"] : []),
     ];
     if (items.length === 0) return null;
+    const used = irf
+      ? "Used as read, negative values included, and held fixed until you free them: Zero, Dtt1 (as difC), Dtt2 (difA), Dtt_1overD (difB), alph0, alph1, beta0, beta1, Sig-0, Sig-2: the same functions of d as in FullProf's NPROF 9, in µs and Å, no conversion."
+      : "Used as read, negative values included, and held fixed until you free them: difC, difA, difB, Zero, alpha, beta-0, beta-1, beta-q, sig-0, sig-2, sig-q.";
     const detail = [
-      ...(lorentz.length > 0 ? [`The time-of-flight peak here is two exponentials convolved with a Gaussian, with no Lorentzian part, so the file's ${lorentzText} are read and left out (GSAS-II adds a Lorentzian of width X·d + Y·d² + Z).`] : []),
-      ...(sig1Dropped ? [`sig-1 = ${p.sig1} is left out while the microstrain model is isotropic: a Gaussian microstrain of ${TOF_MICROSTRAIN_SEED} × 10⁻⁶, held fixed, takes the place of the d² width term. The generalized microstrain model brings the sig-1 row back with the file's value.`] : []),
+      ...(lorentz.length > 0 ? [`The time-of-flight peak here is two exponentials convolved with a Gaussian, with no Lorentzian part, so the file's ${lorentz.map(([k, v]) => `${lorentzNames[k]} = ${v}`).join(", ")} are read and left out (${irf ? "FullProf adds a Lorentzian of width Gam-2·d² + Gam-1·d + Gam-0" : "GSAS-II adds a Lorentzian of width X·d + Y·d² + Z"}).`] : []),
+      ...(sig1Dropped ? [`${sig1Name} = ${p.sig1} is left out while the microstrain model is isotropic: a Gaussian microstrain of ${TOF_MICROSTRAIN_SEED} × 10⁻⁶, held fixed, takes the place of the d² width term. The generalized microstrain model brings the ${sig1Name} row back with the file's value.`] : []),
       ...(e.pdabc ? ["The tabulated profile (pdabc) is not read."] : []),
-      "Used as read, negative values included, and held fixed until you free them: difC, difA, difB, Zero, alpha, beta-0, beta-1, beta-q, sig-0, sig-2, sig-q. Where the Gaussian variance of a peak comes out negative it is set to 10⁻⁶ µs².",
-      "2-theta, fltPath and Azimuth are read and not used in the calculation.",
+      ...(e.profileTable ? ["The file's tabulated profile (its LIST_… lines) is not read."] : []),
+      ...(e.thermal ? [`${e.thermal} is not used: the page has one TOF-to-d relation, the file's epithermal line.`] : []),
+      ...(e.zeroDecay ? ["The ALFBE line is four zeros, which is no peak shape, so the rise and decay start from the page's generic values (α₁ = 1.5, β₀ = 0.02)."] : []),
+      used,
+      "Where the Gaussian variance of a peak comes out negative it is set to 10⁻⁶ µs².",
+      irf ? "TWOTH and TOFRG are read and not used in the calculation." : "2-theta, fltPath and Azimuth are read and not used in the calculation.",
+      ...(e.reading ? [`Calibration line: ${e.reading}.`] : []),
     ];
     return { line: `Not used: ${items.join("; ")}.`, detail: detail.join(" ") };
   }

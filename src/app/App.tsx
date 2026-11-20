@@ -1165,6 +1165,7 @@ export function App(): JSX.Element {
           ? `Loaded TOF instrument${which}: difC=${parsed.difC.toFixed(2)}, Zero=${(parsed.zero ?? 0).toFixed(3)}. Profile re-seeded.`
           : `Loaded CW instrument${which}: λ=${parsed.wavelength} Å. Profile re-seeded.`,
       );
+      if (chosen.extras.reading) setMessage(`Instrument calibration line: ${chosen.extras.reading}.`);
       requestStep("load", multi ? `Loaded instrument ${name}, bank ${chosen.bank}` : `Loaded instrument ${name}`);
     } catch (e) {
       setMessage(`Instrument parse failed: ${e instanceof Error ? e.message : String(e)}`);

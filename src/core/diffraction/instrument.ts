@@ -66,6 +66,8 @@ export type InstrumentParameters =
        * starting from ballparks.
        */
       readonly alpha?: number;
+      /** A constant rise term, α = alpha0 + alpha/d: a FullProf `.irf`'s alph0 (GSAS-II has none). */
+      readonly alpha0?: number;
       readonly beta0?: number;
       readonly beta1?: number;
       readonly betaQ?: number;
