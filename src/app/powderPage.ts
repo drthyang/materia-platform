@@ -437,7 +437,12 @@ export function withFixed(s: Session, changes: readonly { readonly id: string; r
 export interface LoadedFile {
   readonly name: string;
   readonly text: string;
+  /** The bank of a multi-bank file the page reads (an `.instprm` bank, a GSAS histogram's BANK); absent for a one-bank file. */
+  readonly bank?: number;
 }
+
+/** The file as the session keeps it. */
+const kept = (file: LoadedFile): LoadedFile => ({ name: file.name, text: file.text, ...(file.bank !== undefined ? { bank: file.bank } : {}) });
 
 /** GSAS-II's own calc and background, shown with a view-only TOF pattern. */
 export type PatternOverlay = NonNullable<Session["powderOverlay"]>;
@@ -632,7 +637,7 @@ export function withPattern(p: PowderPage, pattern: PowderPattern, file?: Loaded
     powderProfile: rows.profile,
     powderOverlay: overlay ?? null,
     powderSource: file?.name ?? pattern.name,
-    ...(file ? { rawData: { name: file.name, text: file.text } } : {}),
+    ...(file ? { rawData: kept(file) } : {}),
   });
 }
 
@@ -647,7 +652,7 @@ export function withPattern(p: PowderPage, pattern: PowderPattern, file?: Loaded
 export function withInstrument(p: PowderPage, instrument: InstrumentParameters, file?: LoadedFile): PowderPage {
   const s = p.session;
   const page = { ...p, instrument, instrumentLoaded: true };
-  const raw = file ? { rawInstrument: { name: file.name, text: file.text } } : {};
+  const raw = file ? { rawInstrument: kept(file) } : {};
   if (s.powderSource === EMPTY_SOURCE) return changed(page, { ...s, ...raw });
   const pattern = instrument.kind === "constantWavelength" && s.pattern.xUnit !== "tof"
     ? { ...s.pattern, radiation: radiationOf(instrument), wavelength: instrument.wavelength }

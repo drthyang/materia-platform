@@ -187,6 +187,7 @@ function checkRawFile(v: unknown, path: string): void {
   const f = rec(v, path);
   str(f.name, `${path}.name`);
   str(f.text, `${path}.text`);
+  opt(f.bank, `${path}.bank`, num);
 }
 
 function checkResult(v: unknown, path: string): void {
