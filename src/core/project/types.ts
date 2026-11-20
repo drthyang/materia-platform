@@ -105,6 +105,12 @@ export interface RefinementState {
 export interface RawFile {
   readonly name: string;
   readonly text: string;
+  /**
+   * The bank of a multi-bank file that was read (a GSAS-II `.instprm`'s
+   * `#Bank N`, a GSAS histogram's `BANK N`). Absent for a one-bank file and in
+   * projects saved before the bank could be chosen.
+   */
+  readonly bank?: number;
 }
 
 // ---------------------------------------------------------------------------

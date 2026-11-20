@@ -212,7 +212,7 @@ export function buildPowderSpec(
       difC: instrument.difC,
       difA: instrument.difA ?? 0,
       difB: instrument.difB ?? 0,
-      alpha0: 0, alpha1: instrument.alpha ?? 1.5,
+      alpha0: instrument.alpha0 ?? 0, alpha1: instrument.alpha ?? 1.5,
       beta0: instrument.beta0 ?? 0.02, beta1: instrument.beta1 ?? 0,
       betaQ: instrument.betaQ ?? 0,
       sig0: instrument.sig0 ?? 0,
