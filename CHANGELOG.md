@@ -7,8 +7,28 @@ release fixes bugs.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-20
+
+A patch release: fixes found on phones, tablets and a browser without WebGL,
+Bilbao's k-point names, and a setup manual for the Copilot. No refinement
+result changes.
+
+### Added
+
+- **A setup manual for the Copilot** ([docs/COPILOT_SETUP.md](docs/COPILOT_SETUP.md)):
+  an API key, the local proxy, Ollama, LM Studio and any OpenAI-compatible
+  server, step by step, with checks and the common failures (#172).
+
 ### Fixed
 
+- **Layout on phones, tablets and beside a docked Copilot** (#170): no failed
+  request on page load (the development-only demo probe is out of the
+  production build), the parameter table's columns keep apart, the moment
+  field shows its value whole, tree rows and titles are no longer cut, the
+  posterior table shows that it scrolls, and the reason "Magnetic PDF →" is
+  disabled opens by touch ([report](docs/reports/2026-11-12-device-qa-layout.md)).
+- **The bundled GaTa₄Se₈ example's data header** no longer carries local file
+  paths (#173).
 - **A browser without WebGL no longer loses the page.** Loading a structure
   with WebGL unavailable replaced the workbench by "This structure and data
   cannot be calculated" (the 3D view's renderer threw). Each 3D card now
