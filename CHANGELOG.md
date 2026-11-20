@@ -7,6 +7,17 @@ release fixes bugs.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A browser without WebGL no longer loses the page.** Loading a structure
+  with WebGL unavailable replaced the workbench by "This structure and data
+  cannot be calculated" (the 3D view's renderer threw). Each 3D card now
+  shows "3D view unavailable: WebGL is not available in this browser." with
+  how to check behind "?", its legend as plain dots and its downloads kept;
+  a context the browser drops later is announced and redrawn when it
+  returns. Refinement, plots and exports never needed WebGL and work as usual
+  ([report](docs/reports/2026-11-20-no-webgl.md)).
+
 ### Changed
 
 - **k-point names from the Bilbao server's convention** (THY-73). Stars are
