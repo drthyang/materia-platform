@@ -35,7 +35,8 @@ export interface StructureRefinementOptions {
    *  `caglioti` is absent (single-width fallback). */
   readonly width?: number;
   /**
-   * Caglioti Gaussian width coefficients (GSAS-II, centidegrees²) for an
+   * Caglioti Gaussian width coefficients (centidegrees², FWHM²: 8 ln 2 times
+   * GSAS-II's variance coefficients) for an
    * angle-dependent FWHM² = U·tan²θ + V·tanθ + W. When given (e.g. seeded from a
    * `.instprm` file), U/V/W are refined as instrument parameters and the single
    * `width` is dropped. Only applies to a 2θ pattern.
