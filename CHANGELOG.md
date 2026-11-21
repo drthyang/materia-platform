@@ -38,6 +38,21 @@ release fixes bugs.
 - **The bundled POWGEN `.instprm`** could not be read by GSAS-II because of
   its second comment line; no value changes.
 - `docs/LIMITATIONS.md` no longer lists Kα₂ doublets as missing.
+- **Distortion modes freed at 0 refine.** On the PDF page the secondary modes
+  of an activated subgroup (the ones that start at 0) did not move although
+  free: with every mode freed right after the activation, Refine ended
+  "stalled · 1 cycle" with nothing changed; after a switch of the ADP model
+  it ended "converged" with those modes still at 1e-11 Å. The engine's
+  per-cycle shift cap treated a row at exactly 0 as unlimited (a weak column
+  then asked for a step of ångströms that no trial could take) and a row at
+  round-off as its own scale (sixfold growth per cycle). A parameter whose
+  whole value moves the pattern by less than a part per million now counts as
+  at zero, and after a rejected trial it is limited as its kind is. Switching
+  the ADP model keeps the position rows as they are, values and free choices
+  (it had re-solved them, which left the round-off and reset the choices). A
+  project saved with such rows refines when reopened
+  ([report](docs/reports/2026-11-20-secondary-modes-refine.md)).
+
 
 ## [0.5.1] - 2026-11-20
 

@@ -536,8 +536,9 @@ const SETTING_FREE = new Set([
  * The next page after a change of its spec on the same structure and data
  * (the position parameterization, the mode set, the ADP model, the spin
  * model): the rows the new spec gives, each keeping its value and free choice
- * by id; the positions re-seeded exactly from the current geometry (an
- * interpolation onto the new position rows, not a fit), unless `kick` keeps
+ * by id; under another position parameterization the positions re-seeded
+ * exactly from the current geometry (an interpolation onto the new position
+ * rows, not a fit; the same position rows carry by id), unless `kick` keeps
  * the spec's own seeds (an activation's starting kick, which also carries
  * only the setting-free kinds); so too when the fit moves between a supercell
  * child and the parent (✕ clear, the Positions toggle), whose cells differ;
@@ -555,8 +556,12 @@ function withSpecChange(m: PdfPageModel, change: Partial<Pick<PdfPageModel, "pos
   const before = new Map(m.params.map((p) => [p.id, p]));
   // Into or out of a supercell child's own cell: the geometry and the cell's rows do not carry, as on an activation.
   const fresh = how.kick === true || ownCellFit(m) !== ownCellFit(draft);
+  // The same position rows before and after (the ADP model, the spin model or a site total changed, not the
+  // position parameterization): they carry by id as every other row does. Solving for them again left round-off
+  // (1e-15 Å) in the rows that were exactly 0, and put their free choice back to the spec's default.
+  const samePositions = draft.positionMode === m.positionMode && modeSetOf(draft) === modeSetOf(m);
   // Positions re-seed on a single-phase page; a multi-phase page has no other parameterization, so its rows carry by id.
-  const realized = fresh || prev.multiPhase ? null : applyParameters(prev.fitStructure, prev.bindings, valuesOf(m.params)).model;
+  const realized = fresh || prev.multiPhase || samePositions ? null : applyParameters(prev.fitStructure, prev.bindings, valuesOf(m.params)).model;
   const posSeed = realized ? positionShiftValuesFor(next.fitStructure, next.bindings, realized) : null;
   const params = next.spec.params.map((p) => {
     if (p.kind === "positionShift" && posSeed) {
