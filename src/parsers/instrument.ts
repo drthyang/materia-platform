@@ -648,6 +648,11 @@ function blockParameters(block: KeyValueBlock): InstrumentParameters | null {
       ...(v.get("sig-2") !== undefined ? { sig2: v.get("sig-2")! } : {}),
       // GSAS-II sig-q is the σ² term LINEAR in d (GSASIImath.getTOFsig), as is MATERIA's sigQ.
       ...(v.get("sig-q") !== undefined ? { sigQ: v.get("sig-q")! } : {}),
+      // GSAS-II's Lorentzian FWHM of a TOF bank: γ = X·d + Y·d² + Z (GSASIImath.getTOFgamma).
+      ...(v.get("x") !== undefined ? { gamX: v.get("x")! } : {}),
+      ...(v.get("y") !== undefined ? { gamY: v.get("y")! } : {}),
+      ...(v.get("z") !== undefined ? { gamZ: v.get("z")! } : {}),
+      profileProgram: "gsas",
     };
     return params;
   }

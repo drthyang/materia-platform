@@ -221,7 +221,7 @@ export function intensityTerms(a: ParameterKind | undefined, b: ParameterKind | 
 }
 
 /** The TOF peak-shape terms: the back-to-back exponentials' α and β, the Gaussian σ coefficients, and the zero. */
-const PEAK_SHAPE: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["tofProfile", "zeroShift"]);
+const PEAK_SHAPE: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["tofProfile", "tofFileProfile", "zeroShift"]);
 
 /**
  * Two TOF peak-shape terms (α, β, σ coefficients, or one of them and the zero).
@@ -232,7 +232,7 @@ const PEAK_SHAPE: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["tofProfi
  * never counts.
  */
 export function tofPeakShape(a: ParameterKind | undefined, b: ParameterKind | undefined): boolean {
-  return a !== undefined && b !== undefined && PEAK_SHAPE.has(a) && PEAK_SHAPE.has(b) && (a === "tofProfile" || b === "tofProfile");
+  return a !== undefined && b !== undefined && PEAK_SHAPE.has(a) && PEAK_SHAPE.has(b) && (a === "tofProfile" || b === "tofProfile" || a === "tofFileProfile" || b === "tofFileProfile");
 }
 
 /** A correlation a third free parameter carries: under CARRIED_BELOW with every other free parameter fixed, and under CARRIED_MAX itself. */

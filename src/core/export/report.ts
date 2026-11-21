@@ -378,6 +378,7 @@ export const KIND_UNIT: Partial<Record<ParameterKind, string>> = {
   zeroShift: "° 2θ", sampleDisplacement: "µm",
   qdamp: "Å⁻¹", qbroad: "Å⁻¹", delta1: "Å", delta2: "Å²", rcut: "Å", spdiameter: "Å", corrLength: "Å", mpdfPsigma: "Å",
   tofCalibration: "µs", stephensStrain: "×10⁻⁶", mustrainIso: "×10⁻⁶", mustrainPar: "×10⁻⁶", mustrainPerp: "×10⁻⁶",
+  tofSampleGauss: "×10⁻⁶", tofSampleLorentz: "×10⁻⁶", tofSampleSize: "µm",
 };
 
 /** value(su) when the fit gave an esd; otherwise a kind-appropriate precision. */
@@ -417,9 +418,10 @@ export const PARAMETER_GROUPS: readonly ParameterGroup[] = [
     title: "Peak shape, instrument & sample",
     kinds: [
       "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL",
-      "zeroShift", "sampleDisplacement", "sampleTransparency", "tofCalibration", "tofProfile",
+      "zeroShift", "sampleDisplacement", "sampleTransparency", "tofCalibration", "tofProfile", "tofFileProfile",
       "poRatio", "absorption", "surfaceRoughA", "surfaceRoughB", "extinction", "stephensStrain",
       "anisoSizePerp", "anisoSizePar", "mustrainPerp", "mustrainPar", "mustrainIso",
+      "tofSampleGauss", "tofSampleLorentz", "tofSampleSize",
     ],
   },
   {

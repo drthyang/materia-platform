@@ -52,9 +52,16 @@ export const RULES: Readonly<Record<MethodRule, { readonly title: string; readon
  * TOF calibration), the peak shape (Caglioti U V W, Lorentzian X Y, the TOF
  * profile) and its asymmetry; on a PDF the resolution, Qdamp and Qbroad.
  * Size and strain broadening are the sample's, not the instrument's.
+ *
+ * Where a TOF instrument file gives the profile, its rows (`tofFileProfile`)
+ * are not in this group: they are the instrument's own values and stay held.
+ * The peak-shape share of an instrument pass is then the sample's rows beside
+ * the file (the Lorentzian microstrain and size, the Gaussian microstrain),
+ * which are listed here for that reason.
  */
 export const INSTRUMENT_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
   "zeroShift", "tofCalibration", "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "tofProfile", "qdamp", "qbroad",
+  "tofSampleLorentz", "tofSampleSize", "tofSampleGauss",
 ]);
 
 /** The atom positions: coordinates and position shifts. */
@@ -121,7 +128,7 @@ const POWDER_STAGES: readonly MethodStage[] = [
   { id: "check", label: "Cell check", kinds: [] },
   { id: "base", label: "Scale, background, cell", kinds: ["scale", "background", "cellLength", "cellAngle", "zeroShift", "tofCalibration"] },
   { id: "positions", label: "Positions", kinds: ["atomX", "atomY", "atomZ", "positionShift"] },
-  { id: "profile", label: "Profile", kinds: ["peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "tofProfile", "mustrainIso", "stephensStrain", "anisoSizePerp", "anisoSizePar", "mustrainPerp", "mustrainPar"] },
+  { id: "profile", label: "Profile", kinds: ["peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "tofProfile", "mustrainIso", "stephensStrain", "anisoSizePerp", "anisoSizePar", "mustrainPerp", "mustrainPar", "tofSampleLorentz", "tofSampleSize"] },
   { id: "adp", label: "ADPs", kinds: ["bIso", "uAniso"] },
   { id: "occupancy", label: "Occupancy", kinds: ["occupancy"], optional: true },
   { id: "corrections", label: "Corrections", kinds: ["sampleDisplacement", "sampleTransparency", "poRatio", "absorption", "surfaceRoughA", "surfaceRoughB", "extinction"], optional: true },

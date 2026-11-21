@@ -15,7 +15,7 @@ import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
 import { estimateBackground, evaluateBackground, type BackgroundType } from "@/core/diffraction/background";
 import { estimateZeroShift } from "@/core/workflow/startingValues";
-import { buildStructureRefinement, siteTieRestraints } from "@/core/workflow/structureRefinement";
+import { buildStructureRefinement, siteTieRestraints, type TofFileProfile, type TofFileTerm } from "@/core/workflow/structureRefinement";
 import { tieReferences } from "@/core/refinement/constraints";
 import { powderCurves, type PowderProfile } from "@/core/workflow/powder";
 import { CORRECTION_KINDS } from "@/core/diffraction/corrections";
@@ -36,7 +36,7 @@ const STRUCTURAL_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
  */
 const INSTRUMENT_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
   "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY",
-  "asymSL", "asymHL", "zeroShift", "tofCalibration", "tofProfile",
+  "asymSL", "asymHL", "zeroShift", "tofCalibration", "tofProfile", "tofFileProfile",
 ]);
 
 /**
@@ -47,6 +47,7 @@ const INSTRUMENT_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
  */
 const MICROSTRUCTURE_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
   "stephensStrain", "anisoSizePerp", "anisoSizePar", "mustrainIso",
+  "tofSampleGauss", "tofSampleLorentz", "tofSampleSize",
 ]);
 
 /** Everything the UI holds fixed on load (structural + instrument/profile + microstructure). */
@@ -167,6 +168,40 @@ function correctionOptions(corrections: SampleCorrections | undefined, pattern: 
   };
 }
 
+/** GSAS-II's sample terms of a new phase: Mustrain 1000 (×10⁻⁶) and Size 1 µm, both Lorentzian. */
+export const GSAS2_NEW_PHASE_MUSTRAIN = 1000;
+export const GSAS2_NEW_PHASE_SIZE = 1;
+
+/**
+ * The profile an instrument file gives, or null when it gives none (a
+ * calibration alone: the app's own refinable profile then starts from seeds,
+ * as before). A GSAS-II TOF file gives it when it carries the rise, the decay
+ * and the Gaussian width (alpha, beta-0, sig-1).
+ *
+ * A GSAS-II calibration is made with a phase beside the instrument, and a new
+ * phase in GSAS-II has Lorentzian microstrain 1000 and size 1 µm; the file's
+ * X and Y are what is left once those are taken out. So the sample's two
+ * Lorentzian rows start at those values, which is the peak GSAS-II calculates
+ * from the file.
+ */
+export function tofFileProfileOf(instrument: InstrumentParameters): TofFileProfile | null {
+  if (instrument.kind !== "tof" || instrument.profileProgram !== "gsas") return null;
+  if (instrument.alpha === undefined || instrument.beta0 === undefined || instrument.sig1 === undefined) return null;
+  const given: [TofFileTerm, number | undefined][] = [
+    ["alpha1", instrument.alpha], ["beta0", instrument.beta0], ["beta1", instrument.beta1], ["betaQ", instrument.betaQ],
+    ["sig0", instrument.sig0], ["sig1", instrument.sig1], ["sig2", instrument.sig2], ["sigQ", instrument.sigQ],
+    ["gamX", instrument.gamX], ["gamY", instrument.gamY], ["gamZ", instrument.gamZ],
+  ];
+  return {
+    terms: given.filter(([, v]) => v !== undefined).map(([k]) => k),
+    ...(instrument.gamX !== undefined ? { gamX: instrument.gamX } : {}),
+    ...(instrument.gamY !== undefined ? { gamY: instrument.gamY } : {}),
+    ...(instrument.gamZ !== undefined ? { gamZ: instrument.gamZ } : {}),
+    lorentzForm: "gsas",
+    sample: { gauss: 0, lorentz: GSAS2_NEW_PHASE_MUSTRAIN, size: GSAS2_NEW_PHASE_SIZE },
+  };
+}
+
 export function buildPowderSpec(
   structure: StructureModel,
   pattern: PowderPattern,
@@ -204,7 +239,10 @@ export function buildPowderSpec(
     // seeded from the instrument resolution. When the isotropic Mustrain is used
     // it carries the ∝d² strain term, so σ₁² is seeded to 0 and not emitted (the
     // two are the same functional form — see buildStructureRefinement).
-    const useIsoMustrain = mustrain === "isotropic" || mustrain === "uniaxial";
+    // An instrument file that gives the profile (tofFileProfileOf): its terms are the
+    // instrument's rows, held, and the sample has its own rows beside them.
+    const file = tofFileProfileOf(instrument);
+    const useIsoMustrain = !file && (mustrain === "isotropic" || mustrain === "uniaxial");
     // Shape coefficients: prefer the instrument's own calibration when the
     // .instprm carries it (GSAS-II α = alpha/d → our alpha1; β and σ² terms map
     // one-to-one), falling back to moderator-scale ballparks refined later.
@@ -219,6 +257,7 @@ export function buildPowderSpec(
       sig1: instrument.sig1 ?? (useIsoMustrain ? 0 : (instrument.difC * resolution) ** 2),
       sig2: instrument.sig2 ?? 0,
       sigQ: instrument.sigQ ?? 0,
+      ...(file ? { file } : {}),
     };
     const microOpt = mustrain === "generalized" ? { stephensStrain: true }
       : useIsoMustrain ? { mustrainIso: resolution * 1e6 } // µstrain seed (×10⁻⁶)

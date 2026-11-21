@@ -24,7 +24,7 @@ import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { phaseBindingsFor, type PowderPhase } from "@/core/workflow/multiPhase";
-import { buildPeaks, createPeakBuilder, placePeaks, powderPointWeights, reflectionDRange } from "@/core/workflow/powder";
+import { buildPeaks, createPeakBuilder, createTofWidthGuard, placePeaks, powderPointWeights, reflectionDRange } from "@/core/workflow/powder";
 import { satelliteIntensities } from "@/core/magnetic/powderAverage";
 import { lorentzPolarization } from "@/core/diffraction/intensity";
 import { synthesizePattern } from "@/core/diffraction/profile";
@@ -58,6 +58,7 @@ const MAGNETIC_GEOMETRY_KINDS = new Set<ParameterKind>([
 const MAGNETIC_STAGE1_HOLD = new Set<ParameterKind>([
   "momentMode", "momentX", "momentY", "momentZ", "propagationK",
   "tofProfile", "mustrainIso", "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY",
+  "tofFileProfile", "tofSampleGauss", "tofSampleLorentz", "tofSampleSize",
 ]);
 
 /**
@@ -242,9 +243,12 @@ export function buildMagneticPowderProblem(
     return { phase, phaseBindings, peaksFor: createPeakBuilder(pattern, phaseBindings, applyLorentz) };
   });
 
+  const widthGuard = createTofWidthGuard(pattern, parameters, primaryBindings, (v) => applyParameters(structure, primaryBindings, resolveTies(parameters, v)));
+
   const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
     const resolved = resolveTies(parameters, values);
     const applied = applyParameters(structure, primaryBindings, resolved);
+    widthGuard(applied);
     const { nuclear, magnetic: magPeaks } = combinedFor(resolved);
     const allPeaks: ProfilePeak[] = [...nuclear, ...magPeaks];
     for (const b of extraBuilders) {

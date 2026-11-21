@@ -100,7 +100,7 @@ const isFree = (ctx: CauseContext, kinds: readonly ParameterKind[]): boolean => 
 
 const ADP_KINDS: readonly ParameterKind[] = ["bIso", "uAniso"];
 /** The instrument's peak-shape terms, which never refine with the B values (the method's alternation). */
-const PROFILE_TERMS: readonly ParameterKind[] = ["peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "tofProfile"];
+const PROFILE_TERMS: readonly ParameterKind[] = ["peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "tofProfile", "tofFileProfile"];
 
 /** Open a parameter group, when the page has rows in it. */
 function openGroup(ctx: CauseContext, kind: ParameterKind): ActionButton[] {
@@ -110,7 +110,7 @@ function openGroup(ctx: CauseContext, kind: ParameterKind): ActionButton[] {
 }
 
 /** The page's profile: back-to-back exponentials on time of flight, the Caglioti widths on constant wavelength. */
-const tof = (ctx: CauseContext): boolean => has(ctx, ["tofProfile"]);
+const tof = (ctx: CauseContext): boolean => has(ctx, ["tofProfile", "tofFileProfile"]);
 
 /** The TOF peak shape as the app models it: back-to-back exponentials on a Gaussian (assessment.ts: α from the calibration, held). */
 const TOF_SHAPE = "the TOF peak shape: the widths σ and the decay β, with the rise α held at the instrument's value";

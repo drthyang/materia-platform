@@ -37,6 +37,10 @@ export type ParameterKind =
   | "sampleTransparency"
   | "tofCalibration"
   | "tofProfile"
+  // A TOF profile term the instrument file gives (α, β, σ², the Lorentzian X, Y,
+  // Z), targetKey as for tofProfile. The instrument's own value: no stage frees
+  // it; the sample rows below take the fit's share of the peak shape.
+  | "tofFileProfile"
   | "poRatio"
   | "absorption"
   | "surfaceRoughA"
@@ -58,6 +62,13 @@ export type ParameterKind =
   | "mustrainPerp"
   | "mustrainPar"
   | "mustrainIso"
+  // The sample's broadening beside an instrument file's TOF profile, each
+  // added to the instrument's term: a Gaussian microstrain (×10⁻⁶, σ = |dT/dd|·ε·d),
+  // and GSAS-II's two Lorentzian sample terms, the microstrain (×10⁻⁶,
+  // γ += 10⁻⁶·difC·d·M) and the size (µm, γ += 10⁻⁴·difC·d²/S).
+  | "tofSampleGauss"
+  | "tofSampleLorentz"
+  | "tofSampleSize"
   | "magneticScale"
   | "momentX"
   | "momentY"
@@ -184,6 +195,12 @@ export interface ParameterBinding {
    * U tensor through the sum of all bound modes for that site.
    */
   readonly uBasis?: readonly [number, number, number, number, number, number];
+  /**
+   * On a TOF Lorentzian row (`tofFileProfile` X, Y, Z; the Lorentzian sample
+   * rows): the program whose function evaluates the Lorentzian part, that of
+   * the instrument file the rows come from.
+   */
+  readonly tofLorentzForm?: "gsas" | "fullprof";
   /**
    * Symmetry-allowed magnetic-moment mode (crystal-axis components) for a
    * `momentMode` binding. The moment of a site is the sum of its bound modes:

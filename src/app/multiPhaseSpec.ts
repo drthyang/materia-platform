@@ -29,6 +29,7 @@ import { isUserTie, renamedTie, tieReferences } from "@/core/refinement/constrai
 const SHARED_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
   "peakWidth", "background", "zeroShift", "profileU", "profileV", "profileW",
   "profileX", "profileY", "asymSL", "asymHL", "tofCalibration", "tofProfile", "mustrainIso",
+  "tofFileProfile", "tofSampleGauss", "tofSampleLorentz", "tofSampleSize",
   // Sample-geometry corrections that are one-per-sample (registry-declared shared).
   ...SHARED_CORRECTION_KINDS,
 ]);
