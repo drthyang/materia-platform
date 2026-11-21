@@ -88,7 +88,7 @@ import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
-import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel } from "@/app/defaultInstruments";
+import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel, defaultUncovered } from "@/app/defaultInstruments";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
@@ -1314,12 +1314,27 @@ export function PowderWorkbench({
     [hasContent, pattern, rawDataText, instrumentLoaded],
   );
   const instDefault = defaultInstrumentInUse(session.rawInstrument, instrumentLoaded);
-  const instOfferControl = instDefaultOffer && onUseDefaultInstrument ? (
+  // The default's text, fetched when it is first offered (a small chunk of its own), to see whether it has the data's bank.
+  const [instDefaultText, setInstDefaultText] = useState<{ readonly id: string; readonly text: string } | null>(null);
+  useEffect(() => {
+    if (!instDefaultOffer) return;
+    let live = true;
+    instDefaultOffer.load().then((text) => { if (live) setInstDefaultText({ id: instDefaultOffer.id, text }); }, () => undefined);
+    return () => { live = false; };
+  }, [instDefaultOffer]);
+  const instDefaultFile = instDefaultOffer && instDefaultText?.id === instDefaultOffer.id ? instDefaultText.text : null;
+  const instDefaultUncovered = instDefaultOffer && instDefaultFile !== null ? defaultUncovered(instDefaultOffer, instDefaultFile, dataBankRef(dataBank)) : null;
+  const instOfferControl = !instDefaultOffer || instDefaultFile === null || !onUseDefaultInstrument ? null : instDefaultUncovered ? (
+    <div data-testid="instrument-default-uncovered" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.warnInk }}>
+      <span>{instDefaultUncovered.line}</span>
+      <InfoBadge width={320} text={instDefaultUncovered.detail} />
+    </div>
+  ) : (
     <div data-testid="instrument-default-offer" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small }}>
       <button style={toolbarBtn} onClick={() => onUseDefaultInstrument(instDefaultOffer.id)}>{defaultOfferLabel(instDefaultOffer)}</button>
       <InfoBadge width={320} text={defaultOfferDetail(instDefaultOffer)} />
     </div>
-  ) : null;
+  );
   const instControl = instDefault || instBankChoices || instAdvice || instUnused || instProfile || instWidths || instGamma ? (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {instDefault && (
