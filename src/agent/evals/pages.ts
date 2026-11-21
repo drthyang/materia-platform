@@ -13,6 +13,7 @@ import { openedPage } from "@/app/powderPage";
 import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
+import type { PowderPattern } from "@/core/diffraction/types";
 import { parsePowderData } from "@/parsers/powderData";
 import { dataDir, LOCAL_DATA } from "@/testSupport/data";
 import { exampleStructure } from "@/examples/mn3ga";
@@ -334,6 +335,36 @@ export function localUserPage(): PowderAgentPort {
   const data = { name: basename(files.data), text: read(files.data) };
   const pattern = parseGsasHistogramPattern(data.text, `${structure.id}-powder`, data.name, { radiation: { kind: "neutron-tof" } });
   return sessionPort(openedPage(structure, instrument, pattern, { instrument: instrumentFile, data }).session, instrument, { instrumentOnPage: true }).port;
+}
+
+/** The known-truth patterns of the TOF profile work (src/testSupport/tofKnownTruth.json): synthetic silicon on synthetic instrument files. */
+interface TofTruth {
+  readonly structure: { readonly cif: string };
+  readonly instrumentFile: string;
+  readonly cases: Readonly<Record<string, { readonly bank?: number; readonly instrument?: string; readonly x: readonly number[]; readonly yNoisy: readonly number[] }>>;
+}
+
+/**
+ * A session whose instrument file gives the TOF profile: silicon on a
+ * synthetic instrument file (scripts/tof-profile/fixtures, invented numbers),
+ * the pattern calculated outside the app with counting noise. `gsas2`: bank 2
+ * of the three-bank `.instprm`, calculated by GSAS-II with its new-phase
+ * sample terms; `fullprof`: the synthetic `.irf` A. The file's profile rows
+ * are held; the sample's rows stand beside them.
+ */
+export function siFileProfilePage(program: "gsas2" | "fullprof" = "gsas2"): PowderAgentPort {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const truth = JSON.parse(readFileSync(join(here, "../../testSupport/tofKnownTruth.json"), "utf8")) as TofTruth;
+  const c = truth.cases[program === "gsas2" ? "gsas2_bank2_new_phase" : "reference_irf_a"]!;
+  const path = join(here, "../../..", c.instrument ?? truth.instrumentFile);
+  const instrumentFile = { name: basename(path), text: readFileSync(path, "utf8"), ...(c.bank !== undefined ? { bank: c.bank } : {}) };
+  const instrument = parseInstrumentParameters(instrumentFile.text, c.bank);
+  const structure = parseCif(truth.structure.cif, "si");
+  const pattern: PowderPattern = {
+    id: "si-tof", name: "si-tof", xUnit: "tof", radiation: { kind: "neutron-tof" },
+    points: c.x.map((x, i) => ({ x, yObs: c.yNoisy[i]!, sigma: Math.sqrt(Math.max(c.yNoisy[i]!, 1)) })),
+  };
+  return sessionPort(openedPage(structure, instrument, pattern, { instrument: instrumentFile, data: { name: "si_tof.dat", text: "" } }).session, instrument, { instrumentOnPage: true }).port;
 }
 
 export function pdfPage(): PdfAgentPort {

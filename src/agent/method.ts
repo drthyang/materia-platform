@@ -64,6 +64,15 @@ export const INSTRUMENT_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKin
   "tofSampleLorentz", "tofSampleSize", "tofSampleGauss",
 ]);
 
+/** The sample's rows beside an instrument file's TOF profile, which stand in the instrument group. */
+const TOF_SAMPLE_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["tofSampleLorentz", "tofSampleSize", "tofSampleGauss"]);
+
+/** A refusal's note where the instrument's terms it names include those rows: why they count as the instrument's here. */
+function sampleRowsNote(instrument: readonly RefinementParameter[]): string {
+  const rows = instrument.filter((p) => TOF_SAMPLE_KINDS.has(p.kind)).map((p) => p.id);
+  return rows.length === 0 ? "" : ` ${rows.join(", ")} ${rows.length === 1 ? "is a sample row" : "are the sample's rows"} beside the instrument file's held profile: the peak shape's share of the fit, so in the instrument group here.`;
+}
+
 /** The atom positions: coordinates and position shifts. */
 export const POSITION_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["atomX", "atomY", "atomZ", "positionShift"]);
 
@@ -348,7 +357,7 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
       broken.push({
         rule: "instrument-with-thermal",
         line: `Not run: instrument terms (${ids(instrument)}) free with thermal (${ids(thermal)})`,
-        why: `the instrument's terms (${ids(instrument)}) and the thermal parameters (${ids(thermal)}) are free together — the user's method never refines them together. ${trade}, alternate the two groups: fix the thermal parameters and refine the instrument terms, then fix those and refine the thermal ones, and repeat until a cycle moves neither by more than ${ALTERNATION_SETTLED} esd (refine's \`alternation\` gives the shifts). If the user wants them refined together, call allow_exception with rule "instrument-with-thermal" and their reason — they approve it themselves.`,
+        why: `the instrument's terms (${ids(instrument)}) and the thermal parameters (${ids(thermal)}) are free together — the user's method never refines them together.${sampleRowsNote(instrument)} ${trade}, alternate the two groups: fix the thermal parameters and refine the instrument terms, then fix those and refine the thermal ones, and repeat until a cycle moves neither by more than ${ALTERNATION_SETTLED} esd (refine's \`alternation\` gives the shifts). If the user wants them refined together, call allow_exception with rule "instrument-with-thermal" and their reason — they approve it themselves.`,
       });
     }
   }
@@ -360,7 +369,7 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
       broken.push({
         rule: "instrument-with-positions",
         line: `Not run: instrument terms (${ids(instrument)}) free with positions (${ids(positions)})`,
-        why: `the instrument's terms (${ids(instrument)}) and the atom positions (${ids(positions)}) are free together — the user's method never refines them together. A peak shape or zero gone wrong moves intensity between neighbouring lines, which the positions can follow, and each then absorbs the other's error. Fix the positions and refine the instrument terms, then fix those and refine the positions. If the user wants them refined together, call allow_exception with rule "instrument-with-positions" and their reason — they approve it themselves.`,
+        why: `the instrument's terms (${ids(instrument)}) and the atom positions (${ids(positions)}) are free together — the user's method never refines them together.${sampleRowsNote(instrument)} A peak shape or zero gone wrong moves intensity between neighbouring lines, which the positions can follow, and each then absorbs the other's error. Fix the positions and refine the instrument terms, then fix those and refine the positions. If the user wants them refined together, call allow_exception with rule "instrument-with-positions" and their reason — they approve it themselves.`,
       });
     }
   }
@@ -374,7 +383,7 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
       broken.push({
         rule: "broadening-alone",
         line: `Not run: microstrain (${ids(broadening)}) free with ${instrument.length > 0 ? "instrument terms" : "thermal parameters"}${instrument.length > 0 && thermal.length > 0 ? " and thermal parameters" : ""}`,
-        why: `the sample's broadening (${ids(broadening)}) is free together with ${others} — the user's method refines the microstrain on its own. It widens every line as the instrument's peak width does (σ₂² and σ_q² on TOF, U, X and Y at constant wavelength), and its fall-off with d trades with the B values: refined together, each takes the other's share and the esds hide it. Refine it with the instrument terms and the B values fixed (the scale and background may stay free), then fix it and go on. If the user wants them refined together, call allow_exception with rule "broadening-alone" and their reason — they approve it themselves.`,
+        why: `the sample's broadening (${ids(broadening)}) is free together with ${others} — the user's method refines the microstrain on its own.${sampleRowsNote(instrument)} It widens every line as the instrument's peak width does (σ₂² and σ_q² on TOF, U, X and Y at constant wavelength), and its fall-off with d trades with the B values: refined together, each takes the other's share and the esds hide it. Refine it with the instrument terms and the B values fixed (the scale and background may stay free), then fix it and go on. If the user wants them refined together, call allow_exception with rule "broadening-alone" and their reason — they approve it themselves.`,
       });
     }
   }

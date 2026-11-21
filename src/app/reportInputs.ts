@@ -29,6 +29,7 @@ import type { MergeStatistics } from "@/core/diffraction/merge";
 import { isInversion, mergedOnlyAbsences, type OmittedMeasurement, type PdfPattern, type Radiation, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
 import { dispersionLine } from "@/core/scattering/dispersion";
 import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
+import { FULLPROF_UNCHECKED, fileProfileNote } from "@/app/tofWidthNote";
 import { isMomentParameterKind, type ParameterBinding, type ParameterKind, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import { esdsWithTies, parseTie, resolveTies } from "@/core/refinement/constraints";
 import { siteSumConstraints, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
@@ -110,6 +111,9 @@ const capitalized = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1
  * 10, NAC against 11-BM's 2009 LaB₆ profile).
  */
 function instrumentProfileRow(instrument: InstrumentParameters, loaded: boolean): ReportRow[] {
+  // A TOF file that gives the profile: the Instrument card's own line on it (app/tofWidthNote.ts).
+  const file = loaded ? fileProfileNote(instrument, null) : null;
+  if (file) return [{ label: "Instrument profile (file)", value: file.line }];
   if (!loaded || instrument.kind !== "constantWavelength" || instrument.u === undefined) return [];
   const g = `U ${instrument.u.toFixed(3)}, V ${(instrument.v ?? 0).toFixed(3)}, W ${(instrument.w ?? 0).toFixed(3)} (Gaussian FWHM², centideg²)`;
   const l = instrument.x !== undefined ? ` · X ${instrument.x}, Y ${instrument.y ?? 0} (Lorentzian, centideg)` : "";
@@ -358,8 +362,20 @@ const PEAK_SHAPE: Record<string, string> = {
   tof: "Back-to-back exponentials convolved with a pseudo-Voigt (GSAS-II TOF profile type 1)",
 };
 
-function peakShapeLabel(profile: PowderProfile): string {
-  return PEAK_SHAPE[profile.shape] ?? profile.shape;
+/**
+ * The peak shape in words. Where the instrument file gives the TOF profile
+ * (rows of kind `tofFileProfile`), whose function evaluates it and how its
+ * terms stand in the fit: held at the file's values, or how many were refined.
+ */
+function peakShapeLabel(profile: PowderProfile, params: readonly RefinementParameter[] = [], bindings: readonly ParameterBinding[] = []): string {
+  const file = params.filter((p) => p.kind === "tofFileProfile");
+  if (profile.shape !== "tof" || file.length === 0) return PEAK_SHAPE[profile.shape] ?? profile.shape;
+  const fullprof = bindings.some((b) => b.kind === "tofFileProfile" && b.tofLorentzForm === "fullprof");
+  const refined = file.filter((p) => !p.fixed && !p.expression).length;
+  const sample = params.some((p) => p.kind === "tofSampleLorentz" || p.kind === "tofSampleSize" || p.kind === "tofSampleGauss");
+  return `Back-to-back exponentials convolved with a pseudo-Voigt, by ${fullprof ? `FullProf's NPROF 9 function as documented (${FULLPROF_UNCHECKED})` : "GSAS-II's time-of-flight function"}; `
+    + `the instrument file's ${file.length} profile terms ${refined === 0 ? "held at the file's values" : `as read, ${refined} of them refined`}`
+    + (sample ? ", the sample's broadening in rows of its own" : "");
 }
 
 // ---------------------------------------------------------------------------
@@ -442,7 +458,7 @@ export function powderReportInput(o: {
     { label: "Range", value: `${num(xmin, pattern.xUnit === "tof" ? 0 : 3)} – ${num(xmax, pattern.xUnit === "tof" ? 0 : 3)} ${unit} · ${pattern.points.length} points` },
     ...(o.fitRange ? [{ label: "Fit window", value: `${num(o.fitRange.min, 3)} – ${num(o.fitRange.max, 3)} (${o.xLabel}) · ${o.pointsInWindow} points` }] : []),
     { label: "Background", value: capitalized(backgroundLabel(session.powderProfile.backgroundType, session.backgroundTerms)) },
-    { label: "Peak shape", value: o.tofViewOnly ? "View only — GSAS-II's calculated curve is shown; MATERIA did not refine this TOF pattern" : `${peakShapeLabel(session.powderProfile)}${session.corrections?.asymmetry ? " · Finger–Cox–Jephcoat axial-divergence asymmetry (S/L, H/L)" : ""}` },
+    { label: "Peak shape", value: o.tofViewOnly ? "View only — GSAS-II's calculated curve is shown; MATERIA did not refine this TOF pattern" : `${peakShapeLabel(session.powderProfile, params, o.bindings)}${session.corrections?.asymmetry ? " · Finger–Cox–Jephcoat axial-divergence asymmetry (S/L, H/L)" : ""}` },
     { label: "Lorentz factor", value: session.powderProfile.lorentz === false ? "off (pre-reduced intensities)" : "applied" },
     ...(session.mustrain && session.mustrain !== "isotropic" ? [{ label: "Microstrain model", value: session.mustrain }] : []),
     ...(multi ? [{ label: "Phases", value: o.refinedPhases.map((s) => s.name || s.id).join(" · ") }] : []),
@@ -486,7 +502,7 @@ export function powderReportInput(o: {
   const notes = [
     "wR = √(Σ w (y_obs − y_calc)² / Σ w y_obs²) with w = 1/σ² over the fit window; R_exp = √((N − P) / Σ w y_obs²); S = wR / R_exp (GSAS-II's GoF; reduced χ² = S²).",
     `Background: ${backgroundLabel(session.powderProfile.backgroundType, session.backgroundTerms)}, refined with the model.`,
-    `Peak shape: ${peakShapeLabel(session.powderProfile)}${pattern.xUnit === "tof" ? "; d = (TOF − zero) / difC." : "."}`,
+    `Peak shape: ${peakShapeLabel(session.powderProfile, params, o.bindings)}${pattern.xUnit === "tof" ? "; d = (TOF − zero) / difC." : "."}`,
     ...(magnetic.section
       ? ["Magnetic intensities use the dipole ⟨j0⟩ form factor of the tabulated ion, with the moments expanded over the magnetic space-group operations (time-reversal-signed axial transforms, k-phase over the magnetic supercell). Components are crystal-axis µB; |m| through the cell metric."]
       : []),

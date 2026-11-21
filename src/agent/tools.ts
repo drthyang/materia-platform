@@ -863,7 +863,7 @@ const TOOLS = [
     name: "set_free",
     title: "Free or fix parameters",
     description:
-      "Free (refine) or fix (hold) parameters, as the check boxes in the parameter panel do. Only the parameters named change; the others keep their state. Tied parameters (an expression) follow their tie and cannot be freed. Recorded as a step.",
+      "Free (refine) or fix (hold) parameters, as the check boxes in the parameter panel do. Only the parameters named change. Tied parameters (an expression) and an instrument file's TOF profile rows cannot be freed. Recorded as a step.",
     inputSchema: {
       free: ids.optional().describe("Parameters to refine"),
       fix: ids.optional().describe("Parameters to hold at their current values"),

@@ -19,6 +19,8 @@ import {
 import type { StructureModel } from "@/core/crystal/types";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { CorrectionsUpdate, SiteTies } from "@/app/powderSpec";
+import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
+import { SIG1_OR_GAUSS, tofFilePassTerms, tofFileRows, tofFileShapeAdvice } from "@/core/diagnostics/tofFileProfile";
 import { availableDisplayUnits, convertAxisValue, convertInterval } from "@/visualization/axisUnits";
 import { k0MagneticHint, oneCurve, physicalFindings, residualPeaks } from "@/core/diagnostics/assessment";
 import { structureChecks } from "@/core/diagnostics/structureChecks";
@@ -118,7 +120,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       };
     }
     case "check_fit_range":
-      return fitRangeView(fitRangeReading(s), fitRangeWords(s), s.fitRange);
+      return { ...fitRangeView(fitRangeReading(s), fitRangeWords(s), s.fitRange), ...fileWidthView(s) };
     case "check_cell_symmetry": {
       // One factor on every d (a wrong λ or difC) first, from the pattern's own peaks: the Le Bail fit cannot follow it.
       const scale = scaleReading(s);
@@ -287,7 +289,11 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
   },
   set_microstrain: (input, s, port) => change(`Microstrain ${s.settings.mustrain} → ${input.model}`, () => {
     port.setMustrain(input.model);
-    return undefined;
+    // Beside an instrument file's TOF profile the isotropic microstrain is the sample's rows already on the page: the setting adds none.
+    const rows = tofFileRows(s.parameters);
+    return rows && input.model !== "generalized"
+      ? `No row was added: the instrument file gives the profile, and the sample's broadening is its rows already on the page (${[...rows.lorentz, ...rows.gauss].join(", ")}).`
+      : undefined;
   }),
   set_adp_model: (input, s, port) => {
     const want = input.anisotropic ? "anisotropic" : "isotropic";
@@ -587,7 +593,7 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
               ? { asymmetry: `S/L ${s.instrument.asymmetry.sl}, H/L ${s.instrument.asymmetry.hl} in the file — ${s.settings.corrections.asymmetry ? "on" : "off until set_corrections switches it on, which seeds it from these"}` }
               : {}),
           }
-        : { kind: "time of flight", difC: s.instrument.difC, difA: s.instrument.difA ?? 0, zero: s.instrument.zero ?? 0, note: "TOF = difC·d + difA·d² + zero; set_fit_range and find_unexplained_peaks convert for you" }
+        : { kind: "time of flight", difC: s.instrument.difC, difA: s.instrument.difA ?? 0, zero: s.instrument.zero ?? 0, note: "TOF = difC·d + difA·d² + zero; set_fit_range and find_unexplained_peaks convert for you", ...fileProfileView(s) }
       : "none loaded (default CW, λ = 1.54 Å)",
     settings: {
       ...s.settings,
@@ -618,6 +624,37 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
 }
 
 // ── analysis helpers ────────────────────────────────────────────────────────
+
+/** The Instrument card's lines on a TOF profile the instrument file gives where a width is invalid or a Lorentzian width negative inside the data's range (app/tofWidthNote.ts); nothing otherwise. */
+function fileWidthView(s: PowderLiveState): Record<string, unknown> {
+  const page = { structure: s.structure, extraPhases: s.extraPhases, pattern: s.pattern, powderParams: s.parameters, powderBindings: s.bindings };
+  const widths = tofWidthNote(page);
+  const gamma = tofNegativeGammaNote(page);
+  return {
+    ...(widths ? { noPeakWidth: `${widths.line} ${widths.detail}` } : {}),
+    ...(gamma ? { negativeLorentzianWidth: `${gamma.line} ${gamma.detail}` } : {}),
+  };
+}
+
+/**
+ * get_state's account of a TOF profile the instrument file gives: the card's
+ * line, the held rows, what a profile step and the final instrument pass free
+ * in their place, and the σ₁² rule. Nothing when no file gave the profile.
+ */
+function fileProfileView(s: PowderLiveState): Record<string, unknown> {
+  const rows = tofFileRows(s.parameters);
+  const note = s.instrument ? fileProfileNote(s.instrument, null) : null;
+  if (!rows) return {};
+  return {
+    profile: {
+      from: note?.line ?? "Profile as the instrument file gives it, held.",
+      held: rows.file,
+      refine: `A profile step and the final instrument pass free ${tofFilePassTerms(rows)}, with the scale and background: set_free does not free the file's rows. A peak-shape misfit that stays points to the calibration.`,
+      ...(rows.gauss.length > 0 && rows.sig1 ? { rule: `${SIG1_OR_GAUSS} (${rows.sig1}, ${rows.gauss.join(", ")}): freeing one holds the other.` } : {}),
+      ...fileWidthView(s),
+    },
+  };
+}
 
 /** The B-at-0 rule on the page: the proposals for B's on their bound (apply_adp_proposal), and the fixes in force. */
 function zeroAdpView(s: PowderLiveState): Record<string, unknown> {
@@ -854,8 +891,15 @@ function fitDiagnosisOf(s: PowderLiveState): ReturnType<typeof fitDiagnosisView>
     background: { type: s.settings.backgroundType, terms: s.settings.backgroundTerms },
     ...(residual.magneticNeutron ? { magneticNeutron: { k0: k0Signature(residual) } } : {}),
   });
-  return fitDiagnosisView(dx, s.pattern.xUnit);
+  const view = fitDiagnosisView(dx, s.pattern.xUnit);
+  // Beside an instrument file's TOF profile the widths are not the fit's to free: the advice is the sample's rows and the zero.
+  const file = tofFileShapeAdvice(s.parameters);
+  if (!file) return view;
+  return { ...view, causes: view.causes.map((c) => (FILE_PROFILE_CAUSES.has(c.cause) ? { ...c, action: file.action } : c)) };
 }
+
+/** The causes whose advice names the peak-shape terms. */
+const FILE_PROFILE_CAUSES: ReadonlySet<string> = new Set(["peak-width", "peak-tails", "peak-shape"]);
 
 /**
  * The engine's checks of the fit on screen, for the Agent's report: the
