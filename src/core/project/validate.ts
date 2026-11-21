@@ -188,6 +188,7 @@ function checkRawFile(v: unknown, path: string): void {
   str(f.name, `${path}.name`);
   str(f.text, `${path}.text`);
   opt(f.bank, `${path}.bank`, num);
+  opt(f.bundledDefault, `${path}.bundledDefault`, str);
 }
 
 function checkResult(v: unknown, path: string): void {
