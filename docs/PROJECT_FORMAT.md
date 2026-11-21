@@ -88,7 +88,7 @@ own. Bindings must reference parameters present in the file; ids must be unique.
 | `mustrain?` | isotropic · uniaxial · generalized | Microstrain model. Absent ⇒ isotropic. |
 | `overlay?` | `{calc[], background[]}` | Reference curves of a view-only pattern (GSAS-II CSV); one value per point. |
 | `source` | string | Provenance of the data (file name or demo marker). |
-| `rawInstrument?`, `rawData?` | `{name, text, bank?}` | The user's original files, verbatim — shipped in FullProf/GSAS-II bundles. `bank?` (number): the bank of a multi-bank file that is on the page (an `.instprm`'s `#Bank N`, a GSAS histogram's `BANK N`); absent for a one-bank file and in files saved before the bank could be chosen, which open unchanged. |
+| `rawInstrument?`, `rawData?` | `{name, text, bank?}` | The user's original files, verbatim — shipped in FullProf/GSAS-II bundles. `bank?` (number): the bank of a multi-bank file that is on the page (an `.instprm`'s `#Bank N`, a GSAS histogram's `BANK N`); absent for a one-bank file and in files saved before the bank could be chosen, which open unchanged. `bundledDefault?` (string, `rawInstrument` only): the instrument file is a default shipped with the app, by its id (`nomad-2023A`), not a file the user loaded; the text is stored all the same, so the project opens without the bundle, and the field brings back the statement that defaults are in use. Absent for a user's file and in older files. |
 | `magnetic?` | `MagneticModel` | The applied magnetic model. Its moment rows/bindings are inside `refinement`. |
 | `refinement` | see above | |
 | `fitRange?` | `{min, max}` | Refinement window in the pattern's native unit. Absent ⇒ whole pattern. |

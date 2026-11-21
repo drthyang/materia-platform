@@ -9,6 +9,19 @@ release fixes bugs.
 
 ### Added
 
+- **Default NOMAD instrument parameters (run cycle 2023A).** When the loaded
+  time-of-flight data name NOMAD in their own header (`# Instrument: NOMAD`)
+  and no instrument is loaded, the Instrument card offers **Use default NOMAD
+  parameters (2023A)**: the facility's GSAS-II calibration file for that run
+  cycle, shipped with the app (`examples/instruments/nomad/`) and loaded only
+  on the click, as a file you load yourself (the bank chooser, the bank of
+  the data, the check against the data's DIFC, one History step, the text
+  saved in the project). While it is in use the card, the report and an
+  exported bundle's README say "Default NOMAD parameters (2023A calibration):
+  load the instrument file for your own run cycle."; loading your own
+  instrument file ends it. The file has five banks: no default is offered for
+  a data bank it does not cover
+  ([report](docs/reports/2026-11-21-nomad-default-instrument.md)).
 - **One bank at a time.** A GSAS histogram with several banks and an
   instrument file with several banks each show a bank chooser on their card.
   The instrument opens on the data's bank; when the two do not belong
