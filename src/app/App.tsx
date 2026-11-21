@@ -40,8 +40,8 @@ import { detectDataFormat, type DetectedFormat } from "@/parsers/detectFormat";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import { parsePdfData } from "@/parsers/pdfData";
 import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
-import { dataBanksOf, defaultDataBank } from "@/app/bankChoice";
-import { defaultInstrumentById, defaultStepLabel } from "@/app/defaultInstruments";
+import { currentDataBank, dataBankRef, dataBanksOf, defaultDataBank } from "@/app/bankChoice";
+import { defaultInstrumentById, defaultStepLabel, defaultUncovered } from "@/app/defaultInstruments";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { loadLocalDemoModule, localDemoAvailable } from "@/app/localDemoGate";
@@ -1204,7 +1204,12 @@ export function App(): JSX.Element {
     const d = defaultInstrumentById(id);
     if (!d) return;
     d.load().then(
-      (text) => applyInstrument(d.fileName, text, undefined, d.id),
+      (text) => {
+        // A data bank the file leaves out gets no other bank's parameters (the card offers nothing for it; this is the same rule).
+        const uncovered = defaultUncovered(d, text, dataBankRef(currentDataBank(dataBanksOf(session.rawData?.text), session.rawData)));
+        if (uncovered) setMessage(uncovered.line);
+        else applyInstrument(d.fileName, text, undefined, d.id);
+      },
       (e: unknown) => setMessage(`The default instrument file could not be loaded: ${e instanceof Error ? e.message : String(e)}`),
     );
   }

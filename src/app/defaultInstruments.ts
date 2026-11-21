@@ -17,6 +17,7 @@
 
 import type { PowderPattern } from "@/core/diffraction/types";
 import { instrumentOfDataHeader } from "@/parsers/instrumentRegistry";
+import { DIFC_TOLERANCE, instrumentFileOf, matchingInstrumentBank, type DataBankRef } from "@/app/bankChoice";
 
 export interface DefaultInstrument {
   /** Kept with the file in the session and the project (`rawInstrument.bundledDefault`). Never reuse an id for another file. */
@@ -75,6 +76,30 @@ export function defaultOfferLabel(d: DefaultInstrument): string {
 /** Behind the offer's "?". */
 export function defaultOfferDetail(d: DefaultInstrument): string {
   return `The data file's header names ${d.instrument}, and no instrument file is loaded. This loads the facility's own ${d.cycle} calibration file, shipped with the app, as if you had loaded it yourself. It is for a first look: the calibration changes between run cycles, so load the instrument file for your own run cycle before you trust peak positions and widths.`;
+}
+
+/** A data bank the default file has no bank for: said in one line, and the default is not offered for it. */
+export interface DefaultUncovered {
+  readonly line: string;
+  readonly detail: string;
+}
+
+/**
+ * Whether the default's file has the bank of the data on the page; null when
+ * it has (or the data name no bank, or the text cannot be read: the load then
+ * says why). A bank the facility left out of its file gets no parameters of
+ * another bank: the card says so and offers nothing, and the click is refused
+ * the same way. Pairing as for any instrument file (bankChoice.ts): by bank
+ * number, checked against the DIFC the data file states.
+ */
+export function defaultUncovered(d: DefaultInstrument, fileText: string, data: DataBankRef | null): DefaultUncovered | null {
+  const file = instrumentFileOf(fileText);
+  if (!file || !data || matchingInstrumentBank(file, data)) return null;
+  const banks = file.banks.map((b) => b.bank).filter((n): n is number => n !== null);
+  return {
+    line: `No instrument bank for data bank ${data.bank}: the default ${d.instrument} parameters (${d.cycle}) have banks ${banks.join(", ")}.`,
+    detail: `The facility's ${d.cycle} file has ${banks.length > 1 ? `banks ${banks.join(", ")}` : "one bank"}${data.difC !== undefined ? `, none with a difC within ${DIFC_TOLERANCE * 100} % of the data's DIFC ${data.difC.toFixed(1)}` : `, no bank ${data.bank}`}, so no default is offered for this bank and no other bank's parameters are used in its place. Choose a data bank the file covers, or load the instrument file of this bank.`,
+  };
 }
 
 /** The standing statement while a default is in use: one line, and the reason behind "?". */
