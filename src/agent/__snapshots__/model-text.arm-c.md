@@ -1488,7 +1488,7 @@ Show the value behind a ref from an earlier result of these tools, e.g. "#3/find
 
 ### set_free
 
-Free (refine) or fix (hold) parameters, as the check boxes in the parameter panel do. Only the parameters named change; the others keep their state. Tied parameters (an expression) follow their tie and cannot be freed. Recorded as a step.
+Free (refine) or fix (hold) parameters, as the check boxes in the parameter panel do. Only the parameters named change. Tied parameters (an expression) and an instrument file's TOF profile rows cannot be freed. Recorded as a step.
 
 ```json
 {
