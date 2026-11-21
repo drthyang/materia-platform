@@ -48,6 +48,19 @@ release fixes bugs.
   run, and the Instrument card says so; a file written for Jana is read the
   same way and is not verified for Jana. The FullProf bundle's `.pcr` holds
   the widths the fit used.
+- **The Copilot on an instrument file's time-of-flight profile.** What the
+  Copilot reads describes such a session as it is. `set_free` does not free
+  the file's rows: it answers with the reason and with what to free instead
+  (the zero and the sample's Lorentzian rows). `get_state` names the
+  profile's source, the held rows and the rule that σ₁² and the Gaussian
+  microstrain are never free together; where the file gives no positive
+  width inside the data's range, `get_state` and `check_fit_range` name the
+  range. The final instrument pass, the fit-cause advice and the report
+  follow, and the two skills say it. A session whose instrument is a
+  calibration alone reads as before. New eval scenario `file-profile-held`.
+- **MCP: `bank`.** `parse_instrument` and `parse_powder_data` take an
+  optional `bank` and name the bank read and the banks in the file; the
+  default is unchanged.
 
 ### Changed
 

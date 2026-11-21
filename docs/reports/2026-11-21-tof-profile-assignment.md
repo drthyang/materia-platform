@@ -17,7 +17,7 @@ a transcription of FullProf's documented function, checked against an
 independent evaluation of that transcription; a test case for the owner's
 FullProf is prepared. The `.irf` files written for Jana are FullProf
 resolution files and take the same path; nothing is known here of what Jana
-calculates from them. **Not yet:** the Copilot's text; see section 6.
+calculates from them. The Copilot's text follows (section 8).
 
 ## 1. The three profiles, term by term
 
@@ -313,12 +313,10 @@ locally through the same path; those numbers are with the owner.
 - **Which sample terms a FullProf session offers**, and where they start: the
   owner's decision. Today: a Gaussian microstrain row at 0.
 - **Jana.** No document of Jana's time-of-flight profile was found.
-- **The Copilot's text**: its settings readout, method text and knowledge file
-  describe the TOF rows as they were. The fit-cause advice ("Refine TOF σ and
-  β") reaches the Copilot through the report's judgment and still speaks of
-  freeing the widths when a file gave the profile. The MCP `simulate_pattern`
-  builds its TOF profile from the instrument directly and draws no Lorentzian
-  part.
+- **The Copilot's text**: done, section 8. What is left of it: on any
+  time-of-flight session `diagnose_fit`'s width and tail advice names the
+  Caglioti terms where no file gave the profile (as before this work), and
+  the report's peak-shape line for such a session names a pseudo-Voigt.
 - **The cell and space-group gate and the Le Bail pre-fit** keep their own
   simplified TOF profile.
 - **The sample's Lorentzian rows are one set for the pattern**, as the
@@ -338,3 +336,61 @@ locally through the same path; those numbers are with the owner.
   command at its head; the app's side is the opt-in
   `src/core/workflow/tofProfileHarness.test.ts`
   (`MATERIA_TOF_PROFILE_JOB=<job.json>`).
+
+## 8. What the Copilot reads (step 2c)
+
+Every string the Copilot's model reads about the time-of-flight profile, the
+instrument file or the final instrument pass was checked against the behaviour
+of sections 1 and 2. A session whose instrument is a calibration alone reads
+as before; no scripted replay on the bundled demo moved.
+
+- **`set_free`** does not free a `tofFileProfile` row. Named alone, the call
+  changes nothing and answers with the reason and with what to free instead;
+  named with other rows, those are freed and the answer says which were not.
+  The user can still free a file row by hand. σ₁² freed by hand is held again
+  when the Copilot frees the Gaussian microstrain, and the answer names the
+  rule.
+- **`get_state`**: the instrument entry of such a session has a `profile`
+  part: the Instrument card's own line, the held rows, what a profile step
+  and the final instrument pass free (the zero and the sample's Lorentzian
+  rows; for a FullProf file's session the zero, since it has no Lorentzian
+  sample row), and the σ₁² rule. Where the file gives no positive width, or a
+  FullProf file's Lorentzian width is negative, inside the data's d-range,
+  the card's lines are there too, and in `check_fit_range`'s answer.
+- **The final instrument pass** (the report's gate): where a file gave the
+  profile it asks for the zero and the sample's Lorentzian rows, with the
+  scale and the background; where none did, for α, β, σ, word for word as
+  before.
+- **Fit-cause advice** (the Validation view's rows and `diagnose_fit`'s
+  actions for the peak width, tails and shape): the sample's rows and the
+  zero, with the calibration as the suspect when the misfit stays.
+- **Firm rules**: a refusal that lists the sample's rows among the
+  instrument's terms says why they stand there.
+- **`set_microstrain`**: isotropic and uniaxial add no row beside a file's
+  profile, and the answer says so.
+- **The report**: the peak-shape line names the program whose function
+  evaluates the profile (for FullProf, "not yet checked against a FullProf
+  run") and whether the file's terms are held; the data table has the
+  Instrument card's line.
+- **Skills**: one clause in `my-rietveld-workflow` (the profile paragraph) and
+  one in `magnetic-analysis` Stage 5, with the account in each skill's notes.
+  Both bodies are at their size cap: the References lead-in "Longer knowledge
+  bases behind this method." is cut in both, and Stage 5's list of the eight
+  TOF rows is now "TOF α, β, σ". The knowledge files say nothing that the new
+  behaviour makes untrue and are unchanged.
+- **MCP**: `parse_instrument` and `parse_powder_data` take an optional `bank`
+  and name the bank read and the banks in the file (default unchanged).
+  `simulate_pattern` was found to draw a file's profile already, Lorentzian
+  part included, since it builds its pattern through the page's rows; a test
+  holds it to the page's pattern point for point (10⁻¹²) and to GSAS-II's own
+  pattern of the synthetic bank 2 (within 0.3 % of the top across two grids),
+  and its description says what it draws.
+- **Model text**: `set_free`'s description is the one static string that
+  changed, 8 bytes shorter in each arm (arm B 92 589 → 92 581, arm C
+  85 665 → 85 657). The local-model context estimate did not move; it has
+  about 24 characters of room before its next step.
+- **Evals**: scenario `file-profile-held` (synthetic silicon on the synthetic
+  `.instprm`, GSAS-II's own pattern with counting noise), with two checks and
+  a replay both fail on. Scripted only; no live run was made.
+- **Tests**: `agent/tofFileProfileAgent.test.ts` (10),
+  `mcp/tofFileProfileMcp.test.ts` (4), three scripted replays.
