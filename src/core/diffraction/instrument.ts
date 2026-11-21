@@ -90,6 +90,17 @@ export type InstrumentParameters =
       readonly profileProgram?: "gsas" | "fullprof";
     };
 
+/**
+ * The instrument as a state saved before file profiles had it: without the
+ * program marker, so that its profile terms seed the app's own refinable
+ * profile and the rows are the ones that state was made with.
+ */
+export function withoutProfileProgram(instrument: InstrumentParameters): InstrumentParameters {
+  if (instrument.kind !== "tof" || instrument.profileProgram === undefined) return instrument;
+  const { profileProgram: _program, ...rest } = instrument;
+  return rest;
+}
+
 export function tofFromD(p: Extract<InstrumentParameters, { kind: "tof" }>, d: number): number {
   const difA = p.difA ?? 0;
   const difB = p.difB ?? 0;

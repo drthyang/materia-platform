@@ -31,6 +31,7 @@
 import { resolveLocalData, type LocalDataPaths } from "@/testSupport/localData";
 import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
+import { withoutProfileProgram } from "@/core/diffraction/instrument";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { parseSymmetryOperation } from "@/core/crystal/symmetry";
 import type { StructureModel, SymmetryOperation } from "@/core/crystal/types";
@@ -116,7 +117,10 @@ export function buildLocalMagneticExample(files: { structure: string; data: stri
   }
   const free = new Set(solution.free);
   const structure: StructureModel = parseCif(files.structure, STRUCTURE_ID);
-  const instrument = parseInstrumentParameters(files.instrument);
+  // A solution that holds a `mustrainIso` value was solved with the app's own refinable profile: it
+  // is a saved state, and opens on the rows it was solved with, as a saved project does.
+  const parsed = parseInstrumentParameters(files.instrument);
+  const instrument = "mustrainIso" in solution.params ? withoutProfileProgram(parsed) : parsed;
   const pattern = parseGsasHistogramPattern(files.data, PATTERN_ID, PATTERN_NAME, { radiation: { kind: "neutron-tof" } });
   const ops: SymmetryOperation[] = solution.ops.map((o) => ({ ...parseSymmetryOperation(o.xyz), timeReversal: o.timeReversal }));
   const build = buildMagneticModel(structure, solution.k, solution.ions, ops, { moment: 2, tieSameSite: true });
