@@ -238,6 +238,17 @@ approximate, however plausible its output looks.
   α/β/σ, placed by difC/difA/difB (GSAS-II convention). α/β/σ refine in the
   profile stage; difC/difA/difB start fixed at the instrument calibration,
   because they correlate strongly with the cell.
+- With a GSAS-II TOF instrument file that carries the profile, the peak is
+  GSAS-II's: back-to-back exponentials ⊗ pseudo-Voigt, every term of the file
+  as read (alpha, beta-0, beta-1, beta-q, sig-0, sig-1, sig-2, sig-q, and the
+  Lorentzian X, Y, Z), held; the sample's Lorentzian microstrain and size
+  (GSAS-II's definitions, starting at GSAS-II's new-phase 1000 and 1 µm) and
+  a Gaussian microstrain are rows beside them, and a profile stage refines the
+  sample's rows. Where the file gives no positive width inside the data's
+  d-range the reflections are not drawn and the Instrument card says where.
+  Such a fit takes 10 to 40 times longer per iteration than the Gaussian form:
+  the Lorentzian tails are drawn out to where they hold less than 0.02 % of a
+  peak.
 - Lorentz–polarization: neutron CW 1/(sin²θ cosθ); X-ray CW multiplied by the
   polarization factor (1−P)cos²2θ + P, with P from the instrument (0.5
   unpolarized, about 0.9–0.95 for a monochromated synchrotron beam); TOF ∝ d⁴.
@@ -299,8 +310,12 @@ approximate, however plausible its output looks.
   flat-plate absorption.
 - High-angle axial asymmetry; the Ikeda–Carpenter moderator peak shape; TOF
   absorption and extinction.
-- A Lorentzian part of the time-of-flight peak: an instrument file's `X`, `Y`,
-  `Z` (GSAS-II) are read and left out, and the Instrument card says so.
+- FullProf's time-of-flight function for a FullProf `.irf` (and for the `.irf`
+  files written for Jana): its `GAMMA` and Sig-1 are read and left out, and
+  the Instrument card says so. In work; it has not been checked against a
+  FullProf run.
+- A session whose instrument gives no profile (a calibration alone) has no
+  Lorentzian part and no size term on time of flight.
 - A joint refinement of several banks: a multi-bank data file and a multi-bank
   instrument file are read one bank at a time, chosen on their cards.
 - Manually placed background points, real-space (Debye) backgrounds, and

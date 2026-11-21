@@ -25,6 +25,23 @@ release fixes bugs.
   start the width and decay rows, `GAMMA`, `TWOTH` and `TOFRG` are read and
   kept, and several banks separated by `END` are offered.
 
+- **A GSAS-II time-of-flight instrument file's profile, as GSAS-II calculates
+  it.** A `.instprm` that carries the profile is evaluated with GSAS-II's own
+  function, back-to-back exponentials convolved with a pseudo-Voigt: sig-1 is
+  used as the file gives it, and the Lorentzian X, Y, Z have rows. The file's
+  rows are held, and no stage frees them. The sample has its own rows: the
+  Lorentzian microstrain and size in GSAS-II's definitions, starting at
+  GSAS-II's new-phase values (1000 and 1 µm, which a GSAS-II calibration
+  assumes), and a Gaussian microstrain at 0. A profile stage refines the
+  sample's rows. Where a file gives no positive peak width inside the data's
+  range, the Instrument card names the d-range and the reflections left out.
+  The GSAS-II bundle writes back the session's bank, sig-1, X, Y, Z and the
+  sample's terms. A session opened from such a file starts from a different
+  profile than before, and a fit with it takes longer; a saved project keeps
+  its rows; an instrument that is a calibration alone (the bundled demo) is
+  unchanged. FullProf `.irf` files are read as before
+  ([report](docs/reports/2026-11-21-tof-profile-assignment.md)).
+
 ### Changed
 
 - **Refine moments runs as rounds** (powder page). The moments with every
