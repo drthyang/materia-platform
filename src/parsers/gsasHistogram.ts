@@ -68,6 +68,44 @@ export interface GsasBank {
   /** Abscissa unit implied by the binning (tof for SLOG/RALF, twoTheta for CONST). */
   readonly xUnit: PowderXUnit;
   readonly points: readonly PowderPoint[];
+  /**
+   * What the comment lines just above the BANK record say of this bank, when
+   * the file has them (a reduction's `# Total flight path 30.1m, tth 20.0deg,
+   * DIFC 1215.5`). Optional metadata: nothing in the pattern depends on it.
+   */
+  readonly meta?: GsasBankMeta;
+}
+
+/** A bank's own geometry as its comment lines state it. */
+export interface GsasBankMeta {
+  /** Total flight path (m). */
+  readonly flightPath?: number;
+  /** Scattering angle 2θ (degrees). */
+  readonly twoTheta?: number;
+  /** The reduction's DIFC (µs/Å). */
+  readonly difC?: number;
+}
+
+/** The metadata in the comment lines directly above line `at` (a BANK record). */
+function bankMeta(lines: readonly string[], at: number): GsasBankMeta | undefined {
+  const comments: string[] = [];
+  for (let i = at - 1; i >= 0; i--) {
+    const t = lines[i]!.trim();
+    if (t === "") continue;
+    if (!t.startsWith("#")) break;
+    comments.push(t);
+  }
+  const text = comments.join("\n");
+  const number = (re: RegExp): number | undefined => {
+    const v = Number(text.match(re)?.[1]);
+    return Number.isFinite(v) ? v : undefined;
+  };
+  const num = "([-+]?\\d+\\.?\\d*(?:[eE][-+]?\\d+)?)";
+  const flightPath = number(new RegExp(`total flight path\\s*[:=]?\\s*${num}\\s*m\\b`, "i"));
+  const twoTheta = number(new RegExp(`\\b(?:tth|2theta|two[- ]?theta)\\s*[:=]?\\s*${num}`, "i"));
+  const difC = number(new RegExp(`\\bdifc\\s*[:=]?\\s*${num}`, "i"));
+  if (flightPath === undefined && twoTheta === undefined && difC === undefined) return undefined;
+  return { ...(flightPath !== undefined ? { flightPath } : {}), ...(twoTheta !== undefined ? { twoTheta } : {}), ...(difC !== undefined ? { difC } : {}) };
 }
 
 /** A parsed GSAS histogram file: header metadata plus one or more banks. */
@@ -362,6 +400,7 @@ export function parseGsasHistogram(text: string): GsasHistogram {
     const dataLines = lines.slice(start + 1, end);
     const rawPoints = parseBankData(header.binType, header.dataType, header.coefficients, header.nchan, dataLines);
     const points = undoMul ? undoBinWidthMultiply(rawPoints) : rawPoints;
+    const meta = bankMeta(lines, start);
     banks.push({
       bankNumber: header.bankNumber,
       nchan: header.nchan,
@@ -370,6 +409,7 @@ export function parseGsasHistogram(text: string): GsasHistogram {
       coefficients: header.coefficients,
       xUnit: isTofBin(header.binType) ? "tof" : "twoTheta",
       points,
+      ...(meta ? { meta } : {}),
     });
   }
 

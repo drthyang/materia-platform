@@ -87,6 +87,7 @@ import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
+import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { excludedPointMask } from "@/core/refinement/factors";
@@ -152,6 +153,10 @@ export interface PowderWorkbenchProps {
    *  text is no longer held (a demo, or a restored project). */
   onOverrideXUnit?: (unit: PowderXUnit) => void;
   onLoadInstrument: (file: File) => void;
+  /** Read another bank of the loaded multi-bank data file (the Data card's chooser). */
+  onDataBank?: (bank: number) => void;
+  /** Apply another bank of the loaded multi-bank instrument file (the Instrument card's chooser). */
+  onInstrumentBank?: (bank: number) => void;
   /** Set an X-ray instrument's polarization and Kα₂ ratio (the shell owns the instrument). */
   onInstrumentConstants?: (update: InstrumentConstants) => void;
   /** Load a bundled demo (from the empty-state prompt). */
@@ -185,7 +190,7 @@ export function PowderWorkbench({
   page, setPage, ownStructure,
   client, active, step, onStep, setMessage, exportsRef,
   onLoadData, onLoadCif, onAddPhase, onAddStructure, onRemovePhase, onClearStructures, detection, onOverrideXUnit,
-  onLoadInstrument, onInstrumentConstants, onLoadDemo, demos = [],
+  onLoadInstrument, onDataBank, onInstrumentBank, onInstrumentConstants, onLoadDemo, demos = [],
   onOpenProject, viewRestore, useGpu = true,
   stepHistory, agentLink,
 }: PowderWorkbenchProps): JSX.Element {
@@ -1271,6 +1276,48 @@ export function PowderWorkbench({
   // always shows the key calibration actually loaded — the wavelength for CW
   // (e.g. 11-BM's λ 0.413909 Å), difC/Zero for TOF.
   const instMeta = instParamMeta;
+  // Files with several banks, one bank at a time (app/bankChoice.ts): the Data
+  // card offers a GSAS histogram's banks, the Instrument card an .instprm's,
+  // and says when the instrument is not the data bank's and what the file has
+  // that the calculation leaves out.
+  const rawDataText = session.rawData?.text;
+  const rawInstrumentText = instrumentLoaded ? session.rawInstrument?.text : undefined;
+  const dataBanks = useMemo(() => dataBanksOf(rawDataText), [rawDataText]);
+  const dataBankChoices = useMemo(() => dataBankOptions(dataBanks), [dataBanks]);
+  const dataBank = currentDataBank(dataBanks, session.rawData);
+  const instFile = useMemo(() => instrumentFileOf(rawInstrumentText), [rawInstrumentText]);
+  const instBankChoices = useMemo(() => instrumentBankOptions(instFile), [instFile]);
+  const instBank = currentInstrumentBank(instFile, session.rawInstrument, instrument);
+  const instAdvice = hasContent ? bankAdvice(instFile, instBank, dataBankRef(dataBank)) : null;
+  const instUnused = unusedNote(instBank, session.mustrain);
+  const instControl = instBankChoices || instAdvice || instUnused ? (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {instBankChoices && (
+        <BankChooser
+          testId="instrument-bank"
+          options={instBankChoices}
+          value={instBank?.bank ?? null}
+          {...(onInstrumentBank ? { onChange: onInstrumentBank } : {})}
+          help="This instrument file holds several banks, and the page uses one at a time. It opens on the bank of the loaded data when the file has it, else on its first bank. Choosing another bank builds the profile rows again from that bank's values (one History step)."
+        />
+      )}
+      {instAdvice && (
+        <div data-testid="instrument-bank-advice" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.warnInk }}>
+          <span>{instAdvice.line}</span>
+          {instAdvice.offer && onInstrumentBank && (
+            <button style={toolbarBtn} onClick={() => onInstrumentBank(instAdvice.offer!.bank)}>{instAdvice.offer.label}</button>
+          )}
+          <InfoBadge width={300} text={instAdvice.detail} />
+        </div>
+      )}
+      {instUnused && (
+        <div data-testid="instrument-unused" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.secondary }}>
+          <span>{instUnused.line}</span>
+          <InfoBadge width={320} text={instUnused.detail} />
+        </div>
+      )}
+    </div>
+  ) : null;
   // Weight fractions of the phases from the refined scales (multi-phase, after a refinement).
   const phaseFractions = useMemo(
     () => (powderResult && session.extraPhases.length > 0 ? fractionsOf(refinedPhases, powderParams, powderResult) : null),
@@ -1343,14 +1390,27 @@ export function PowderWorkbench({
       meta: !hasContent
         ? "Powder or single crystal"
         : `${pattern.points.length} points · ${UNIT_LABEL[pattern.xUnit]} ${patternExtent.min.toFixed(0)}–${patternExtent.max.toFixed(0)}`,
-      ...(hasContent && !isSynthetic && (detection || onOverrideXUnit)
+      ...(hasContent && !isSynthetic && (detection || onOverrideXUnit || dataBankChoices)
         ? {
             control: (
-              <UnitDetection
-                unit={pattern.xUnit}
-                detection={detection ?? null}
-                {...(onOverrideXUnit ? { onOverride: onOverrideXUnit } : {})}
-              />
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {dataBankChoices && (
+                  <BankChooser
+                    testId="data-bank"
+                    options={dataBankChoices}
+                    value={dataBank?.bankNumber ?? null}
+                    {...(onDataBank ? { onChange: onDataBank } : {})}
+                    help="This data file holds several banks, and the page reads one at a time (a joint fit of several banks is not available). It opens on bank 1. Choosing another bank reads the file again as new data (one History step); the instrument stays as it is, and its card offers the matching bank."
+                  />
+                )}
+                {(detection || onOverrideXUnit) && (
+                  <UnitDetection
+                    unit={pattern.xUnit}
+                    detection={detection ?? null}
+                    {...(onOverrideXUnit ? { onOverride: onOverrideXUnit } : {})}
+                  />
+                )}
+              </div>
             ),
           }
         : {}),
@@ -1363,6 +1423,7 @@ export function PowderWorkbench({
       chip: instrumentLoaded ? "✓ loaded" : "default",
       title: !hasContent && !instrumentLoaded ? "No instrument loaded" : instTitle,
       meta: !hasContent && !instrumentLoaded ? "Load .instprm / .prm / .irf" : instMeta,
+      ...(instrumentLoaded && instControl ? { control: instControl } : {}),
     },
   ];
 
@@ -2102,6 +2163,33 @@ const bgTermsInput: React.CSSProperties = { width: 44, border: `1px solid ${them
  * The override is a genuine RE-LOAD of the same file under the chosen unit: the
  * radiation, profile shape and parameter set all follow from it.
  */
+/** A multi-bank file's banks: the one in use, and the others to switch to. */
+function BankChooser({ options, value, onChange, help, testId }: {
+  options: readonly BankOption[];
+  value: number | null;
+  onChange?: (bank: number) => void;
+  help: string;
+  testId: string;
+}): JSX.Element {
+  const current = options.find((o) => o.bank === value);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <span style={themeLabel}>bank</span>
+      {onChange ? (
+        <select data-testid={testId} value={current ? String(current.bank) : ""} onChange={(e) => onChange(Number(e.target.value))} style={{ ...bgSelect, maxWidth: "100%" }}>
+          {!current && <option value="" disabled>Bank not recorded</option>}
+          {options.map((o) => (
+            <option key={o.bank} value={o.bank}>{o.label}</option>
+          ))}
+        </select>
+      ) : (
+        <span data-testid={testId} style={{ fontSize: fz.small, fontFamily: themeMono, color: theme.ink }}>{current?.label ?? "Bank not recorded"}</span>
+      )}
+      <InfoBadge width={300} text={help} />
+    </div>
+  );
+}
+
 function UnitDetection({ unit, detection, onOverride }: {
   unit: PowderXUnit;
   detection: DetectedFormat | null;

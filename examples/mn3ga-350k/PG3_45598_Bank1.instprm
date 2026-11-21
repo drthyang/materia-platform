@@ -1,5 +1,4 @@
-#GSAS-II instrument parameter file; do not add/delete items!
-#extracted from Mn3Ga-mag_53_350K_Final.gpx (PWDR PG3_45598.gsa Bank 1)
+#GSAS-II instrument parameter file; do not add/delete items! Extracted from Mn3Ga-mag_53_350K_Final.gpx (PWDR PG3_45598.gsa, bank 1)
 Type:PNT
 2-theta:90.0
 Azimuth:0.0

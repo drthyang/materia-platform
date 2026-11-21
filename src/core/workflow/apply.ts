@@ -19,8 +19,9 @@ export interface AppliedModel {
   /** Single peak-width parameter (FWHM proxy / Caglioti W). */
   readonly peakWidth: number;
   /**
-   * Caglioti profile coefficients (GSAS-II convention, centidegrees²):
-   * FWHM² = U·tan²θ + V·tanθ + W. Present only when a profileU/V/W binding is
+   * Caglioti profile coefficients, centidegrees², as FWHM²:
+   * FWHM² = U·tan²θ + V·tanθ + W (8 ln 2 times GSAS-II's U, V, W, which are
+   * variances). Present only when a profileU/V/W binding is
    * supplied; then the angle-dependent width supersedes `peakWidth`.
    */
   readonly caglioti?: { readonly u: number; readonly v: number; readonly w: number };

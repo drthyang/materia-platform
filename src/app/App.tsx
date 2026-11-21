@@ -39,7 +39,8 @@ import { detectDataFormat, type DetectedFormat } from "@/parsers/detectFormat";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import { parsePdfData } from "@/parsers/pdfData";
 import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
-import { parseInstrumentParameters } from "@/parsers/instrument";
+import { instrumentBank, parseInstrumentFile } from "@/parsers/instrument";
+import { currentDataBank, dataBanksOf, dataBankRef, defaultDataBank, hasBankChoice, openingInstrumentBank } from "@/app/bankChoice";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { loadLocalDemoModule, localDemoAvailable } from "@/app/localDemoGate";
@@ -1074,22 +1075,42 @@ export function App(): JSX.Element {
     setDemoActive(false);
     setScNuclearDataset(null);
     setPdfDataset(null);
-    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`);
+    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, raw.bank);
     setDetection(fmt);
   }
 
-  function applyPowder(text: string, filename: string, fmt: DetectedFormat, tag: string): void {
-    requestStep("load", `Loaded data ${filename}`);
+  /**
+   * Data card bank chooser: read another bank of the loaded GSAS histogram
+   * file. A re-load of the data, like a new file (one History step); the
+   * instrument stays as it is, and its card offers the matching bank.
+   */
+  function onDataBank(bank: number): void {
+    const raw = session.rawData;
+    if (!raw || raw.bank === bank) return;
+    const fmt = detectDataFormat({ text: raw.text, filename: raw.name, instrument: instrumentLoaded ? instrument : undefined });
+    if (fmt.dataType !== "powder") return;
+    setDemoActive(false);
+    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, bank);
+  }
+
+  function applyPowder(text: string, filename: string, fmt: DetectedFormat, tag: string, askedBank?: number): void {
     const id = `${structure.id}-powder`;
     const isGsasCsv = /(^|,)\s*"?obs"?\s*,/i.test(text) && /calc/i.test(text);
     const isGsasHist = isGsasHistogram(text);
-    const file = { name: filename, text };
+    // A GSAS histogram with several banks: one bank at a time. The bank asked
+    // for (the Data card's chooser), else bank 1 (the file's first bank when it
+    // has no bank 1); the bank read is kept with the file.
+    const banks = isGsasHist ? dataBanksOf(text) : null;
+    const bank = banks && banks.length > 1 ? (banks.find((b) => b.bankNumber === askedBank) ?? defaultDataBank(banks)).bankNumber : undefined;
+    const bankOpt = bank !== undefined ? { bank } : {};
+    requestStep("load", bank !== undefined ? `Loaded data ${filename}, bank ${bank}` : `Loaded data ${filename}`);
+    const file = { name: filename, text, ...bankOpt };
     if (fmt.xUnit === "tof") {
       const overlay = isGsasCsv ? parseGsasCsvPattern(text, id, filename) : null;
       const parsed = overlay
         ? overlay.pattern
         : isGsasHist
-          ? parseGsasHistogramPattern(text, id, filename, { radiation: { kind: "neutron-tof" } })
+          ? parseGsasHistogramPattern(text, id, filename, { radiation: { kind: "neutron-tof" }, ...bankOpt })
           : parsePowderData(text, { id, name: filename, xUnit: "tof", radiation: { kind: "neutron-tof" } });
       if (parsed.points.length < 3) throw new Error("fewer than 3 usable data rows");
       // A GSAS-II CSV carries its own calc/background (shown as a reference
@@ -1110,7 +1131,7 @@ export function App(): JSX.Element {
       return;
     }
     const parsed = isGsasHist
-      ? parseGsasHistogramPattern(text, id, filename, { radiation: fmt.radiation })
+      ? parseGsasHistogramPattern(text, id, filename, { radiation: fmt.radiation, ...bankOpt })
       : parsePowderData(text, { id, name: filename, xUnit: fmt.xUnit, radiation: fmt.radiation, ...(fmt.radiation.kind !== "neutron-tof" ? { wavelength: fmt.radiation.wavelength } : {}) });
     if (parsed.points.length < 3) throw new Error("fewer than 3 usable data rows");
     // Constant-wavelength data: a still-selected TOF instrument (e.g. the
@@ -1122,23 +1143,44 @@ export function App(): JSX.Element {
     setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${next.session.powderParams.length} symmetry-allowed parameters${carriedNote(structureCarried(next.session))}. Scale auto-estimated — click “Refine”. ${fmt.note}`);
   }
 
+  /**
+   * An instrument file on the page. Of a file with several banks, the bank
+   * asked for (the Instrument card's chooser), else the bank of the data on
+   * the page when the file has it, else the file's lowest-numbered bank, as
+   * GSAS-II; the bank applied is kept with the file. One History step.
+   */
+  function applyInstrument(name: string, text: string, askedBank?: number): void {
+    try {
+      const file = parseInstrumentFile(text);
+      const data = dataBankRef(currentDataBank(dataBanksOf(session.rawData?.text), session.rawData));
+      const chosen = (askedBank !== undefined ? instrumentBank(file, askedBank) : undefined) ?? openingInstrumentBank(file, data);
+      const parsed = chosen.parameters;
+      const multi = hasBankChoice(file);
+      // The rows built again from the new instrument (withInstrument), so the
+      // profile reflects it whichever of the files came first.
+      setPage((p) => withInstrument(p, parsed, { name, text, ...(multi ? { bank: chosen.bank! } : {}) }));
+      const which = multi ? ` bank ${chosen.bank} of ${file.banks.length}` : "";
+      setMessage(
+        parsed.kind === "tof"
+          ? `Loaded TOF instrument${which}: difC=${parsed.difC.toFixed(2)}, Zero=${(parsed.zero ?? 0).toFixed(3)}. Profile re-seeded.`
+          : `Loaded CW instrument${which}: λ=${parsed.wavelength} Å. Profile re-seeded.`,
+      );
+      if (chosen.extras.reading) setMessage(`Instrument calibration line: ${chosen.extras.reading}.`);
+      requestStep("load", multi ? `Loaded instrument ${name}, bank ${chosen.bank}` : `Loaded instrument ${name}`);
+    } catch (e) {
+      setMessage(`Instrument parse failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   function onLoadInstrument(file: File): void {
-    file.text().then((text) => {
-      try {
-        const parsed = parseInstrumentParameters(text);
-        // The rows built again from the new instrument (withInstrument), so the
-        // profile reflects it whichever of the files came first.
-        setPage((p) => withInstrument(p, parsed, { name: file.name, text }));
-        setMessage(
-          parsed.kind === "tof"
-            ? `Loaded TOF instrument: difC=${parsed.difC.toFixed(2)}, Zero=${(parsed.zero ?? 0).toFixed(3)}. Profile re-seeded.`
-            : `Loaded CW instrument: λ=${parsed.wavelength} Å. Profile re-seeded.`,
-        );
-        requestStep("load", `Loaded instrument ${file.name}`);
-      } catch (e) {
-        setMessage(`Instrument parse failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    });
+    file.text().then((text) => applyInstrument(file.name, text));
+  }
+
+  /** Instrument card bank chooser: apply another bank of the loaded instrument file. */
+  function onInstrumentBank(bank: number): void {
+    const raw = session.rawInstrument;
+    if (!raw || raw.bank === bank) return;
+    applyInstrument(raw.name, raw.text, bank);
   }
 
   /** An X-ray instrument's polarization and Kα₂ ratio, on the instrument and on
@@ -1299,6 +1341,8 @@ export function App(): JSX.Element {
         detection={detection}
         {...(session.rawData ? { onOverrideXUnit } : {})}
         onLoadInstrument={onLoadInstrument}
+        {...(session.rawData ? { onDataBank } : {})}
+        onInstrumentBank={onInstrumentBank}
         onInstrumentConstants={onInstrumentConstants}
         onLoadDemo={onLoadDemo}
         demos={demos}

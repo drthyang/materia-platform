@@ -27,7 +27,7 @@ approximate, however plausible its output looks.
 
 | Area | Supported | Largest gaps |
 | --- | --- | --- |
-| [Powder](#powder-diffraction) | X-ray and neutron; constant wavelength and TOF; multi-phase; Le Bail | Spherical-harmonic texture; Kα₂ doublets; Ikeda–Carpenter TOF peak shape |
+| [Powder](#powder-diffraction) | X-ray and neutron; constant wavelength and TOF; multi-phase; Le Bail | Spherical-harmonic texture; a joint fit of several banks; Ikeda–Carpenter TOF peak shape |
 | [Single crystal](#single-crystal) | F² refinement with merging and extinction; magnetic supercell merge | Reliable `.hkl`/`.fcf` loading; twinning; absorption-correction UI |
 | [Magnetic](#magnetic-structures) | One propagation vector (k = 0, commensurate or incommensurate); subgroup candidates with BNS/OG labels | Multi-k and the star of k; harmonics and superspace; refining a self-conjugate k, or k on single-crystal data |
 | [PDF and mPDF](#real-space-pdf-and-magnetic-pdf) | Neutron and X-ray G(r); multi-phase; magnetic PDF; Γ symmetry modes | Zone-boundary modes; a correlated-error likelihood; data reduction |
@@ -296,9 +296,13 @@ approximate, however plausible its output looks.
 
 **Not yet**
 - Spherical-harmonic texture; powder extinction; microabsorption (Brindley);
-  flat-plate absorption; Kα₂ doublets.
+  flat-plate absorption.
 - High-angle axial asymmetry; the Ikeda–Carpenter moderator peak shape; TOF
   absorption and extinction.
+- A Lorentzian part of the time-of-flight peak: an instrument file's `X`, `Y`,
+  `Z` (GSAS-II) are read and left out, and the Instrument card says so.
+- A joint refinement of several banks: a multi-bank data file and a multi-bank
+  instrument file are read one bank at a time, chosen on their cards.
 - Manually placed background points, real-space (Debye) backgrounds, and
   automatic peak stripping.
 - Catching a cell that is too large, or a space group with fewer absences than

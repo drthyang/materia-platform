@@ -137,17 +137,79 @@ function clamp(value: number, p: RefinementParameter): number {
 /**
  * Limit a per-cycle parameter shift to at most `MAX_REL_SHIFT`× the parameter's
  * current magnitude — a safety net against a single ill-conditioned step
- * launching the model out of its basin. Parameters at ~0 are left unlimited
- * (relying on the LM step-rejection loop), so refining toward/away from zero is
- * not blocked.
+ * launching the model out of its basin. A parameter at ~0 (`atZero`, see
+ * `zeroShiftCaps`) has no magnitude of its own to limit a shift by: it is left
+ * unlimited, so refining toward/away from zero is not blocked, until the
+ * step-rejection loop hands it a cap (`zeroCap` > 0).
  */
 const MAX_REL_SHIFT = 5;
-function limitShift(delta: number, value: number, maxShift?: number): number {
-  let cap = MAX_REL_SHIFT * Math.abs(value);
+function limitShift(delta: number, value: number, maxShift: number | undefined, atZero: boolean, zeroCap: number): number {
+  let cap = atZero ? zeroCap : MAX_REL_SHIFT * Math.abs(value);
   // An explicit absolute cap (RefinementParameter.maxShift) applies on top,
   // including at value ≈ 0 where the relative cap is off.
   if (maxShift !== undefined) cap = cap > 0 ? Math.min(cap, maxShift) : maxShift;
   return cap > 0 && Math.abs(delta) > cap ? Math.sign(delta) * cap : delta;
+}
+
+/**
+ * A free parameter is numerically at zero when its whole value moves the
+ * weighted calculated pattern by no more than this fraction of the pattern's
+ * norm, to first order: |p_j|·‖J_j‖ ≤ NUMERICALLY_ZERO·‖√w·y_calc‖. The model
+ * is the same to a part per million without it. The measure has the units of
+ * the pattern whatever the parameter's, so a scale factor of 1e-11 that
+ * carries the whole pattern is not at zero, and a 1e-10 Å shift is.
+ */
+const NUMERICALLY_ZERO = 1e-6;
+
+/**
+ * Which free parameters are numerically at zero, and the cap the
+ * step-rejection loop puts on each one's shift once a trial of the cycle has
+ * been rejected (0: none).
+ *
+ * `limitShift` once took |value| as the scale of its cap unless the value was
+ * exactly 0, where it set no limit and relied on the step-rejection loop.
+ * Both ends failed on the PDF page's distortion modes (secondary-modes-refine,
+ * 2026-11-20):
+ *
+ *  - a mode left at 1e-15 by round-off was not "at 0": it could grow sixfold
+ *    per cycle at most, and the fit "converged" with it still at 1e-11;
+ *  - a mode at exactly 0 beside an order parameter just kicked (0.01 Å) has a
+ *    weak column (first order in the kick), which the unit-diagonal scaling
+ *    turns into a shift of an ångström or more, far outside the range that
+ *    column describes (about the kick itself). The damping tried (to 1.4e4)
+ *    never brought it back in range, every trial went uphill, and the fit
+ *    "stalled" at once.
+ *
+ * So "at 0" is `NUMERICALLY_ZERO`, and the loop now reaches these rows. The
+ * first trial of a cycle is as before, every parameter at ~0 unlimited. Once
+ * it is rejected, a non-linear parameter at ~0 is limited as its kind is:
+ * `MAX_REL_SHIFT`× the r.m.s. magnitude of the free parameters of the same
+ * kind (the same unit, the same sort of motion) that are not at zero, and a
+ * third of the last cap on each trial after that, while the damping grows as
+ * it always did. With no such parameter (every position at 0 in a first
+ * cycle) there is no scale and no cap. A linear parameter needs none: the
+ * model is exact in it at any step.
+ */
+function zeroShiftCaps(
+  freeParams: readonly RefinementParameter[],
+  freeValues: readonly number[],
+  jtj: Matrix,
+  patternNorm: number,
+): { atZero: boolean[]; cap: number[] } {
+  const atZero = freeValues.map((v, j) => Math.abs(v) * Math.sqrt(Math.max(jtj[j]![j]!, 0)) <= NUMERICALLY_ZERO * patternNorm);
+  const kinds = new Map<ParameterKind, { sum: number; n: number }>();
+  freeParams.forEach((p, j) => {
+    if (atZero[j]!) return;
+    const k = kinds.get(p.kind) ?? { sum: 0, n: 0 };
+    k.sum += freeValues[j]! * freeValues[j]!;
+    k.n++;
+    kinds.set(p.kind, k);
+  });
+  const cap = freeParams.map((p, j) => {
+    const k = kinds.get(p.kind);
+    return atZero[j]! && k && !isLinear(p) ? MAX_REL_SHIFT * Math.sqrt(k.sum / k.n) : 0;
+  });
+  return { atZero, cap };
 }
 
 /**
@@ -693,6 +755,11 @@ function* refineCore(
       }
     }
 
+    // The parameters numerically at zero, and their caps once a trial is rejected (zeroShiftCaps).
+    let patternNorm = 0;
+    for (let i = 0; i < current.yCalc.length; i++) patternNorm += problem.weights[i]! * current.yCalc[i]! * current.yCalc[i]!;
+    const zero = zeroShiftCaps(freeParams, freeValues, jtj, Math.sqrt(patternNorm));
+
     // LM damping on the (unit-diagonal) scaled system; retry with larger λ.
     // Solve (D·JᵀJ·D + λI)·y = −D·Jᵀr with a truncated pseudo-inverse, then
     // unscale Δp_j = y_j / s_j. The truncation removes near-null directions
@@ -711,7 +778,7 @@ function* refineCore(
         if (id !== undefined) solveDropped.add(id);
       }
 
-      const delta = y.map((yj, j) => limitShift(yj / sc[j]!, freeValues[j]!, freeParams[j]!.maxShift));
+      const delta = y.map((yj, j) => limitShift(yj / sc[j]!, freeValues[j]!, freeParams[j]!.maxShift, zero.atZero[j]!, attempt === 0 ? 0 : zero.cap[j]! / 3 ** (attempt - 1)));
       if (delta.some((d) => !Number.isFinite(d))) {
         lambda *= 10;
         maxLambda = Math.max(maxLambda, lambda);
