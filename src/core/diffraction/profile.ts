@@ -232,6 +232,98 @@ export interface TofShape {
   readonly beta: number;
   /** Gaussian standard deviation σ (µs). */
   readonly sigma: number;
+  /** Lorentzian FWHM γ (µs). Absent or ≤ 0: no Lorentzian part, the Gaussian closed form alone. */
+  readonly gamma?: number;
+  /** Whose function evaluates the Lorentzian part: the program the instrument file belongs to. Default "gsas". */
+  readonly lorentzForm?: TofLorentzForm;
+}
+
+/**
+ * The program whose definition of the peak is used when a Lorentzian width is
+ * present. Both build the peak the same way (see {@link tofBackToBack}); their
+ * manuals print the argument p of the Lorentzian part's first term differently,
+ * and an instrument file is evaluated with its own program's function:
+ *
+ *  - "gsas": the GSAS manual (Larson & Von Dreele, LAUR 86-748), TOF profile
+ *    function 3, with p and q "defined as in the second function":
+ *    p = −αΔ + iαΓ/2, q = −βΔ + iβΓ/2. GSAS-II's TOF function is this one.
+ *  - "fullprof": FullProf's NPROF 9: p = αΔ + iαΓ/2, q = −βΔ + iβΓ/2.
+ */
+export type TofLorentzForm = "gsas" | "fullprof";
+
+const EULER_GAMMA = 0.5772156649015329;
+
+/**
+ * Im[eᶻ E₁(z)] for z = x + iy with y > 0, where E₁ is the exponential integral
+ * (Abramowitz & Stegun 5.1.1). In double precision throughout, by three
+ * expansions, each used where it loses no digits:
+ *
+ *  - the power series E₁(z) = −γ − ln z − Σ (−z)ᵏ/(k·k!) (A&S 5.1.11) where its
+ *    terms do not cancel: |z| + x ≤ 4 on the right half-plane, ≤ 6 on the left
+ *    (there the terms grow like e^|z| and the result like e^−x, so |z| + x
+ *    measures the digits lost);
+ *  - the asymptotic series eᶻE₁(z) ~ Σ (−1)ᵏ k!/zᵏ⁺¹ (A&S 5.1.51) for |z| > 50,
+ *    cut at its smallest term, which is below 10⁻²⁰ there;
+ *  - the continued fraction 1/(z+1 − 1/(z+3 − 4/(z+5 − …))) (A&S 5.1.22, in
+ *    its even form) everywhere else, by the modified Lentz method.
+ */
+export function imExpE1(x: number, y: number): number {
+  const r2 = x * x + y * y;
+  const r = Math.sqrt(r2);
+  if (r > 50) {
+    // (1/z)·Σ (−1)ᵏ k!/zᵏ: term_k = term_{k−1}·(−k/z).
+    const ir = x / r2, ii = -y / r2; // 1/z
+    let tr = ir, ti = ii;
+    let si = ti;
+    let last = Math.abs(tr) + Math.abs(ti);
+    for (let k = 1; k < 60; k++) {
+      const nr = -k * (tr * ir - ti * ii);
+      const ni = -k * (tr * ii + ti * ir);
+      const mag = Math.abs(nr) + Math.abs(ni);
+      if (mag >= last) break;
+      tr = nr; ti = ni; last = mag;
+      si += ti;
+      if (mag < 1e-18 * (Math.abs(ir) + Math.abs(ii))) break;
+    }
+    return si;
+  }
+  if (r + x <= (x >= 0 ? 4 : 6)) {
+    let tr = 1, ti = 0; // (−z)ᵏ/k!
+    let sr = 0, si = 0;
+    for (let k = 1; k < 600; k++) {
+      const nr = (tr * -x - ti * -y) / k;
+      const ni = (tr * -y + ti * -x) / k;
+      tr = nr; ti = ni;
+      sr += tr / k; si += ti / k;
+      if (k > r && Math.abs(tr) + Math.abs(ti) < 1e-17 * k * (Math.abs(sr) + Math.abs(si))) break;
+    }
+    const er = -EULER_GAMMA - 0.5 * Math.log(r2) - sr;
+    const ei = -Math.atan2(y, x) - si;
+    return Math.exp(x) * (er * Math.sin(y) + ei * Math.cos(y));
+  }
+  // Modified Lentz (Numerical Recipes §6.3, complex argument).
+  let br = x + 1;
+  const bi = y;
+  let cr = 1e300, ci = 0;
+  let den = br * br + bi * bi;
+  let dr = br / den, di = -bi / den;
+  let hr = dr, hi = di;
+  for (let i = 1; i < 2000; i++) {
+    const a = -i * i;
+    br += 2;
+    const er = a * dr + br, ei = a * di + bi;
+    den = er * er + ei * ei;
+    dr = er / den; di = -ei / den;
+    const cden = cr * cr + ci * ci;
+    const ncr = br + (a * cr) / cden, nci = bi - (a * ci) / cden;
+    cr = ncr; ci = nci;
+    const delr = cr * dr - ci * di, deli = cr * di + ci * dr;
+    const nhr = hr * delr - hi * deli;
+    hi = hr * deli + hi * delr;
+    hr = nhr;
+    if (Math.abs(delr - 1) + Math.abs(deli) < 1e-16) break;
+  }
+  return hi;
 }
 
 /**
@@ -248,8 +340,20 @@ export interface TofShape {
  * Evaluated in the erfcx form when the erfc argument is ≥ 0 (where e^u would
  * overflow) and directly otherwise (where e^u < 1), so it is stable across the
  * whole profile.
+ *
+ * With a Lorentzian width γ > 0 the exponentials are convolved with a
+ * pseudo-Voigt instead, as GSAS (TOF profile function 3), GSAS-II and FullProf
+ * (NPROF 9) do: the total FWHM Γ and the mixing η come from the Gaussian FWHM
+ * 2√(2 ln 2)·σ and γ by Thompson, Cox & Hastings (1987), and
+ *
+ *   H(Δ) = (1−η)·N[e^u erfc(y) + e^v erfc(z)]  −  (2Nη/π)·{Im[e^p E₁(p)] + Im[e^q E₁(q)]}
+ *
+ * with u, v, y, z as above at σ = Γ/2√(2 ln 2), N = αβ/2(α+β), and p, q as
+ * the file's program defines them ({@link TofLorentzForm}). Unit area. With
+ * γ absent or ≤ 0 this is the Gaussian form above, unchanged.
  */
 export function tofBackToBack(delta: number, shape: TofShape): number {
+  if (shape.gamma !== undefined && shape.gamma > 0) return tofBackToBackPseudoVoigt(delta, shape, shape.gamma);
   const alpha = Math.max(shape.alpha, 1e-9);
   const beta = Math.max(shape.beta, 1e-9);
   const sigma = Math.max(shape.sigma, 1e-6);
@@ -263,6 +367,33 @@ export function tofBackToBack(delta: number, shape: TofShape): number {
   const termA = y >= 0 ? gauss * erfcxNonneg(y) : Math.exp(0.5 * alpha * (alpha * s2 + 2 * delta)) * erfc(y);
   const termB = z >= 0 ? gauss * erfcxNonneg(z) : Math.exp(0.5 * beta * (beta * s2 - 2 * delta)) * erfc(z);
   return norm * (termA + termB);
+}
+
+/** 2√(2 ln 2): Gaussian FWHM over its standard deviation. */
+const FWHM_PER_SIGMA = 2 * Math.sqrt(2 * LN2);
+
+function tofBackToBackPseudoVoigt(delta: number, shape: TofShape, gamma: number): number {
+  const alpha = Math.max(shape.alpha, 1e-9);
+  const beta = Math.max(shape.beta, 1e-9);
+  const { fwhm, eta } = tchPseudoVoigt(FWHM_PER_SIGMA * Math.max(shape.sigma, 1e-6), gamma);
+  const gaussianPart = tofBackToBack(delta, { alpha, beta, sigma: fwhm / FWHM_PER_SIGMA });
+  if (eta <= 0) return gaussianPart;
+  const norm = (alpha * beta) / (2 * (alpha + beta));
+  const riseArgument = shape.lorentzForm === "fullprof" ? alpha * delta : -alpha * delta;
+  const lorentzianPart = ((-2 * norm) / Math.PI) * (imExpE1(riseArgument, (alpha * fwhm) / 2) + imExpE1(-beta * delta, (beta * fwhm) / 2));
+  return (1 - eta) * gaussianPart + eta * lorentzianPart;
+}
+
+/**
+ * How far from its centre a TOF peak with a Lorentzian part is drawn, in µs.
+ * A Lorentzian of FWHM Γ has the fraction Γ/(πX) of its area beyond ±X, so the
+ * range is the larger of the Gaussian rule (±20 support widths) and the X that
+ * leaves less than {@link TOF_LORENTZ_TAIL_FRACTION} of the peak's area outside.
+ */
+export const TOF_LORENTZ_TAIL_FRACTION = 2e-4;
+export function tofLorentzSupport(sigma: number, gamma: number): number {
+  const { fwhm, eta } = tchPseudoVoigt(FWHM_PER_SIGMA * sigma, gamma);
+  return (eta * fwhm) / (Math.PI * TOF_LORENTZ_TAIL_FRACTION);
 }
 
 export type PeakShape = "gaussian" | "pseudoVoigt" | "tof";

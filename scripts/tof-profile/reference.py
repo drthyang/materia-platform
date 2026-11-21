@@ -6,9 +6,13 @@ FullProf's documented function disagree one can say which is off.
   b2b_gauss        back-to-back exponentials (x) Gaussian, closed form (Von Dreele, Jorgensen &
                    Windsor 1982, J. Appl. Cryst. 15, 581; GSAS TOF profile function 1)
   b2b_lorentz      back-to-back exponentials (x) Lorentzian, closed form with the complex
-                   exponential integral
-  b2b_pv           the pseudo-Voigt form: (1-eta)*b2b_gauss(F) + eta*b2b_lorentz(F), F and eta
-                   from Thompson, Cox & Hastings (1987)
+                   exponential integral, -(2N/pi){Im[e^p E1(p)] + Im[e^q E1(q)]},
+                   q = -beta*dt + i*beta*F/2, and p as each program's manual prints it:
+                   form="fullprof" (NPROF 9): p = alpha*dt + i*alpha*F/2;
+                   form="gsas" (GSAS manual, TOF profile function 3, p as in function 2;
+                   GSAS-II's function): p = -alpha*dt + i*alpha*F/2
+  b2b_pv           the pseudo-Voigt construction of both programs: (1-eta)*b2b_gauss(F) +
+                   eta*b2b_lorentz(F), F and eta from Thompson, Cox & Hastings (1987)
   b2b_voigt_exact  back-to-back exponentials (x) Voigt, by Fourier inversion (no pseudo-Voigt)
   b2b_voigt_direct the same by real-space quadrature (slow; a cross-check of the line above)
 
@@ -74,19 +78,19 @@ def _im_exp_e1(z):
     return out
 
 
-def b2b_lorentz(dt, alp, bet, fwhm):
+def b2b_lorentz(dt, alp, bet, fwhm, form="fullprof"):
     dt = np.asarray(dt, float)
     N = alp * bet / (2 * (alp + bet))
-    p = alp * dt + 1j * alp * fwhm / 2
+    p = (alp if form == "fullprof" else -alp) * dt + 1j * alp * fwhm / 2
     q = -bet * dt + 1j * bet * fwhm / 2
     return -2 * N / math.pi * (_im_exp_e1(p) + _im_exp_e1(q))
 
 
-def b2b_pv(dt, alp, bet, sig2, gam):
+def b2b_pv(dt, alp, bet, sig2, gam, form="fullprof"):
     if gam <= 0:
         return b2b_gauss(dt, alp, bet, sig2)
     F, eta = tch(STOFW * math.sqrt(sig2), gam)
-    return (1 - eta) * b2b_gauss(dt, alp, bet, (F / STOFW) ** 2) + eta * b2b_lorentz(dt, alp, bet, F)
+    return (1 - eta) * b2b_gauss(dt, alp, bet, (F / STOFW) ** 2) + eta * b2b_lorentz(dt, alp, bet, F, form)
 
 
 def voigt(x, sig2, gam):
