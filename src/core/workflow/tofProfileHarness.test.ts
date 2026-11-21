@@ -9,11 +9,13 @@
  *   { "out": "<result.json>",
  *     "peaks": [{ "name", "instrumentFile", "bank"?: number, "d": number[], "halfWidths"?: 40, "n"?: 4001 }],
  *     "shapes": [{ "alpha", "beta", "sigma", "gamma", "form"?: "gsas" | "fullprof", "dt": number[] }],
+ *     "bundles": [{ "name", "instrumentFile", "bank"?, "dataFile", "cifFile", "outDir", "set"?: { rowId: value } }],
  *     "fits":  [{ "name", "instrumentFile", "bank"?: number, "dataFile", "cifFile", "range": [min, max],
  *                 "backgroundTerms"?: 6, "freeKinds"?: ["scale", "background", "bIso"] }] }
  * A data file is whitespace columns x, y, sigma (lines starting with # or ! skipped).
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { StructureModel } from "@/core/crystal/types";
@@ -27,13 +29,15 @@ import { resolveTies } from "@/core/refinement/constraints";
 import { placePeaks, buildPowderProblem } from "@/core/workflow/powder";
 import { synthesizePattern, tofBackToBack, type TofLorentzForm } from "@/core/diffraction/profile";
 import { refine } from "@/core/refinement/engine";
+import { refinementBundle } from "@/core/export/bundle";
 
 const JOB = process.env.MATERIA_TOF_PROFILE_JOB;
 
 interface PeakJob { name: string; instrumentFile: string; bank?: number; d: number[]; halfWidths?: number; n?: number }
 interface FitJob { name: string; instrumentFile: string; bank?: number; dataFile: string; cifFile: string; range: [number, number]; backgroundTerms?: number; freeKinds?: string[] }
 interface ShapeJob { alpha: number; beta: number; sigma: number; gamma: number; form?: TofLorentzForm; dt: number[] }
-interface Job { out: string; peaks?: PeakJob[]; fits?: FitJob[]; shapes?: ShapeJob[] }
+interface BundleJob { name: string; instrumentFile: string; bank?: number; dataFile: string; cifFile: string; outDir: string; set?: Record<string, number> }
+interface Job { out: string; peaks?: PeakJob[]; fits?: FitJob[]; shapes?: ShapeJob[]; bundles?: BundleJob[] }
 
 const SI = `data_Si
 _cell_length_a 5.43118
@@ -137,7 +141,25 @@ describe.skipIf(!JOB || !existsSync(JOB ?? ""))("TOF profile harness: what the p
         x: pattern.points.map((p) => p.x), yCalc: Array.from(yCalc),
       });
     }
-    writeFileSync(job.out, JSON.stringify(out));
-    expect((job.peaks ?? []).length + (job.fits ?? []).length + (job.shapes ?? []).length).toBeGreaterThan(0);
+    // The GSAS-II bundle of a session, written out as files, with the pattern the page calculates
+    // (scripts/tof-profile/export_round_trip.py builds the project with GSAS-II and compares).
+    const bundles: unknown[] = [];
+    for (const bj of job.bundles ?? []) {
+      const inst = instrumentOf(bj.instrumentFile, bj.bank);
+      const structure = parseCif(readFileSync(bj.cifFile, "utf8"), "phase");
+      const pattern = patternOf(readColumns(bj.dataFile));
+      const spec = buildPowderSpec(structure, pattern, inst, true, 2);
+      const params = spec.params.map((p) => (bj.set && p.id in bj.set ? { ...p, value: bj.set[p.id]!, initialValue: bj.set[p.id]! } : p));
+      const yCalc = buildPowderProblem(structure, pattern, params, spec.bindings, spec.profile).calculate(valuesOf(params));
+      mkdirSync(bj.outDir, { recursive: true });
+      const entries = refinementBundle("gsas2", structure, pattern, {
+        name: bj.name, params, bindings: spec.bindings, instrument: inst,
+        rawInstrument: { name: "instrument.instprm", text: readFileSync(bj.instrumentFile, "utf8") },
+      });
+      for (const e of entries) writeFileSync(join(bj.outDir, e.name), typeof e.data === "string" ? e.data : Buffer.from(e.data));
+      bundles.push({ name: bj.name, files: entries.map((e) => e.name), x: pattern.points.map((p) => p.x), yCalc: Array.from(yCalc), parameters: valuesOf(params) });
+    }
+    writeFileSync(job.out, JSON.stringify(bundles.length ? { ...out, bundles } : out));
+    expect((job.peaks ?? []).length + (job.fits ?? []).length + (job.shapes ?? []).length + (job.bundles ?? []).length).toBeGreaterThan(0);
   }, 1_500_000);
 });
