@@ -72,8 +72,20 @@ def _im_exp_e1(z):
             d = 1.0 / (a * d + b)
             c = b + a / c
             h = h * c * d
-        near_cut = (zb.real < 0) & (np.abs(zb.imag) < 2)   # the fraction converges slowly there
-        h[near_cut] = np.exp(zb[near_cut]) * exp1(zb[near_cut])
+        # Near the negative real axis the fraction converges slowly: direct while exp does not underflow,
+        # and beyond that the asymptotic series sum (-1)^k k!/z^(k+1), whose error is below exp(-|z|).
+        near_cut = (zb.real < 0) & (np.abs(zb.imag) < 2)
+        direct = near_cut & (np.abs(zb) <= 600)
+        h[direct] = np.exp(zb[direct]) * exp1(zb[direct])
+        far = near_cut & ~direct
+        if far.any():
+            zf = zb[far]
+            term = 1.0 / zf
+            total = term.copy()
+            for k in range(1, 12):
+                term = -k * term / zf
+                total = total + term
+            h[far] = total
         out[big] = h.imag
     return out
 

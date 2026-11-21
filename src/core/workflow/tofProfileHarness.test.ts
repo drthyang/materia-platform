@@ -8,6 +8,7 @@
  * Job file (JSON):
  *   { "out": "<result.json>",
  *     "peaks": [{ "name", "instrumentFile", "bank"?: number, "d": number[], "halfWidths"?: 40, "n"?: 4001 }],
+ *     "shapes": [{ "alpha", "beta", "sigma", "gamma", "form"?: "gsas" | "fullprof", "dt": number[] }],
  *     "fits":  [{ "name", "instrumentFile", "bank"?: number, "dataFile", "cifFile", "range": [min, max],
  *                 "backgroundTerms"?: 6, "freeKinds"?: ["scale", "background", "bIso"] }] }
  * A data file is whitespace columns x, y, sigma (lines starting with # or ! skipped).
@@ -24,14 +25,15 @@ import { buildPowderSpec } from "@/app/powderSpec";
 import { applyParameters } from "@/core/workflow/apply";
 import { resolveTies } from "@/core/refinement/constraints";
 import { placePeaks, buildPowderProblem } from "@/core/workflow/powder";
-import { synthesizePattern } from "@/core/diffraction/profile";
+import { synthesizePattern, tofBackToBack, type TofLorentzForm } from "@/core/diffraction/profile";
 import { refine } from "@/core/refinement/engine";
 
 const JOB = process.env.MATERIA_TOF_PROFILE_JOB;
 
 interface PeakJob { name: string; instrumentFile: string; bank?: number; d: number[]; halfWidths?: number; n?: number }
 interface FitJob { name: string; instrumentFile: string; bank?: number; dataFile: string; cifFile: string; range: [number, number]; backgroundTerms?: number; freeKinds?: string[] }
-interface Job { out: string; peaks?: PeakJob[]; fits?: FitJob[] }
+interface ShapeJob { alpha: number; beta: number; sigma: number; gamma: number; form?: TofLorentzForm; dt: number[] }
+interface Job { out: string; peaks?: PeakJob[]; fits?: FitJob[]; shapes?: ShapeJob[] }
 
 const SI = `data_Si
 _cell_length_a 5.43118
@@ -80,7 +82,11 @@ describe.skipIf(!JOB || !existsSync(JOB ?? ""))("TOF profile harness: what the p
   it("writes the peaks and the fits the job asks for", () => {
     const job = JSON.parse(readFileSync(JOB!, "utf8")) as Job;
     const si: StructureModel = parseCif(SI, "si");
-    const out: { peaks: unknown[]; fits: unknown[] } = { peaks: [], fits: [] };
+    const out: { peaks: unknown[]; fits: unknown[]; shapes?: number[][] } = { peaks: [], fits: [] };
+    // The peak function itself, point by point (scripts/tof-profile/grid_check.py compares it with GSAS-II's routine).
+    if (job.shapes) {
+      out.shapes = job.shapes.map((sh) => sh.dt.map((dt) => tofBackToBack(dt, { alpha: sh.alpha, beta: sh.beta, sigma: sh.sigma, gamma: sh.gamma, ...(sh.form ? { lorentzForm: sh.form } : {}) })));
+    }
 
     for (const pj of job.peaks ?? []) {
       const inst = instrumentOf(pj.instrumentFile, pj.bank);
@@ -96,7 +102,7 @@ describe.skipIf(!JOB || !existsSync(JOB ?? ""))("TOF profile harness: what the p
         const n = pj.n ?? 4001;
         const dt = Array.from({ length: n }, (_, i) => -half + (2 * half * i) / (n - 1));
         const y = synthesizePattern(dt.map((t) => peak.center + t), [peak], { shape: "tof" });
-        return { d, center: peak.center, alpha: peak.tof.alpha, beta: peak.tof.beta, sigma: peak.tof.sigma, dtMin: -half, dtMax: half, n, y: Array.from(y) };
+        return { d, center: peak.center, alpha: peak.tof.alpha, beta: peak.tof.beta, sigma: peak.tof.sigma, gamma: peak.tof.gamma ?? 0, dtMin: -half, dtMax: half, n, y: Array.from(y) };
       });
       out.peaks.push({ name: pj.name, rows, perD });
     }
@@ -132,6 +138,6 @@ describe.skipIf(!JOB || !existsSync(JOB ?? ""))("TOF profile harness: what the p
       });
     }
     writeFileSync(job.out, JSON.stringify(out));
-    expect((job.peaks ?? []).length + (job.fits ?? []).length).toBeGreaterThan(0);
+    expect((job.peaks ?? []).length + (job.fits ?? []).length + (job.shapes ?? []).length).toBeGreaterThan(0);
   }, 1_500_000);
 });
