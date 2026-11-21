@@ -131,6 +131,8 @@ export interface RefinedInstrumentProfile {
    * GSAS-II's Mustrain) and size (µm, GSAS-II's Size; absent: no size term).
    */
   readonly tofSample?: { readonly gauss: number; readonly lorentz: number; readonly size?: number };
+  /** The program whose function the instrument file's profile was evaluated with. */
+  readonly tofLorentzForm?: "gsas" | "fullprof";
 }
 
 /** GSAS-II's sample parameters for a phase on a TOF histogram (GSASIIstrMath.GetSampleSigGam). */
@@ -211,6 +213,9 @@ export function gsas2InstrumentValues(kind: "cw" | "tof", p: RefinedInstrumentPr
     values.Y = t.gamY ?? 0;
     values.Z = t.gamZ ?? 0;
     if (t.alpha0 !== 0) notes.push(`α₀ = ${t.alpha0} (constant rise-time term) has no GSAS-II key (GSAS-II α = alpha/d); omitted.`);
+    if (p.tofLorentzForm === "fullprof") {
+      notes.push("This fit used a FullProf resolution file, evaluated with FullProf's time-of-flight function. Its widths are written as GSAS-II's sig-0, sig-1, sig-2 and X, Y, Z (Gam-1, Gam-2, Gam-0), which mean the same; GSAS-II's function for the Lorentzian part is its own, so the peak is a starting point in GSAS-II, not the same peak: refine the profile there against a standard.");
+    }
   }
   return { values, notes };
 }

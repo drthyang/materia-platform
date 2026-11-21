@@ -104,6 +104,10 @@ export interface PcrExportOptions {
     readonly beta0?: number;
     readonly beta1?: number;
     readonly betaQ?: number;
+    /** Lorentzian FWHM γ = gamY·d² + gamX·d + gamZ (µs): FullProf's Gam-2, Gam-1, Gam-0. Present for an instrument file's profile. */
+    readonly gamX?: number;
+    readonly gamY?: number;
+    readonly gamZ?: number;
   };
   /** Single-crystal job: write the Cry = 1 layout (reflections from the `.int`). */
   readonly singleCrystal?: boolean;
@@ -400,8 +404,13 @@ function tofPcr(structure: StructureModel, opts: PcrExportOptions, inst: Extract
     lines.push(`${num(sig2, 4, 12)}${num(sig1, 4, 12)}${num(sig0, 4, 12)}${num(0, 4, 12)}${num(0, 4, 12)}${num(0, 4, 12)}${num(0, 4, 12)}   0`);
     lines.push(`        0.00        0.00        0.00        0.00        0.00        0.00        0.00`);
     lines.push(`!      Gam-2       Gam-1       Gam-0        LStr        LSiz`);
-    lines.push(`!  Lorentzian (Gamma) coefficients: the exported profile is Gaussian-only; refine if needed.`);
-    lines.push(`      0.0000      0.0000      0.0000      0.0000      0.0000`);
+    if (shape?.gamX !== undefined || shape?.gamY !== undefined || shape?.gamZ !== undefined) {
+      lines.push(`!  Lorentzian FWHM gamma = Gam-2*d^2 + Gam-1*d + Gam-0 (us), as the fit used it.`);
+      lines.push(`${num(shape.gamY ?? 0, 4, 12)}${num(shape.gamX ?? 0, 4, 12)}${num(shape.gamZ ?? 0, 4, 12)}${num(0, 4, 12)}${num(0, 4, 12)}`);
+    } else {
+      lines.push(`!  Lorentzian (Gamma) coefficients: the exported profile is Gaussian-only; refine if needed.`);
+      lines.push(`      0.0000      0.0000      0.0000      0.0000      0.0000`);
+    }
     lines.push(`        0.00        0.00        0.00        0.00        0.00`);
     pushCell(lines, phase.structure);
     lines.push(`!      Pref1      Pref2        alph0       beta0       alph1       beta1      alphQ     betaQ`);

@@ -6,10 +6,10 @@ import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { buildPowderSpec, tofFileProfileOf } from "@/app/powderSpec";
 import { emptyPage, withFixed, withInstrument, withPattern, withStructure } from "@/app/powderPage";
-import { fileProfileNote, tofWidthNote } from "@/app/tofWidthNote";
+import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
 import { applyParameters } from "@/core/workflow/apply";
 import { resolveTies } from "@/core/refinement/constraints";
-import { buildPowderProblem, placePeaks, tofReflectionsLeftOut, tofWidthProblems, tofWidthsAt } from "@/core/workflow/powder";
+import { buildPowderProblem, placePeaks, tofNegativeLorentzian, tofReflectionsLeftOut, tofWidthProblems, tofWidthsAt } from "@/core/workflow/powder";
 import { DEFAULT_STAGE_KINDS } from "@/core/workflow/structureRefinement";
 import { synthesizePattern } from "@/core/diffraction/profile";
 import { refine } from "@/core/refinement/engine";
@@ -263,10 +263,160 @@ describe("the GSAS-II bundle of a GSAS-II file's session", () => {
     expect(file("README.txt")).toMatch(/Sample broadening: build_gpx\.py sets every phase's Mustrain/);
   });
 
-  it("the FullProf bundle of the same session names what it does not carry", () => {
+  it("the FullProf bundle of the same session carries the widths as totals and says the function is FullProf's own", () => {
     const fp = refinementBundle("fullprof", structure, s.pattern, { name: "si", params, bindings: s.powderBindings, instrument: page.instrument, rawInstrument: { name: "three.instprm", text: INSTPRM } });
+    const pcr = String(fp.find((e) => e.name === "si.pcr")!.data);
+    const after = (marker: string): number[] => {
+      const lines = pcr.split("\n");
+      const i = lines.findIndex((l) => l.includes(marker));
+      return lines[i + 2]!.trim().split(/\s+/).map(Number);
+    };
+    // Sig-1 = −30 + (3800 · 300e-6)²; Gam-1 = X + 1e-6 · 3800 · 1400; Gam-2 = Y + 1e-4 · 3800 / 0.4.
+    const sig = after("Sig-2       Sig-1       Sig-0");
+    expect(sig[0]).toBeCloseTo(190, 4);
+    expect(sig[1]).toBeCloseTo(-30 + (3800 * 300e-6) ** 2, 4);
+    expect(sig[2]).toBeCloseTo(30, 4);
+    const gam = after("Gam-2       Gam-1       Gam-0");
+    expect(gam[0]).toBeCloseTo(13 + (1e-4 * 3800) / 0.4, 4);
+    expect(gam[1]).toBeCloseTo(-5 + 1e-6 * 3800 * 1400, 4);
+    expect(gam[2]).toBeCloseTo(0, 4);
     const readme = String(fp.find((e) => e.name === "README.txt")!.data);
-    expect(readme).toMatch(/Not carried: the Lorentzian X = -5; the Lorentzian Y = 13; beta-q = 0\.2; the sample's Lorentzian microstrain 1400 \(x 1e-6\); the sample's size 0\.4 um; the sample's Gaussian microstrain 300 \(x 1e-6\)\./);
+    expect(readme).toContain("its Gaussian microstrain 300 (x 1e-6) in Sig-1; its Lorentzian microstrain 1400 (x 1e-6) in Gam-1; its size 0.4 um in Gam-2.");
+    expect(readme).toContain("FullProf's function for the Lorentzian part is");
+  });
+});
+
+/** The synthetic FullProf resolution files of scripts/tof-profile/fixtures (invented numbers). */
+const IRF_A = readFileSync("scripts/tof-profile/fixtures/synthetic_a.irf", "utf8");
+const IRF_B = readFileSync("scripts/tof-profile/fixtures/synthetic_b_negative_gamma.irf", "utf8");
+const IRF_C = readFileSync("scripts/tof-profile/fixtures/synthetic_c_negative_variance.irf", "utf8");
+
+/** A flat pattern over d = dLo … dHi Å on an .irf's calibration, and the page with it. */
+function irfPage(text: string, dLo = 0.62, dHi = 3.3) {
+  const inst = parseInstrumentParameters(text);
+  if (inst.kind !== "tof") throw new Error("TOF expected");
+  const tof = (d: number): number => (inst.zero ?? 0) + inst.difC * d + (inst.difA ?? 0) * d * d;
+  const lo = tof(dLo), hi = tof(dHi), n = 1200;
+  const pattern = { id: "p", name: "p", xUnit: "tof", radiation: { kind: "neutron-tof" }, points: Array.from({ length: n }, (_, i) => ({ x: lo * (hi / lo) ** (i / (n - 1)), yObs: 100, sigma: 10 })) } as PowderPattern;
+  return withInstrument(withPattern(withStructure(emptyPage(), structure), pattern, { name: "si.dat", text: "" }), inst, { name: "bank.irf", text });
+}
+
+describe("a FullProf .irf's rows", () => {
+  it("SIGMA, GAMMA and ALFBE as read, alph0 included, held; a Gaussian microstrain row at 0 and no other sample row", () => {
+    const s2 = irfPage(IRF_A).session;
+    const want: Record<string, number> = { tof_alpha0: 0.5, tof_alpha1: 0.53, tof_beta0: 0.052, tof_beta1: 0.0049, tof_sig0: 5, tof_sig1: 25, tof_sig2: 14, tof_gamX: 5, tof_gamY: 2.8, tof_gamZ: 2 };
+    for (const [id, value] of Object.entries(want)) expect(s2.powderParams.find((p) => p.id === id), id).toMatchObject({ value, kind: "tofFileProfile", fixed: true });
+    expect(s2.powderParams.find((p) => p.id === "tofSampleGauss")).toMatchObject({ value: 0, fixed: true });
+    for (const id of ["tofSampleLorentz", "tofSampleSize", "mustrainIso", "tof_sigQ", "tof_betaQ"]) expect(s2.powderParams.find((p) => p.id === id), id).toBeUndefined();
+    // The peak is FullProf's form, with the file's widths: at d = 1 Å, α = 1.03, β = 0.0569, σ² = 44, γ = 9.8.
+    const applied = applyParameters(structure, s2.powderBindings, resolveTies(s2.powderParams, valuesOf(s2.powderParams)));
+    expect(applied.tofFile!.lorentzForm).toBe("fullprof");
+    const w = tofWidthsAt(applied, 1);
+    expect([w.alpha, w.beta, w.sig2, w.gamma].map((v) => +v.toFixed(6))).toEqual([1.03, 0.0569, 44, 9.8]);
+    const [peak] = placePeaks(s2.pattern, applied, [{ d: 1, intensity: 1 }]);
+    expect(peak!.tof).toMatchObject({ lorentzForm: "fullprof", gamma: 9.8 });
+  });
+
+  it("a constant rise term above the old limit of 10 and a negative alph1 are held as read and stay inside their limits", () => {
+    const s2 = irfPage(IRF_B).session;
+    const alpha0 = s2.powderParams.find((p) => p.id === "tof_alpha0")!;
+    const alpha1 = s2.powderParams.find((p) => p.id === "tof_alpha1")!;
+    expect([alpha0.value, alpha1.value]).toEqual([13, -0.4]);
+    expect(alpha0.max!).toBeGreaterThan(13);
+    expect(alpha1.min!).toBeLessThan(-0.4);
+  });
+
+  it("the Instrument card: FullProf's function, not yet checked against a FullProf run, not verified for Jana", () => {
+    const page2 = irfPage(IRF_A);
+    const note = fileProfileNote(page2.instrument, null)!;
+    expect(note.line).toBe("Profile as the file gives it, held, by FullProf's NPROF 9 function: its Lorentzian part and alph0 are not yet checked against a FullProf run, and it is not verified for Jana.");
+    expect(note.detail).toContain("A resolution file written for Jana is a FullProf resolution file");
+    expect(tofWidthNote(page2.session)).toBeNull();
+    expect(tofNegativeGammaNote(page2.session)).toBeNull();
+  });
+
+  it("a negative Lorentzian width is taken as none, and the card says where", () => {
+    const s2 = irfPage(IRF_B).session;
+    const applied = applyParameters(structure, s2.powderBindings, resolveTies(s2.powderParams, valuesOf(s2.powderParams)));
+    // γ = −3 d² + 7.5 d − 1 is negative above d = 2.359 Å.
+    expect(tofWidthsAt(applied, 2.3).gamma).toBeGreaterThan(0);
+    const w = tofWidthsAt(applied, 3);
+    expect(w.gammaAsGiven).toBeCloseTo(-5.5, 9);
+    expect(w.gamma).toBe(0);
+    expect(w.invalid).toBeNull();
+    const [peak] = placePeaks(s2.pattern, applied, [{ d: 3, intensity: 1 }]);
+    expect(peak!.tof!.gamma).toBeUndefined();
+    const ranges = tofNegativeLorentzian(s2.pattern, applied);
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0]!.dMin).toBeGreaterThan(2.359);
+    expect(ranges[0]!.dMin).toBeLessThan(2.37);
+    expect(tofNegativeGammaNote(s2)!.line).toMatch(/^The file's Lorentzian width is negative for d 2\.36–3\.30 Å: taken as none there\.$/);
+    // A GSAS-II file's negative γ is its program's definition: no line.
+    expect(tofNegativeGammaNote(pageOn(2).session)).toBeNull();
+  });
+
+  it("σ² ≤ 0 at both ends of the data: both ranges named, the reflections there not drawn", () => {
+    const s2 = irfPage(IRF_C, 0.5, 3.3).session;
+    const applied = applyParameters(structure, s2.powderBindings, resolveTies(s2.powderParams, valuesOf(s2.powderParams)));
+    const problems = tofWidthProblems(s2.pattern, applied);
+    // −4 d⁴ + 30 d² − 10 = 0 at d = 0.5903 and 2.6787 Å.
+    expect(problems.map((p) => p.which)).toEqual(["σ²", "σ²"]);
+    expect(problems[0]!.dMax).toBeLessThan(0.5904);
+    expect(problems[0]!.dMax).toBeGreaterThan(0.586);
+    expect(problems[1]!.dMin).toBeGreaterThan(2.6787);
+    expect(problems[1]!.dMin).toBeLessThan(2.69);
+    const left = tofReflectionsLeftOut(s2.pattern, applied);
+    expect(left.some((r) => r.h === 1 && r.k === 1 && r.l === 1)).toBe(true);
+    expect(left.every((r) => r.d < 0.5904 || r.d > 2.6787)).toBe(true);
+    expect(tofWidthNote(s2)!.line).toMatch(/^The instrument file gives no peak width for d 0\.500–0\.5\d\d Å \(σ² ≤ 0\), d 2\.6\d–3\.30 Å \(σ² ≤ 0\): \d+ reflections not drawn\.$/);
+  });
+
+  it("an .irf whose ALFBE is all zero, and a calibration alone, keep the page's own profile", () => {
+    const zeros = IRF_A.replace(/^ALFBE.*$/m, "ALFBE    0 0 0 0");
+    expect(tofFileProfileOf(parseInstrumentParameters(zeros))).toBeNull();
+    expect(tofFileProfileOf(parseInstrumentParameters("D2TOF 7300.5 -1.25\nTWOTH 140.0\n"))).toBeNull();
+  });
+});
+
+describe("the bundles of a FullProf file's session", () => {
+  const page2 = irfPage(IRF_A);
+  const s2 = page2.session;
+  const params = s2.powderParams.map((p) => (p.id === "tofSampleGauss" ? { ...p, value: 500 } : p));
+  const opts = { name: "si", params, bindings: s2.powderBindings, instrument: page2.instrument, rawInstrument: { name: "bank.irf", text: IRF_A } };
+
+  it("FullProf: the .pcr holds the .irf's lines as the fit used them, the Gaussian microstrain in Sig-1", () => {
+    const fp = refinementBundle("fullprof", structure, s2.pattern, opts);
+    const pcr = String(fp.find((e) => e.name === "si.pcr")!.data);
+    const after = (marker: string): number[] => {
+      const lines = pcr.split("\n");
+      const i = lines.findIndex((l) => l.includes(marker));
+      return lines[i + 2]!.trim().split(/\s+/).map(Number);
+    };
+    const sig = after("Sig-2       Sig-1       Sig-0");
+    expect([sig[0], sig[2]]).toEqual([14, 5]);
+    expect(sig[1]).toBeCloseTo(25 + (3800 * 500e-6) ** 2, 4);
+    expect(after("Gam-2       Gam-1       Gam-0").slice(0, 3)).toEqual([2.8, 5, 2]);
+    const alf = after("Pref1      Pref2        alph0       beta0       alph1       beta1");
+    expect(alf.slice(2, 6)).toEqual([0.5, 0.052, 0.53, 0.0049]);
+    expect(fp.some((e) => e.name === "bank.irf" && String(e.data) === IRF_A)).toBe(true);
+    const readme = String(fp.find((e) => e.name === "README.txt")!.data);
+    expect(readme).toContain("is not yet checked against a FullProf run");
+    expect(readme).toContain("its Gaussian microstrain 500 (x 1e-6) in Sig-1.");
+  });
+
+  it("GSAS-II: the widths under GSAS-II's names, alph0 named as not carried, the function named as GSAS-II's own", () => {
+    const g2 = refinementBundle("gsas2", structure, s2.pattern, opts);
+    const text = String(g2.find((e) => e.name === "si.instprm")!.data);
+    const value = (key: string): number => parseFloat(text.match(new RegExp(`^${key.replace(/[-.]/g, "\\$&")}:(.*)$`, "m"))![1]!);
+    expect([value("sig-0"), value("sig-1"), value("sig-2"), value("X"), value("Y"), value("Z"), value("alpha"), value("beta-0"), value("beta-1")]).toEqual([5, 25, 14, 5, 2.8, 2, 0.53, 0.052, 0.0049]);
+    const readme = String(g2.find((e) => e.name === "README.txt")!.data);
+    expect(readme).toContain("α₀ = 0.5 (constant rise-time term) has no GSAS-II key");
+    expect(readme).toContain("GSAS-II's function for the Lorentzian part is its own");
+    // The Gaussian microstrain as GSAS-II's Mustrain with no Lorentzian share, and no size term.
+    const script = String(g2.find((e) => e.name === "build_gpx.py")!.data);
+    expect(script).toContain(`_hap['Mustrain'][1][0] = _hap['Mustrain'][1][1] = ${Number((2.3548200450309493 * 500).toPrecision(10))}`);
+    expect(script).toContain("_hap['Mustrain'][1][2] = 0");
+    expect(script).toContain("_hap['Size'][1][0] = _hap['Size'][1][1] = 1000000");
   });
 });
 

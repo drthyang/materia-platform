@@ -108,6 +108,8 @@ export interface TofWidths {
   readonly sig2: number;
   /** Lorentzian FWHM (µs): the instrument's γ(d) plus the sample's Lorentzian terms; a negative sum counts as none. */
   readonly gamma: number;
+  /** That sum as the terms give it, negative or not. */
+  readonly gammaAsGiven: number;
   /** Which width is not positive here, so that no peak is defined; null when all are. */
   readonly invalid: "σ²" | "α" | "β" | null;
 }
@@ -123,8 +125,10 @@ export interface TofWidths {
  *   γ = X·d + Y·d² + Z  +  10⁻⁶·difC·d·M  +  10⁻⁴·difC·d²/S
  *
  * Nothing is floored. Where σ², α or β is not positive there is no peak, and
- * `invalid` names the first that fails. A negative γ counts as zero, as in
- * GSAS-II (which takes γ below 10⁻⁵ µs as 10⁻⁵ µs).
+ * `invalid` names the first that fails. A negative γ counts as zero: GSAS-II
+ * takes γ below 10⁻⁵ µs as 10⁻⁵ µs; FullProf's manual does not say what it
+ * does, and zero is taken here until a FullProf run shows otherwise (the
+ * Instrument card says where it happens: tofNegativeLorentzian).
  */
 export function tofWidthsAt(applied: AppliedModel, d: number): TofWidths {
   const cal = applied.tof!;
@@ -141,9 +145,10 @@ export function tofWidthsAt(applied: AppliedModel, d: number): TofWidths {
   let gamma = file.gamX * d + file.gamY * d2 + file.gamZ;
   if (file.sampleLorentz !== 0) gamma += 1e-6 * cal.difC * d * file.sampleLorentz;
   if (file.sampleSize !== undefined && file.sampleSize > 0) gamma += (1e-4 * cal.difC * d2) / file.sampleSize;
+  const gammaAsGiven = gamma;
   if (!(gamma > 0)) gamma = 0;
   const invalid = !(sig2 > 0) ? "σ²" : !(alpha > 0) ? "α" : !(beta > 0) ? "β" : null;
-  return { alpha, beta, sig2, gamma, invalid };
+  return { alpha, beta, sig2, gamma, gammaAsGiven, invalid };
 }
 
 /** d-spacings spread evenly in log d over the pattern's reflection range, for checking a file's widths over the data. */
@@ -182,6 +187,20 @@ export function tofWidthProblems(pattern: PowderPattern, applied: AppliedModel):
     if (which) open = { which, from: open ? open.from : d, to: d };
   }
   if (open) out.push({ which: open.which, dMin: open.from, dMax: open.to });
+  return out;
+}
+
+/** The stretches of the data's d-range where an instrument file's Lorentzian width comes out negative (and is taken as none). */
+export function tofNegativeLorentzian(pattern: PowderPattern, applied: AppliedModel): { dMin: number; dMax: number }[] {
+  if (pattern.xUnit !== "tof" || !applied.tof || !applied.tofFile) return [];
+  const out: { dMin: number; dMax: number }[] = [];
+  let open: { dMin: number; dMax: number } | null = null;
+  for (const d of tofWidthGrid(pattern, applied)) {
+    const w = tofWidthsAt(applied, d);
+    if (w.gammaAsGiven < 0 && !w.invalid) open = { dMin: open ? open.dMin : d, dMax: d };
+    else if (open) { out.push(open); open = null; }
+  }
+  if (open) out.push(open);
   return out;
 }
 

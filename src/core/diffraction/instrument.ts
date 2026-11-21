@@ -77,15 +77,17 @@ export type InstrumentParameters =
       readonly sigQ?: number;
       /**
        * Lorentzian FWHM terms, γ = gamX·d + gamY·d² + gamZ (µs): GSAS-II's
-       * `X`, `Y`, `Z` of a TOF bank, as read.
+       * `X`, `Y`, `Z` of a TOF bank, or FullProf's `Gam-1`, `Gam-2`, `Gam-0`,
+       * as read.
        */
       readonly gamX?: number;
       readonly gamY?: number;
       readonly gamZ?: number;
       /**
        * The program the file's profile terms belong to, whose function
-       * evaluates them: "gsas" for a GSAS-II `.instprm`. Absent: the file's
-       * profile terms seed the app's own refinable Gaussian profile, as before.
+       * evaluates them: "gsas" for a GSAS-II `.instprm`, "fullprof" for a
+       * FullProf `.irf`. Absent: the file's profile terms seed the app's own
+       * refinable Gaussian profile, as before.
        */
       readonly profileProgram?: "gsas" | "fullprof";
     };

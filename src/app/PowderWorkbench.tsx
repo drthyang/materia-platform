@@ -87,7 +87,7 @@ import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
-import { fileProfileNote, tofWidthNote } from "@/app/tofWidthNote";
+import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
@@ -1298,7 +1298,11 @@ export function PowderWorkbench({
     () => tofWidthNote({ structure: session.structure, extraPhases: session.extraPhases, pattern, powderParams, powderBindings: session.powderBindings }),
     [session.structure, session.extraPhases, pattern, powderParams, session.powderBindings],
   );
-  const instControl = instBankChoices || instAdvice || instUnused || instProfile || instWidths ? (
+  const instGamma = useMemo(
+    () => tofNegativeGammaNote({ structure: session.structure, extraPhases: session.extraPhases, pattern, powderParams, powderBindings: session.powderBindings }),
+    [session.structure, session.extraPhases, pattern, powderParams, session.powderBindings],
+  );
+  const instControl = instBankChoices || instAdvice || instUnused || instProfile || instWidths || instGamma ? (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {instBankChoices && (
         <BankChooser
@@ -1322,6 +1326,12 @@ export function PowderWorkbench({
         <div data-testid="instrument-profile" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.secondary }}>
           <span>{instProfile.line}</span>
           <InfoBadge width={340} text={instProfile.detail} />
+        </div>
+      )}
+      {instGamma && (
+        <div data-testid="instrument-gamma" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.secondary }}>
+          <span>{instGamma.line}</span>
+          <InfoBadge width={340} text={instGamma.detail} />
         </div>
       )}
       {instWidths && (

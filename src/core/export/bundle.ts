@@ -266,6 +266,7 @@ function powderExtras(
     ...(a.tof ? { tof: a.tof } : {}),
     ...(tofProfile ? { tofProfile } : {}),
     ...(tofSample ? { tofSample } : {}),
+    ...(a.tofFile ? { tofLorentzForm: a.tofFile.lorentzForm } : {}),
   };
   if (!kinds.has("background") || a.background.length === 0 || pattern.points.length < 2) return { profile };
   const { min: xMin, max: xMax } = minMax(pattern.points.map((p) => p.x));
@@ -323,6 +324,31 @@ function powderSpan(pattern: PowderPattern, fitRange: BundleOptions["fitRange"])
   return { xMin, xMax, lo, hi, first, last, excluded, narrowed: excluded.length > 0 };
 }
 
+/**
+ * The TOF profile for the `.pcr`. FullProf holds the instrument's widths and the
+ * sample's in the same functions of d (manual: σ² = (Sig-2 + GSIZ)·d⁴ +
+ * (Sig-1 + DST)·d² + Sig-0, γ = (Gam-2 + DSIZ)·d² + (Gam-1 + LStr)·d + Gam-0),
+ * and this `.pcr` has no resolution file (Res = 0), so its profile lines are
+ * the totals: an instrument file's terms as the fit used them, with the
+ * sample's rows added where they act. The Gaussian microstrain ε widens as
+ * (difC·ε)²·d², the Lorentzian microstrain M as 10⁻⁶·difC·M·d, the size S as
+ * 10⁻⁴·difC/S·d².
+ */
+function pcrTofShape(prof: RefinedInstrumentProfile | undefined, instrument: InstrumentParameters | undefined): PcrExportOptions["tofShape"] | undefined {
+  const t = prof?.tofProfile;
+  if (!t) return undefined;
+  const s = prof.tofSample;
+  if (!s || instrument?.kind !== "tof") return t;
+  const difC = instrument.difC;
+  return {
+    ...t,
+    sig1: t.sig1 + (difC * s.gauss * 1e-6) ** 2,
+    gamX: (t.gamX ?? 0) + 1e-6 * difC * s.lorentz,
+    gamY: (t.gamY ?? 0) + (s.size !== undefined && s.size > 0 ? (1e-4 * difC) / s.size : 0),
+    gamZ: t.gamZ ?? 0,
+  };
+}
+
 /** FullProf bundle: `.pcr` + data + README (+ verbatim originals when present). */
 export function fullprofBundle(structure: StructureModel, dataset: DiffractionDataset, opts: BundleOptions = {}): ZipEntry[] {
   const name = sanitize(opts.name ?? structure.name);
@@ -344,7 +370,7 @@ export function fullprofBundle(structure: StructureModel, dataset: DiffractionDa
     let instrument = opts.instrument;
     if (instrument?.kind === "tof" && prof?.tof) instrument = { ...instrument, ...prof.tof };
     const bank = instprmTwoTheta(opts.rawInstrument?.text);
-    const tofShape = prof?.tofProfile ?? tofShapeFromParams(opts.params, opts.instrument);
+    const tofShape = pcrTofShape(prof, instrument) ?? tofShapeFromParams(opts.params, opts.instrument);
     const caglioti = prof?.caglioti
       ?? (prof?.peakWidth !== undefined ? { u: 0, v: 0, w: (prof.peakWidth * 100) ** 2 } : undefined);
     pcr = structureToPcr(structure, {
@@ -604,24 +630,36 @@ function fullprofReadme(r: {
       `    FullProf's Sig-Q d-dependence is undocumented, so it was left 0 — refine Sig-0/Sig-1 to absorb it.`,
     );
   }
-  // A fit made with a GSAS-II instrument file's profile: what of it this .pcr does not hold.
+  // A fit made with an instrument file's profile: what the .pcr's profile lines hold, and what they cannot.
   const tp = opts.profile?.tofProfile;
   const ts = opts.profile?.tofSample;
   if (!sc && tp && ts) {
-    const missing = [
-      ...([["X", tp.gamX], ["Y", tp.gamY], ["Z", tp.gamZ]] as const).filter(([, v]) => v !== undefined && v !== 0).map(([k, v]) => `the Lorentzian ${k} = ${+v!.toPrecision(8)}`),
-      ...(tp.betaQ !== 0 ? [`beta-q = ${+tp.betaQ.toPrecision(8)}`] : []),
-      ...(ts.lorentz !== 0 ? [`the sample's Lorentzian microstrain ${+ts.lorentz.toPrecision(8)} (x 1e-6)`] : []),
-      ...(ts.size !== undefined ? [`the sample's size ${+ts.size.toPrecision(8)} um`] : []),
-      ...(ts.gauss !== 0 ? [`the sample's Gaussian microstrain ${+ts.gauss.toPrecision(8)} (x 1e-6)`] : []),
+    const added = [
+      ...(ts.gauss !== 0 ? [`its Gaussian microstrain ${+ts.gauss.toPrecision(8)} (x 1e-6) in Sig-1`] : []),
+      ...(ts.lorentz !== 0 ? [`its Lorentzian microstrain ${+ts.lorentz.toPrecision(8)} (x 1e-6) in Gam-1`] : []),
+      ...(ts.size !== undefined ? [`its size ${+ts.size.toPrecision(8)} um in Gam-2`] : []),
     ];
     lines.push(
       ``,
-      `Peak profile: this fit used a GSAS-II instrument file, evaluated with GSAS-II's time-of-flight function.`,
-      `The .pcr carries its Gaussian width and its rise and decay terms. Not carried: ${missing.length ? missing.join("; ") : "nothing else"}.`,
-      `FullProf's function for the Lorentzian part is its own, so a profile calibrated in GSAS-II is a starting`,
-      `point in FullProf, not the same peak: refine the profile there against a standard.`,
+      `Peak profile: the .pcr's Sig-2, Sig-1, Sig-0, Gam-2, Gam-1, Gam-0 and alph0, beta0, alph1, beta1 are the`,
+      `widths the fit used, as totals (no resolution file is named: Res = 0).${added.length ? ` The sample's broadening is` : ""}`,
+      ...(added.length ? [`added where it acts: ${added.join("; ")}.`] : []),
     );
+    if (opts.profile?.tofLorentzForm === "fullprof") {
+      lines.push(
+        `The fit evaluated your FullProf resolution file with FullProf's NPROF 9 function as its documentation gives`,
+        `it; that reading, its Lorentzian part and alph0 above all, is not yet checked against a FullProf run.`,
+        `To use your .irf as the resolution file instead, set Res = 5, name it, and zero these lines (they are then`,
+        `shifts added to the file's values).`,
+      );
+    } else {
+      lines.push(
+        `The fit used a GSAS-II instrument file, evaluated with GSAS-II's time-of-flight function. The widths mean`,
+        `the same in FullProf (X, Y, Z are Gam-1, Gam-2, Gam-0), but FullProf's function for the Lorentzian part is`,
+        `its own: the peak is a starting point in FullProf, not the same peak. Refine the profile there against a`,
+        `standard.`,
+      );
+    }
   }
   if (opts.notExported && opts.notExported.length) {
     lines.push(``, `Not carried by this file (re-add in FullProf if needed): ${opts.notExported.join(", ")}.`);

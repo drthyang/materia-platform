@@ -175,19 +175,28 @@ export const GSAS2_NEW_PHASE_SIZE = 1;
 /**
  * The profile an instrument file gives, or null when it gives none (a
  * calibration alone: the app's own refinable profile then starts from seeds,
- * as before). A GSAS-II TOF file gives it when it carries the rise, the decay
- * and the Gaussian width (alpha, beta-0, sig-1).
+ * as before). A file gives it when it carries the rise, the decay and the
+ * Gaussian width: a GSAS-II TOF file's alpha, beta-0 and sig-1; a FullProf
+ * `.irf`'s ALFBE (not all zero) and SIGMA.
  *
- * A GSAS-II calibration is made with a phase beside the instrument, and a new
+ * GSAS-II: a calibration is made with a phase beside the instrument, and a new
  * phase in GSAS-II has Lorentzian microstrain 1000 and size 1 µm; the file's
  * X and Y are what is left once those are taken out. So the sample's two
  * Lorentzian rows start at those values, which is the peak GSAS-II calculates
  * from the file.
+ *
+ * FullProf: the `.irf` is the instrument and the `.pcr` holds the sample as
+ * shifts, none by default. The sample starts with a Gaussian microstrain row
+ * at 0 and nothing else.
  */
 export function tofFileProfileOf(instrument: InstrumentParameters): TofFileProfile | null {
-  if (instrument.kind !== "tof" || instrument.profileProgram !== "gsas") return null;
-  if (instrument.alpha === undefined || instrument.beta0 === undefined || instrument.sig1 === undefined) return null;
+  if (instrument.kind !== "tof" || instrument.profileProgram === undefined) return null;
+  const fullprof = instrument.profileProgram === "fullprof";
+  const rise = fullprof ? instrument.alpha !== undefined || instrument.alpha0 !== undefined : instrument.alpha !== undefined;
+  if (!rise || instrument.beta0 === undefined || instrument.sig1 === undefined) return null;
   const given: [TofFileTerm, number | undefined][] = [
+    // GSAS-II's rise has no constant term; FullProf's alph0 is one.
+    ...(fullprof ? [["alpha0", instrument.alpha0] as [TofFileTerm, number | undefined]] : []),
     ["alpha1", instrument.alpha], ["beta0", instrument.beta0], ["beta1", instrument.beta1], ["betaQ", instrument.betaQ],
     ["sig0", instrument.sig0], ["sig1", instrument.sig1], ["sig2", instrument.sig2], ["sigQ", instrument.sigQ],
     ["gamX", instrument.gamX], ["gamY", instrument.gamY], ["gamZ", instrument.gamZ],
@@ -197,8 +206,8 @@ export function tofFileProfileOf(instrument: InstrumentParameters): TofFileProfi
     ...(instrument.gamX !== undefined ? { gamX: instrument.gamX } : {}),
     ...(instrument.gamY !== undefined ? { gamY: instrument.gamY } : {}),
     ...(instrument.gamZ !== undefined ? { gamZ: instrument.gamZ } : {}),
-    lorentzForm: "gsas",
-    sample: { gauss: 0, lorentz: GSAS2_NEW_PHASE_MUSTRAIN, size: GSAS2_NEW_PHASE_SIZE },
+    lorentzForm: fullprof ? "fullprof" : "gsas",
+    sample: fullprof ? { gauss: 0 } : { gauss: 0, lorentz: GSAS2_NEW_PHASE_MUSTRAIN, size: GSAS2_NEW_PHASE_SIZE },
   };
 }
 
