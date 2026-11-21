@@ -436,6 +436,34 @@ export function supportTaper(dist: number, half: number): number {
   return 1 - t * t * t * (10 + t * (6 * t - 15));
 }
 
+/**
+ * The unit profiles of TOF peaks with a Lorentzian width, kept per abscissa
+ * grid. Such a peak costs about ten times the Gaussian form per point and is
+ * drawn over most of the pattern (tofLorentzSupport), while a refinement that
+ * holds the instrument's profile asks for the same peaks, with other
+ * intensities, hundreds of times. A peak's values on the grid depend only on
+ * its centre, its support and its shape, so they are computed once and reused
+ * while those are the same numbers; the sum is formed in the same order with
+ * the same factors, so a pattern from the cache is bit for bit the pattern
+ * without it.
+ */
+interface UnitProfile {
+  readonly start: number;
+  readonly shape: Float64Array;
+  readonly taper: Float64Array;
+}
+interface UnitProfileCache {
+  readonly entries: Map<string, UnitProfile>;
+  values: number;
+}
+const unitProfileCaches = new WeakMap<readonly number[], UnitProfileCache>();
+/** The most numbers one grid's cache holds (two arrays per peak): 96 MB. Past it the cache starts again. */
+const UNIT_PROFILE_CACHE_VALUES = 12_000_000;
+
+function unitProfileKey(peak: ProfilePeak, tof: TofShape): string {
+  return `${peak.center}|${peak.fwhm}|${tof.alpha}|${tof.beta}|${tof.sigma}|${tof.gamma}|${tof.lorentzForm ?? ""}`;
+}
+
 function shapeAt(x: number, peak: ProfilePeak, opts: ProfileOptions): number {
   if (opts.shape === "tof" && peak.tof) {
     return tofBackToBack(x - peak.center, peak.tof);
@@ -500,9 +528,46 @@ export function synthesizePattern(
       }
       return lo;
     };
+    let cache: UnitProfileCache | undefined;
     for (const peak of peaks) {
       const half = PEAK_WINDOW_FWHM * peak.fwhm;
       const start = lowerBound(ascending ? peak.center - half : peak.center + half);
+      const tof = opts.shape === "tof" ? peak.tof : undefined;
+      if (tof && tof.gamma !== undefined && tof.gamma > 0) {
+        // A Lorentzian TOF peak: its unit profile from the cache, or computed into it (see UnitProfile).
+        if (!cache) {
+          cache = unitProfileCaches.get(xValues);
+          if (!cache) unitProfileCaches.set(xValues, (cache = { entries: new Map(), values: 0 }));
+        }
+        const key = unitProfileKey(peak, tof);
+        let unit = cache.entries.get(key);
+        if (!unit) {
+          let end = start;
+          while (end < n && !(ascending ? xValues[end]! > peak.center + half : xValues[end]! < peak.center - half)) end++;
+          const shape = new Float64Array(end - start);
+          const taper = new Float64Array(end - start);
+          for (let i = start; i < end; i++) {
+            const x = xValues[i]!;
+            shape[i - start] = shapeAt(x, peak, opts);
+            taper[i - start] = supportTaper(Math.abs(x - peak.center), half);
+          }
+          unit = { start, shape, taper };
+          if (cache.values + 2 * shape.length > UNIT_PROFILE_CACHE_VALUES) {
+            cache.entries.clear();
+            cache.values = 0;
+          }
+          if (2 * shape.length <= UNIT_PROFILE_CACHE_VALUES) {
+            cache.entries.set(key, unit);
+            cache.values += 2 * shape.length;
+          }
+        }
+        const { shape, taper } = unit;
+        for (let j = 0; j < shape.length; j++) {
+          const i = unit.start + j;
+          y[i] = y[i]! + peak.intensity * shape[j]! * taper[j]!;
+        }
+        continue;
+      }
       for (let i = start; i < n; i++) {
         const x = xValues[i]!;
         if (ascending ? x > peak.center + half : x < peak.center - half) break;

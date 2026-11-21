@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { erfc, erfcxNonneg, imExpE1, tchPseudoVoigt, tofBackToBack, type TofLorentzForm, type TofShape } from "@/core/diffraction/profile";
+import { erfc, erfcxNonneg, imExpE1, PEAK_WINDOW_FWHM, supportTaper, synthesizePattern, tchPseudoVoigt, tofBackToBack, type ProfilePeak, type TofLorentzForm, type TofShape } from "@/core/diffraction/profile";
 
 /**
  * The time-of-flight peak with a Lorentzian width, against values computed at
@@ -182,5 +182,51 @@ describe("TOF peak with a Lorentzian width", () => {
       const smoothBound = 50 * ((2 * span) / n / Math.min(s.sigma, 1 / s.alpha, 1 / s.beta, 2.3548 * s.sigma + s.gamma)) ** 2;
       expect(worst, `${lorentzForm} ${JSON.stringify(s)}`).toBeLessThan(Math.max(1e-10, smoothBound));
     }
+  });
+});
+
+describe("a pattern of Lorentzian TOF peaks, with their unit profiles kept between evaluations", () => {
+  /** The pattern summed directly, peak by peak and point by point, with no cache: the same factors in the same order. */
+  function direct(xs: readonly number[], peaks: readonly ProfilePeak[]): Float64Array {
+    const y = new Float64Array(xs.length);
+    for (const peak of peaks) {
+      const half = PEAK_WINDOW_FWHM * peak.fwhm;
+      for (let i = 0; i < xs.length; i++) {
+        const x = xs[i]!;
+        if (x < peak.center - half || x > peak.center + half) continue;
+        y[i] = y[i]! + peak.intensity * tofBackToBack(x - peak.center, peak.tof!) * supportTaper(Math.abs(x - peak.center), half);
+      }
+    }
+    return y;
+  }
+  const xs = Array.from({ length: 3000 }, (_, i) => 2000 * 1.0008 ** i);
+  const peaksAt = (scale: number, gamma: number, shift = 0): ProfilePeak[] =>
+    [2600, 4100, 4180, 7300, 15000].map((center, k) => ({
+      center: center + shift, intensity: scale * (k + 1), fwhm: 400 + 60 * k,
+      tof: { alpha: 0.4 / (k + 1), beta: 0.05, sigma: 6 + 3 * k, gamma: gamma * (k + 1), lorentzForm: k % 2 ? "fullprof" as const : "gsas" as const },
+    }));
+  const same = (a: Float64Array, b: Float64Array): boolean => a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
+
+  it("is bit for bit the pattern summed directly: on the first evaluation, on a repeat, and with other intensities", () => {
+    const first = synthesizePattern(xs, peaksAt(1, 4), { shape: "tof" });
+    expect(same(first, direct(xs, peaksAt(1, 4)))).toBe(true);
+    expect(same(synthesizePattern(xs, peaksAt(1, 4), { shape: "tof" }), first)).toBe(true);
+    // Other intensities, the same shapes: from the kept profiles.
+    expect(same(synthesizePattern(xs, peaksAt(3.7, 4), { shape: "tof" }), direct(xs, peaksAt(3.7, 4)))).toBe(true);
+  });
+
+  it("a peak that moved or changed shape is computed anew, never taken from a kept profile", () => {
+    synthesizePattern(xs, peaksAt(1, 4), { shape: "tof" });
+    for (const peaks of [peaksAt(1, 4, 0.37), peaksAt(1, 5.5), peaksAt(1, 4).map((p) => ({ ...p, fwhm: p.fwhm * 1.01 })), peaksAt(1, 4).map((p) => ({ ...p, tof: { ...p.tof!, lorentzForm: "fullprof" as const } }))]) {
+      expect(same(synthesizePattern(xs, peaks, { shape: "tof" }), direct(xs, peaks))).toBe(true);
+    }
+    // And the first set again, after the others.
+    expect(same(synthesizePattern(xs, peaksAt(1, 4), { shape: "tof" }), direct(xs, peaksAt(1, 4)))).toBe(true);
+  });
+
+  it("another grid has its own profiles", () => {
+    const other = xs.map((x) => x + 0.5);
+    synthesizePattern(xs, peaksAt(1, 4), { shape: "tof" });
+    expect(same(synthesizePattern(other, peaksAt(1, 4), { shape: "tof" }), direct(other, peaksAt(1, 4)))).toBe(true);
   });
 });
