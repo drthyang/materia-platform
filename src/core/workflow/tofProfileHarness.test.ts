@@ -101,7 +101,8 @@ describe.skipIf(!JOB || !existsSync(JOB ?? ""))("TOF profile harness: what the p
       const rows = Object.fromEntries(spec.params.filter((p) => /^(tof_|zero$|mustrain)/.test(p.id)).map((p) => [p.id, { value: p.value, fixed: p.fixed, min: p.min ?? null, max: p.max ?? null }]));
       const perD = pj.d.map((d) => {
         const [peak] = placePeaks(probe, applied, [{ d, intensity: 1 }]);
-        if (!peak?.tof) throw new Error("no TOF peak");
+        // No positive width at this d from the file: the page draws no peak there.
+        if (!peak?.tof) return { d, noPeak: true };
         const half = (pj.halfWidths ?? 40) * (2.3548 * peak.tof.sigma + 1 / peak.tof.alpha + 1 / peak.tof.beta) / 4;
         const n = pj.n ?? 4001;
         const dt = Array.from({ length: n }, (_, i) => -half + (2 * half * i) / (n - 1));

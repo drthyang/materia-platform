@@ -53,6 +53,9 @@ def cmd_table(out_dir):
         p = prog.read_instprm(case["file"], case["bank"] or 1) if case["program"] == "gsas2" else prog.read_irf(case["file"])
         print(f"\n== {case['label']} ({case['program']})   app rows: " + ", ".join(f"{k}={v['value']:.6g}" for k, v in mp["rows"].items()))
         for pd in mp["perD"]:
+            if pd.get("noPeak"):
+                print(f"d={pd['d']:4.2f}  the app draws no peak: the file gives no positive width here")
+                continue
             d = pd["d"]
             dt = np.linspace(pd["dtMin"], pd["dtMax"], pd["n"])
             y = np.array(pd["y"])
