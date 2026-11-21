@@ -11,6 +11,9 @@ fixtures/synthetic_three_banks.instprm.
                peak routine, its own peak range.
   reference_*  calculated here, with nothing of GSAS-II or of the app: diamond-structure factors
                written out by hand, and the peak of reference.py, in each program's form.
+  reference_irf_*  the same on the synthetic FullProf resolution files, each read by this
+               folder's own reader with FullProf's functions of d and FullProf's form of the peak
+               (no FullProf run). A negative Lorentzian width counts as none.
 
 Each case holds the abscissa, the calculated pattern on a flat background, and the same pattern
 with counting noise from a fixed seed.
@@ -134,6 +137,21 @@ def reference_case(bank, form, mustrain, size, gauss, peak_counts, seed):
             "x": [round(float(v), 3) for v in x], "y": [float("%.8g" % v) for v in y], "yNoisy": [int(v) for v in noisy(y, seed)]}
 
 
+def reference_irf_case(fixture, gauss, peak_counts, seed, step=6.0e-4):
+    path = os.path.join(HERE, "fixtures", fixture)
+    p = prog.read_irf(path)
+    lo, hi = prog.fullprof_terms(p, 0.62)["pos"], prog.fullprof_terms(p, 3.30)["pos"]
+    x = lo * np.exp(step * np.arange(int(math.log(hi / lo) / step) + 1))
+    y = np.zeros_like(x)
+    for d, inten in diamond_reflections(0.62, 3.30):
+        t = prog.fullprof_terms(p, d)
+        t["sig2"] += (abs(p["dtt1"] + 2 * p["dtt2"] * d) * gauss * 1e-6 * d) ** 2
+        y += inten * prog.fullprof_peak(x - t["pos"], t)
+    y = y * (peak_counts / y.max()) + BACKGROUND
+    return {"program": "reference", "form": "fullprof", "instrument": "scripts/tof-profile/fixtures/" + fixture,
+            "sample": {"gauss": gauss}, "x": [round(float(v), 3) for v in x], "y": [float("%.8g" % v) for v in y], "yNoisy": [int(v) for v in noisy(y, seed)]}
+
+
 def main():
     cases = {}
     if prog.gsas2_module() is not None:
@@ -143,6 +161,8 @@ def main():
         print("GSAS-II is not importable: the gsas2_* cases are not written")
     cases["reference_bank2_gsas_form"] = reference_case(2, "gsas", 1000.0, 1.0, 0.0, 40000.0, 13)
     cases["reference_bank3_fullprof_form"] = reference_case(3, "fullprof", 1800.0, 0.5, 900.0, 40000.0, 14)
+    cases["reference_irf_a"] = reference_irf_case("synthetic_a.irf", 600.0, 40000.0, 15)
+    cases["reference_irf_b_negative_gamma"] = reference_irf_case("synthetic_b_negative_gamma.irf", 0.0, 40000.0, 16)
     json.dump({"note": "written by scripts/tof-profile/simulate_known_truth.py; do not edit", "structure": {"cif": CIF, "a": A, "uiso": UISO},
                "background": BACKGROUND, "instrumentFile": "scripts/tof-profile/fixtures/synthetic_three_banks.instprm", "cases": cases},
               open(OUT, "w"), separators=(",", ":"))

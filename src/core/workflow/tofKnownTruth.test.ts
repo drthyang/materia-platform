@@ -21,13 +21,18 @@ import { refine } from "@/core/refinement/engine";
  * (scripts/tof-profile/simulate_known_truth.py): two calculated by GSAS-II
  * itself (GSASIIscriptable: its structure factors, its peak routine, its peak
  * range), two by an independent Python reference that shares nothing with the
- * app or with GSAS-II. Each is refitted with the file's profile held.
+ * app or with GSAS-II, and two by that reference on synthetic FullProf `.irf`
+ * files, in FullProf's functions and form (no FullProf run stands behind
+ * those). Each is refitted with the file's profile held.
  */
 interface Case {
   program: "gsas2" | "reference";
   form?: "gsas" | "fullprof";
-  bank: number;
-  sample: { size: number; mustrain: number; mustrainMix: number; gauss?: number };
+  /** A bank of the synthetic `.instprm`, or … */
+  bank?: number;
+  /** … a FullProf `.irf` of its own. */
+  instrument?: string;
+  sample: { size?: number; mustrain?: number; mustrainMix?: number; gauss?: number };
   x: number[]; y: number[]; yNoisy: number[];
   reflections?: { h: number; k: number; l: number; d: number; pos: number; sig2: number; gam: number; alpha: number; beta: number; intensity: number }[];
 }
@@ -46,18 +51,21 @@ const valuesOf = (params: readonly RefinementParameter[]): Record<string, number
 function setUp(c: Case, y: readonly number[]) {
   const structure = parseCif(TRUTH.structure.cif, "si");
   const pattern = { id: "kt", name: "kt", xUnit: "tof", radiation: { kind: "neutron-tof" }, points: c.x.map((x, i) => ({ x, yObs: y[i]!, sigma: Math.sqrt(Math.max(y[i]!, 1)) })) } as PowderPattern;
-  const instrument = parseInstrumentParameters(INSTPRM, c.bank);
+  const instrument = c.instrument ? parseInstrumentParameters(readFileSync(c.instrument, "utf8")) : parseInstrumentParameters(INSTPRM, c.bank);
   const spec = buildPowderSpec(structure, pattern, instrument, true, 2);
   // GSAS-II's one Mustrain with a Lorentzian fraction is a Lorentzian row and a Gaussian row (core/export/gsas2.ts).
-  const lorentz = c.sample.mustrain * c.sample.mustrainMix;
-  const gauss = c.sample.gauss ?? (c.sample.mustrain * (1 - c.sample.mustrainMix)) / (2 * Math.sqrt(2 * Math.LN2));
+  const mustrain = c.sample.mustrain ?? 0, mix = c.sample.mustrainMix ?? 1;
+  const lorentz = mustrain * mix;
+  const gauss = c.sample.gauss ?? (mustrain * (1 - mix)) / (2 * Math.sqrt(2 * Math.LN2));
   const free = new Set(["scale", "background", "cellLength", "bIso"]);
   const params = spec.params.map((p) => {
-    const value = p.id === "tofSampleLorentz" ? lorentz : p.id === "tofSampleSize" ? c.sample.size : p.id === "tofSampleGauss" ? gauss
+    const value = p.id === "tofSampleLorentz" ? lorentz : p.id === "tofSampleSize" ? (c.sample.size ?? p.value) : p.id === "tofSampleGauss" ? gauss
       : p.kind === "cellLength" ? p.value + 0.004 : p.kind === "bIso" ? 0.7 : p.value;
     return { ...p, value, initialValue: value, fixed: !free.has(p.kind) };
   });
-  if (c.form) for (const b of spec.bindings) if (b.tofLorentzForm) (b as { tofLorentzForm: string }).tofLorentzForm = c.form;
+  // On the .instprm the form is the case's (the peak function in FullProf's form, on GSAS-II-style rows); an .irf brings its own.
+  if (c.form && !c.instrument) for (const b of spec.bindings) if (b.tofLorentzForm) (b as { tofLorentzForm: string }).tofLorentzForm = c.form;
+  if (c.instrument) expect(spec.bindings.find((b) => b.tofLorentzForm)?.tofLorentzForm).toBe("fullprof");
   return { structure, pattern, params, bindings: spec.bindings, profile: spec.profile };
 }
 
@@ -95,7 +103,7 @@ describe("TOF profile of a GSAS-II file: the terms land where GSAS-II puts them"
         }
       }
       // GSAS-II's Gaussian share of the microstrain uses difC alone, the app's row |dT/dd|: they differ by 2·difA·d/difC of that share.
-      expect(worst).toBeLessThan(c.sample.mustrainMix === 1 ? 1e-9 : 2e-3);
+      expect(worst).toBeLessThan((c.sample.mustrainMix ?? 1) === 1 ? 1e-9 : 2e-3);
     });
 
     it(`${name}: the integrated intensities are GSAS-II's, up to one constant`, () => {
@@ -123,7 +131,7 @@ describe("TOF profile of a GSAS-II file: the terms land where GSAS-II puts them"
   }
 });
 
-describe("TOF profile of a GSAS-II file: known truth refitted with the file held", () => {
+describe("TOF profile of an instrument file: known truth refitted with the file held", () => {
   for (const [name, c] of Object.entries(TRUTH.cases)) {
     it(`${name}: the noise-free pattern is reproduced, and the noisy one gives the cell, B and scale back within 3 esd at the noise level`, () => {
       const exact = fit(c, c.y);
