@@ -396,6 +396,11 @@ can also show its standard cell (at k ≠ 0, the magnetic cell).
 2. The rows sort by fit, with wR, the change from the **nuclear only** fit and
    the moment sizes. Click a ranked row to preview its refined moments.
 
+The ranking fits each candidate once, to compare them. **Refine moments**
+(Step 5) also re-refines the scale and the background, so for the same group
+its wR can read lower and its moment a few per cent higher than the ranking's.
+The **nuclear only** value stays the nuclear-only fit's after Refine moments.
+
 Ties are expected, because a powder pattern often cannot tell symmetry-distinct
 models apart. Candidates within the noise of the best fit by Hamilton's test are
 marked ≈. Among them the ★ goes top-down: to a group none of the others
@@ -423,15 +428,30 @@ the **allowed** row.
 
 ### Step 5: Moments — refine & continue
 
-1. Edit the amplitudes (µ_B), or click **Refine moments** to fit them with the
-   nuclear model fixed.
+1. Edit the amplitudes (µ_B), or click **Refine moments** to fit them. The
+   nuclear structure is held; the scale and the background are re-refined with
+   the magnetic model. The fit runs in rounds: the moments, then the scale and
+   the background, each with the other held, until no moment moves by 0.1 of
+   its esd. It ends on a moments step, and a moment never refines together
+   with a nuclear row.
+   - The line under the button gives the result: `wR = 5.0% · settled in 4
+     rounds`. Click it (or its **?**) for the details and each amplitude's esd,
+     which includes the scale's and the background's uncertainty.
+   - The page's scale and background rows take the re-refined values, as one
+     History step. A model already shown or continued on the refinement page
+     follows the fitted moments.
+   - **Cancel** stops the fit and leaves everything as it was.
+   - `not settled after 10 rounds` means a moment was still moving: a
+     component the data do not determine. Tie or hold it.
 2. Tie moments if the physics calls for it. **Same moment on shared site**
    gives co-located ions one moment. **Equal |M|** gives sublattices one size,
    **per element** or across **all sites**; **flip …** makes one antiparallel.
 3. Click **Continue in refinement page →**. The moments join the **Magnetic**
    group on the refinement page.
 4. Click **Refine** to fit the nuclear and magnetic models together, with one
-   shared scale. **Prefit ↻** and **Escape min ↻** then also search the moments.
+   shared scale. With every nuclear row fixed, **Refine** fits the moments
+   alone, and their esds include the scale's and the background's uncertainty.
+   **Prefit ↻** and **Escape min ↻** then also search the moments.
    Prefit kicks every moment on the scale of the largest one, so a sublattice
    an earlier fit switched off can turn back on.
 
@@ -1108,8 +1128,10 @@ and the Copilot gets a refusal that names the reason:
   microstrain on its own. You can lift one of these for a stated reason,
   through a card that always asks;
 - the space group is questioned last, on a converged fit;
-- in the magnetic step the moments are fitted against the nuclear model held
-  fixed, and the report waits for the final instrument pass;
+- in the magnetic step the moments are fitted with the nuclear structure
+  held (the scale and the background re-refined between moments steps), and
+  the report waits for the final instrument pass and, after it, a refinement
+  of the moments alone;
 - nothing runs while a refinement or the posterior sampler is running.
 
 ### Lower the symmetry

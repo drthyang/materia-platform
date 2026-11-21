@@ -41,6 +41,69 @@ describe("refinement engine (Levenberg–Marquardt)", () => {
     expect(result.combinationEsd?.absent).toBeUndefined();
   });
 
+  describe("esdWith: the esd with held parameters' uncertainty included", () => {
+    // y = a·u + b·v, u and v alike enough that a and b trade off.
+    const u = [1, 2, 3, 4, 5, 6, 7, 8];
+    const v = u.map((x, i) => x * (1 + 0.2 * ((i % 3) - 1)) + 0.5);
+    const noise = [0.03, -0.02, 0.01, -0.04, 0.02, 0.01, -0.03, 0.02];
+    const weights = Float64Array.from(u.map(() => 1));
+    const problemOf = (aFixed: boolean, bFixed: boolean, start: { a: number; b: number }, second: readonly number[] = v): RefinementProblem => ({
+      parameters: [
+        { id: "a", label: "a", kind: "twinFraction", value: start.a, initialValue: start.a, fixed: aFixed },
+        { id: "b", label: "b", kind: "twinFraction", value: start.b, initialValue: start.b, fixed: bFixed },
+      ],
+      observations: Float64Array.from(u.map((x, i) => 0.7 * x + 0.3 * second[i]! + noise[i]!)),
+      weights,
+      calculate: (p) => Float64Array.from(u.map((x, i) => (p.a ?? 0) * x + (p.b ?? 0) * second[i]!)),
+    });
+
+    it("at the joint minimum, a refined alone with b named gives the joint fit's esd of a, keyed by a only", () => {
+      const joint = refine(problemOf(false, false, { a: 0.5, b: 0.5 }), { maxIterations: 50 });
+      const at = { a: joint.parameters.a!, b: joint.parameters.b! };
+      const alone = refine(problemOf(false, true, at), { maxIterations: 50 });
+      const withB = refine(problemOf(false, true, at), { maxIterations: 50, esdWith: ["b"] });
+      // Nothing was stepped in b, and a did not move: the fit is the same.
+      expect(withB.parameters.a).toBeCloseTo(at.a, 9);
+      expect(withB.parameters.b).toBe(at.b);
+      expect(Object.keys(withB.esd)).toEqual(["a"]);
+      expect(withB.diagnostics?.esdIncludes).toEqual(["b"]);
+      expect(withB.diagnostics?.esdWithFailed).toBeUndefined();
+      expect(withB.esd.a).toBeCloseTo(joint.esd.a!, 8);
+      // By hand: C_aa = S_vv / (S_uu·S_vv − S_uv²) · χ²/(n − 2), against 1/S_uu · χ²/(n − 1) for a alone.
+      const suu = u.reduce((t, x) => t + x * x, 0);
+      const svv = v.reduce((t, x) => t + x * x, 0);
+      const suv = u.reduce((t, x, i) => t + x * v[i]!, 0);
+      const chi2 = u.reduce((t, x, i) => t + (0.7 * x + 0.3 * v[i]! + noise[i]! - at.a * x - at.b * v[i]!) ** 2, 0);
+      expect(withB.esd.a).toBeCloseTo(Math.sqrt((svv / (suu * svv - suv * suv)) * (chi2 / (u.length - 2))), 8);
+      expect(alone.esd.a).toBeCloseTo(Math.sqrt((1 / suu) * (chi2 / (u.length - 1))), 8);
+      expect(withB.esd.a! / alone.esd.a!).toBeGreaterThan(2);
+      expect(alone.diagnostics?.esdIncludes).toBeUndefined();
+    });
+
+    it("a held parameter the data cannot tell from the refined one: the esd of the refined parameter alone, and the reason", () => {
+      // v ≡ u: a and b are one parameter.
+      const alone = refine(problemOf(false, true, { a: 0.5, b: 0.3 }, u), { maxIterations: 50 });
+      const withB = refine(problemOf(false, true, { a: 0.5, b: 0.3 }, u), { maxIterations: 50, esdWith: ["b"] });
+      expect(withB.esd.a).toBe(alone.esd.a);
+      expect(withB.diagnostics?.esdIncludes).toBeUndefined();
+      expect(withB.diagnostics?.esdWithFailed).toMatch(/the esds are those of the refined parameters alone/);
+      expect(withB.parameters).toEqual(alone.parameters);
+    });
+
+    it("ignores a name that is free, tied or unknown, and is the same under the parallel driver", async () => {
+      const start = { a: 0.5, b: 0.31 };
+      const plain = refine(problemOf(false, true, start), { maxIterations: 50 });
+      const named = refine(problemOf(false, true, start), { maxIterations: 50, esdWith: ["a", "nobody"] });
+      expect(named.esd).toEqual(plain.esd);
+      expect(named.diagnostics?.esdIncludes).toBeUndefined();
+      const serial = refine(problemOf(false, true, start), { maxIterations: 50, esdWith: ["b"] });
+      const problem = problemOf(false, true, start);
+      const parallel = await refineParallel(problem, { maxIterations: 50, esdWith: ["b"] }, { evaluate: async (sets) => sets.map((x) => problem.calculate(x)) });
+      expect(parallel.esd).toEqual(serial.esd);
+      expect(parallel.diagnostics).toEqual(serial.diagnostics);
+    });
+  });
+
   it("recovers a linear scale factor from synthetic data", () => {
     // y = scale · model, true scale = 2.5. Start at 1.0.
     const model = [1, 4, 9, 16, 25];

@@ -92,8 +92,15 @@ export function magneticNext(s: MagneticPanelState): string {
   if (!s.selected) return s.best === null
     ? "set_propagation_vector to the k the search supports (the simplest of equal fits), then rank_magnetic_groups"
     : `choose_magnetic_group (the ranking's best: ${s.best}), then refine_moments`;
-  if (s.selected.fitAgreement === null) return "refine_moments: fit the chosen group's moments, the nuclear model held";
-  return "the moments are fitted: refine the nuclear and magnetic models together on the refinement step, then report the group, k and the moments with what the powder cannot tell";
+  if (s.selected.fitAgreement === null) return "refine_moments: fit the chosen group's moments (the nuclear structure held; the scale and the background re-refined with the magnetic model)";
+  const fitted = s.selected.fitRounds && !s.selected.fitRounds.settled ? `the moments fit did not settle (${roundsText(s.selected.fitRounds)}): tie or hold the component the data do not determine, or refine_moments again; then` : "the moments are fitted:";
+  return `${fitted} continue_magnetic_refinement puts them on the refinement step; report the group, k and the moments with what the powder cannot tell`;
+}
+
+/** A moments fit's rounds in words: "settled in 4 rounds", "not settled after 10 rounds, a moment still moved by 0.12 esd". */
+export function roundsText(r: NonNullable<NonNullable<MagneticPanelState["selected"]>["fitRounds"]>): string {
+  const n = `${r.count} round${r.count === 1 ? "" : "s"}`;
+  return r.settled ? `settled in ${n}` : `not settled after ${n}, a moment still moved by ${sig(r.lastShiftOverEsd, 2)} esd`;
 }
 
 /**
@@ -108,6 +115,9 @@ export function k0Peaks(s: MagneticPanelState): number[] | null {
   // The step exists for magnetic ions; neutron data is the reading's premise (the text says so).
   return k0MagneticHint(true, onNuclear.map((p) => ({ d: p.d, ...(p.sigmas !== undefined ? { significance: p.sigmas } : {}) }))) ? onNuclear.map((p) => p.n) : null;
 }
+
+/** An amplitude's esd after its value, " ± 0.010"; nothing without one. */
+const esdText = (esd: number | undefined): string => (esd !== undefined && esd > 0 ? ` ± ${sig(esd, 2)}` : "");
 
 /** The step as the model reads it: compact, the candidates that can carry a moment first. */
 export function magneticView(s: MagneticPanelState): Record<string, unknown> {
@@ -153,9 +163,10 @@ export function magneticView(s: MagneticPanelState): Record<string, unknown> {
         chosen: {
           id: s.selected.id,
           group: s.selected.symbol,
-          parameters: s.selected.parameters.map((p) => `${p.id} = ${sig(p.value, 4)}${p.tiedTo ? ` (= ${p.tiedTo})` : ""}`),
+          parameters: s.selected.parameters.map((p) => `${p.id} = ${sig(p.value, 4)}${esdText(s.selected!.fitRounds?.esd[p.id])}${p.tiedTo ? ` (= ${p.tiedTo})` : ""}`),
           moments: s.selected.moments.map((m) => `${m.site}${m.orbit ? `#${m.orbit}` : ""}: ${sig(m.muB, 3)} µB`),
           ...(s.selected.fitAgreement !== null ? { momentsFitWR: pct(s.selected.fitAgreement) } : {}),
+          ...(s.selected.fitRounds ? { momentsFit: `${roundsText(s.selected.fitRounds)}${s.selected.fitRounds.esdIncludes ? "; the esds include the scale and the background" : "; the esds are of the moments alone (the data do not separate them from the scale and the background)"}` } : {}),
         },
       }
       : {}),
@@ -313,10 +324,14 @@ export const MAGNETIC_PLANS: Pick<Plans<PowderAgentPort>, MagneticChangeTool> = 
   },
   refine_moments: (_input, _s, port) => {
     const { selected } = handleOf(port).state();
-    const preview = selected ? `Fit the moments of ${selected.symbol} (${selected.parameters.length} amplitude${selected.parameters.length === 1 ? "" : "s"}), nuclear model held` : "Fit the moments";
+    const preview = selected ? `Fit the moments of ${selected.symbol} (${selected.parameters.length} amplitude${selected.parameters.length === 1 ? "" : "s"}), nuclear structure held, scale and background re-refined` : "Fit the moments";
     return change(preview, onStep(port, async (h) => {
       const wR = await h.refineMoments();
-      return wR === null ? "The moments fit did not run." : `Moments fitted: wR ${pct(wR)}%.`;
+      if (wR === null) return "The moments fit did not run.";
+      const rounds = h.state().selected?.fitRounds;
+      return rounds
+        ? `Moments fitted, ${roundsText(rounds)}: wR ${pct(wR)}%. The page's scale and background rows hold the re-refined values.`
+        : `Moments fitted: wR ${pct(wR)}%.`;
     }));
   },
   show_magnetic_model: (input, _s, port) => {

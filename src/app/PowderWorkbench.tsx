@@ -52,6 +52,7 @@ import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
 import { KSearchPanel, type MagneticPatternView } from "@/components/KSearchPanel";
+import { MOMENT_ROUNDS_STEP } from "@/app/magneticStep";
 import type { DemoEntry, DemoId } from "@/app/demos";
 import { useOnChange } from "@/app/useOnChange";
 import { momentEntriesFrom } from "@/app/ui/cellModel";
@@ -95,8 +96,8 @@ import { type Session, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSessio
 import {
   BACKGROUND_TERMS, backgroundTermsEntry, curvesGoodnessOfFit, extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
   powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR as weightedROf, withAnisotropicAdp, withAntisitePair, withBackgroundTerms,
-  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf, magneticModelSummary,
-  changed, snapshotHolds, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type PowderPage, type PowderPageModel,
+  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMomentRoundRows, momentRoundValues, momentEsdOptions, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf, magneticModelSummary,
+  changed, snapshotHolds, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type FittedMoments, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
 import { zeroAdpStepLabel, type ZeroAdpChoice, type ZeroAdpFix, type ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
 import { ZeroAdpNotice } from "@/app/ui/ZeroAdpNotice";
@@ -705,11 +706,16 @@ export function PowderWorkbench({
       if (magneticApplied) {
         await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
         const coRefined = momentRowsFree();
+        // Magnetic rows alone free (the moments, and k): the nuclear model is held, and the moment esds carry the
+        // uncertainty of the scale and the background (powderPage.ts, momentEsdOptions).
+        const momentsOnly = "esdWith" in momentEsdOptions(session);
         const result = await powderFit({ maxIterations: 20 });
         setPage((p) => withFit(p, result));
+        const wR = `wR = ${(100 * (result.agreement.rWeighted ?? 0)).toFixed(2)}%`;
         setMessage(
-          `${coRefined ? "Nuclear + magnetic" : "Nuclear (magnetic model held)"} refinement ${result.status}: ` +
-          `wR = ${(100 * (result.agreement.rWeighted ?? 0)).toFixed(2)}%.`,
+          momentsOnly
+            ? `Moments refinement ${result.status} (nuclear model held): ${wR}.${result.diagnostics?.esdIncludes?.length ? " The moment esds include the scale and the background." : result.diagnostics?.esdWithFailed ? " The moment esds are of the moments alone: the data do not separate them from the scale and the background." : ""}`
+            : `${coRefined ? "Nuclear + magnetic" : "Nuclear (magnetic model held)"} refinement ${result.status}: ${wR}.`,
         );
         stepHistory?.requestStep("refine", coRefined ? "Refine nuclear + magnetic" : "Refine (magnetic model held)");
         return null;
@@ -910,6 +916,22 @@ export function PowderWorkbench({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for activeWindow
     [client, session, tofViewOnly, activeWindow?.min, activeWindow?.max],
   );
+
+  // The rows a moments fit's rounds refine beside the moments (the scale and the background), as the page holds them:
+  // the step knows by them whether the page still carries what its last fit handed back.
+  const momentRoundRows = useMemo(() => momentRoundValues(session), [session]);
+  // The session as it stands when a fit ends, whatever render its callback was made in.
+  const sessionNow = useRef(session);
+  sessionNow.current = session;
+
+  /** A moments fit's rounds re-refined the scale and the background with the magnetic model: the page takes them, as one History step. */
+  const takeMomentRoundRows = useCallback((held: Readonly<Record<string, number>>, fitted: FittedMoments): void => {
+    // Nothing to take (a fit run again at its end, no model shown): no change of the page, no History step.
+    if (withMomentRoundRows(sessionNow.current, held, fitted) === sessionNow.current) return;
+    change((s) => withMomentRoundRows(s, held, fitted));
+    stepHistory?.requestStep("magnetic", MOMENT_ROUNDS_STEP);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- change and the History binding are the page's own
+  }, [stepHistory]);
 
   /** "Show on refinement pattern": put a candidate model on the session WITHOUT
    *  its parameter rows — the refinement page then plots nuclear + this model
@@ -1805,6 +1827,8 @@ export function PowderWorkbench({
               focusFitToken={focusFitToken}
               magneticFit={powderMagneticFit}
               baselineAgreement={nuclearWr}
+              nuclearValues={momentRoundRows}
+              onMomentFit={takeMomentRoundRows}
               preselect={session.magnetic ?? null}
               onApply={applyMagneticPreview}
               onContinue={continueRefinementWithMagnetic}

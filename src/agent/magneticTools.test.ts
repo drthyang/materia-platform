@@ -98,7 +98,7 @@ describe("the magnetic analysis step through the Agent", () => {
     const chosen = parse((await ex.run("choose_magnetic_group", { id: MAGNETIC_TRUTH.id })).text);
     expect((chosen.chosen as { group: string }).group).toBe(truthGroup);
     const fitted = parse((await ex.run("refine_moments", {})).text);
-    expect(String(fitted.note)).toMatch(/^Moments fitted: wR \d+(\.\d+)?%\.$/);
+    expect(String(fitted.note)).toMatch(/^Moments fitted, settled in \d+ rounds?: wR \d+(\.\d+)?%\. The page's scale and background rows hold the re-refined values\.$/);
     const moment = Number(/([\d.]+) µB/.exec((fitted.chosen as { moments: string[] }).moments[0]!)![1]);
     expect(moment).toBeGreaterThan(0.9 * MAGNETIC_TRUTH.moment);
 

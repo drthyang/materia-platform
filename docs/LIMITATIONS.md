@@ -379,6 +379,20 @@ approximate, however plausible its output looks.
   F-centred satellites; at k = 0 the moment sizes match GSAS-II; and |F_M|²
   matches GSAS-II reflection by reflection on the Mn₃Ga 350 K data.
 
+- Refine moments on the powder page reaches the moments a fit of the scale,
+  the background and the moments together would give, without such a fit. A
+  nuclear-only fit takes the magnetic intensity it does not model into its
+  background and scale, and one moments fit against those read 4.06 µB for a
+  true 4.2 (10 esd low) on a synthetic MnWO₄ pattern calculated without the
+  app's code. Refine moments now alternates: the moments with every nuclear
+  row held, then the scale and the background with the moments held, until no
+  moment moves by 0.1 of its esd (at most ten rounds), ending on a moments
+  step. It reads 4.200 over 48 noise seeds at k = (½, 0, 0), and within 3 esd
+  of the truth at k = 0. The
+  esd of a moment refined alone includes the scale's and the background's
+  uncertainty, and matches the scatter (0.98 over 1000 seeds; the moments-only
+  esd was 10 to 29 % too small).
+
 - Strong magnetic peaks on the nuclear lines (k = 0). The nuclear model alone
   takes up k = 0 magnetic intensity: on the simulated Mn₃Ga 30 K pattern
   (Example 3) the B's of a nuclear-only ADP stage came out 3–6× too large and
@@ -395,6 +409,28 @@ approximate, however plausible its output looks.
   k-search by `diagnose_fit`'s unexplained-peak cause.
 
 **Approximate**
+- The ranking fits each group once, against the page's scale and background as
+  they stand. After a nuclear-only fit a ranked moment reads low (1 to 3 % on
+  the test patterns) and its wR high; Refine moments on the chosen group gives
+  the settled values. The ★ did not depend on it: the same group in 23 of 24
+  rankings of the synthetic patterns.
+- The rounds re-refine the scale and the background only. A peak shape fitted
+  before the magnetic peaks were modelled stays as it was: on the synthetic
+  pattern a width 1 % too wide moved the two components of an in-plane moment
+  by 0.3 esd each, and a one-component moment not at all. Refining the peak
+  shape with the model shown, then the moments again, removes it (the
+  Copilot's method does this as its last two steps).
+- On a multi-phase page the rounds refine every phase's scale. That is not
+  tested against a known answer.
+- The single-crystal and magnetic-PDF moment fits are one fit with the nuclear
+  model held, as before. Whether they need rounds has not been measured.
+- The nuclear-only wR the magnetic step compares with is kept through Refine
+  moments while the project is open, not in the project file: a reopened
+  project shows the page's own value, which the re-refined scale and
+  background make a little higher.
+- The MCP tools have no rounds: alternate `refine_magnetic_powder` by hand
+  (the moments free; then the scale and the background free, the moments
+  held).
 - The k = 0 guard is advice, not a rule: the method's order (ADPs before the
   magnetic step) is the user's. It does not apply to k ≠ 0 satellites that
   overlap nuclear lines by accident in d, where a nuclear-first fit can still

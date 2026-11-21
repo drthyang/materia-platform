@@ -45,7 +45,9 @@ import { powderBindings } from "@/examples/synthetic";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { MagneticFit, ResidualPeak } from "@/app/magneticStep";
 import { noiseOf } from "@/core/magnetic/momentRestarts";
+import { alternateMoments } from "@/core/magnetic/momentAlternation";
 import { momentBindingKey, type MagneticModel } from "@/core/magnetic/types";
+import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import type { Vec3 } from "@/core/math/types";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { fitAmplitudesToMoments } from "@/core/magnetic/amplitudeFit";
@@ -849,13 +851,27 @@ function nuclearRequest(page: PowderPageModel, parameters: readonly RefinementPa
 }
 
 /**
+ * For a refinement that frees magnetic rows only (the moments, and k's
+ * components): the held scale and background rows its esds are to include
+ * (the engine's `esdWith`). Those rows were fitted to the same pattern, and a
+ * moment's esd without their uncertainty is too small (10 to 29 % on the
+ * report's patterns). Nothing for any other free set: its esds are its own.
+ */
+export function momentEsdOptions(s: Session): Pick<RefinementOptions, "esdWith"> | Record<string, never> {
+  const free = s.powderParams.filter((p) => !p.fixed && !p.expression);
+  if (!free.some((p) => isMomentParameterKind(p.kind)) || !free.every((p) => isMagneticModelParameterKind(p.kind))) return {};
+  const esdWith = Object.keys(momentRoundValues(s));
+  return esdWith.length > 0 ? { esdWith } : {};
+}
+
+/**
  * The Refine button's fit of the current free set: with an applied magnetic
  * model, nuclear + magnetic on the shared scale; otherwise the nuclear
  * pattern. Applies nothing: the caller does, or (the Agent's correlation
  * probe) only reads it.
  */
 export function powderFit(client: PowderCompute, page: PowderPageModel, options: Partial<RefinementOptions>, gpu = false, onProgress?: PowderProgress): Promise<RefinementResult> {
-  if (magneticApplied(page.session)) return client.refineMagneticPowderParallel(magneticSpec(page), options);
+  if (magneticApplied(page.session)) return client.refineMagneticPowderParallel(magneticSpec(page), { ...options, ...momentEsdOptions(page.session) });
   return client.refinePowderParallel({ ...nuclearRequest(page), options, useGpu: gpu }, onProgress);
 }
 
@@ -1048,26 +1064,101 @@ export function momentFitRequest(s: Session, window: FitWindow | null, magnetic:
 }
 
 /**
+ * The nuclear rows a moments fit run as rounds refines between its moments
+ * steps (momentAlternation.ts), by id with their values: every untied scale
+ * (each phase's, as `freeScale` frees them) and background row. The peak
+ * shape, the cell and the atoms are no part of the rounds.
+ */
+export function momentRoundValues(s: Session): Record<string, number> {
+  return Object.fromEntries(s.powderParams.filter((p) => (p.kind === "scale" || p.kind === "background") && !p.expression).map((p) => [p.id, p.value]));
+}
+
+/** What a moments fit refined, for a page that shows that model: the model at the fitted moments, and its amplitude rows' values. */
+export interface FittedMoments {
+  readonly magnetic: MagneticModel;
+  readonly values: Readonly<Record<string, number>>;
+}
+
+/** Whether the model on the page is the one a fit refined: the same group (its operations), k and magnetic sites. */
+function sameMagneticModel(a: MagneticModel, b: MagneticModel): boolean {
+  const k = (m: MagneticModel): string => (m.propagation[0] ?? [0, 0, 0]).map((x) => x.toFixed(9)).join(",");
+  const sites = (m: MagneticModel): string => m.moments.map((x) => `${x.siteLabel}#${x.orbitIndex ?? 1}`).sort().join(",");
+  return !!a.operations && !!b.operations && magneticOperationSignature(a.operations) === magneticOperationSignature(b.operations) && k(a) === k(b) && sites(a) === sites(b);
+}
+
+/**
+ * The session after a moments fit's rounds: the rows they refined
+ * (momentRoundValues' rows) at the values they handed back; and, where the
+ * page shows the model that was fitted (Show on refinement pattern, or
+ * Continue's rows), that model at the fitted moments, its amplitude rows with
+ * it. So the pattern the refinement page draws is the one the fit ended on.
+ * A page showing another model keeps it. The same session when nothing moves.
+ */
+export function withMomentRoundRows(s: Session, held: Readonly<Record<string, number>>, fitted?: FittedMoments): Session {
+  const rows = momentRoundValues(s);
+  const shown = fitted && s.magnetic && sameMagneticModel(s.magnetic, fitted.magnetic) ? fitted : null;
+  const value = (p: RefinementParameter): number =>
+    p.id in rows && held[p.id] !== undefined ? held[p.id]!
+      : shown && isMomentParameterKind(p.kind) && !p.expression && shown.values[p.id] !== undefined ? shown.values[p.id]!
+        : p.value;
+  const moved = s.powderParams.some((p) => value(p) !== p.value);
+  const remodelled = !!shown && JSON.stringify(shown.magnetic.moments) !== JSON.stringify(s.magnetic!.moments);
+  if (!moved && !remodelled) return s;
+  return {
+    ...s,
+    ...(remodelled ? { magnetic: { ...s.magnetic!, moments: shown!.magnetic.moments } } : {}),
+    powderParams: moved ? s.powderParams.map((p) => (value(p) !== p.value ? { ...p, value: value(p) } : p)) : s.powderParams,
+  };
+}
+
+/**
  * The step's fit on the powder page: through the compute client, or (a
  * view-only TOF page, which the client does not refine) in this thread. A
  * row of a previously applied model is dropped: the model handed in brings
  * its own.
+ *
+ * Asked for rounds (the step's Refine moments), it alternates the moments with
+ * the scale and the background (momentAlternation.ts) and returns the rows the
+ * rounds moved with the moments; the ranking's fits ask for none and are one
+ * fit each, every nuclear row held (the scale free at k = 0).
  */
 export function powderMomentFit(client: PowderCompute | null, s: Session, window: FitWindow | null): MagneticFit {
   return {
     agreementLabel: "wR",
+    alternates: true,
     refine: async (magnetic, momentParams, momentBindings, options) => {
       const spec = momentFitRequest(s, window, magnetic, momentParams, momentBindings, options?.freeScale);
-      let result: RefinementResult;
-      if (client) {
-        result = await client.refineMagneticPowderParallel(spec, { maxIterations: 20 });
-      } else {
-        await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
-        result = refine(buildMagneticPowderProblem(spec.structure, magnetic, spec.pattern, spec.parameters, spec.bindings, profileRequest(s), spec.fitRange, spec.extraPhases ?? []), { maxIterations: 20 });
+      if (!client) await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
+      const fitOnce = (parameters: readonly RefinementParameter[], opts: Partial<RefinementOptions>): Promise<RefinementResult> | RefinementResult =>
+        client
+          ? client.refineMagneticPowderParallel({ ...spec, parameters: [...parameters] }, opts)
+          : refine(buildMagneticPowderProblem(spec.structure, magnetic, spec.pattern, parameters, spec.bindings, profileRequest(s), spec.fitRange, spec.extraPhases ?? []), opts);
+      const momentsOf = (result: RefinementResult): Record<string, number> => Object.fromEntries(momentParams.map((p) => [p.id, result.parameters[p.id] ?? p.value]));
+      if (!options?.rounds) {
+        const result = await fitOnce(spec.parameters, { maxIterations: 20 });
+        return { values: momentsOf(result), agreement: result.agreement.rWeighted ?? null, ...noiseOf(result) };
       }
-      const values: Record<string, number> = {};
-      for (const p of momentParams) values[p.id] = result.parameters[p.id] ?? p.value;
-      return { values, agreement: result.agreement.rWeighted ?? null, ...noiseOf(result) };
+      const roundIds = Object.keys(momentRoundValues(s));
+      const out = await alternateMoments({
+        rows: spec.parameters,
+        // What the request leaves free: the moment rows, and the scale where the step asked for it with them.
+        momentIds: spec.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id),
+        betweenIds: roundIds,
+        fit: fitOnce,
+        ...(options.rounds.cancelled ? { cancelled: options.rounds.cancelled } : {}),
+        ...(options.rounds.onRound ? { onRound: options.rounds.onRound } : {}),
+      });
+      if (!out) return { values: Object.fromEntries(momentParams.map((p) => [p.id, p.value])), agreement: null, cancelled: true };
+      const esd: Record<string, number> = {};
+      for (const p of momentParams) if (out.result.esd[p.id] !== undefined) esd[p.id] = out.result.esd[p.id]!;
+      return {
+        values: momentsOf(out.result), agreement: out.result.agreement.rWeighted ?? null, ...noiseOf(out.result),
+        // Every row the rounds may have moved, whichever step refined it (the scale is a moments step's at k = 0 under K0_SCALE_WITH_MOMENTS).
+        rounds: {
+          held: Object.fromEntries(roundIds.map((id) => [id, out.values[id]!])), count: out.rounds, settled: out.settled, lastShiftOverEsd: out.lastShiftOverEsd,
+          esd, esdIncludes: out.result.diagnostics?.esdIncludes ?? [],
+        },
+      };
     },
   };
 }

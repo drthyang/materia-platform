@@ -81,6 +81,11 @@ export interface MagneticSelectionView {
   readonly moments: readonly MomentView[];
   /** The last moments-only fit of this group (fraction), null before one. */
   readonly fitAgreement: number | null;
+  /**
+   * That fit's rounds, where it ran as rounds (the powder page's refine_moments): how many, whether the moments
+   * settled, and each amplitude's esd, with the scale's and the background's uncertainty in it (`esdIncludes`).
+   */
+  readonly fitRounds?: { readonly count: number; readonly settled: boolean; readonly lastShiftOverEsd: number; readonly esd: Readonly<Record<string, number>>; readonly esdIncludes: boolean };
 }
 
 export interface MagneticPanelState {
@@ -191,6 +196,7 @@ export function selectionView(
   values: Readonly<Record<string, number>>,
   applied: MagneticModel,
   fitAgreement: number | null,
+  fitRounds?: MagneticSelectionView["fitRounds"],
 ): MagneticSelectionView {
   return {
     id: candidateId(i),
@@ -198,5 +204,6 @@ export function selectionView(
     parameters: params.map((p) => ({ id: p.id, label: p.label, value: values[p.id] ?? p.value, ...(p.expression ? { tiedTo: p.expression } : {}) })),
     moments: momentViews(structure, applied),
     fitAgreement,
+    ...(fitAgreement !== null && fitRounds ? { fitRounds } : {}),
   };
 }

@@ -493,6 +493,9 @@ describe("magnetic report section (reportInputs)", () => {
     const held = magneticReportSection({ ...base, result: result(momentEsds) });
     expect(held.section?.provenance).toBe("Moments refined against the powder pattern with the nuclear model held; the moment esds come from that fit.");
     expect(held.sentence).toMatch(/, moments refined with the nuclear model held\.$/);
+    // Where that fit's esds carry the held scale's and background's uncertainty (the engine's esdIncludes), the sentence says so.
+    const withRows = { ...result(momentEsds), diagnostics: { svdZeroCount: 0, highCorrelations: [], esdIncludes: ["scale", "bkg0"] } } as unknown as RefinementResult;
+    expect(magneticReportSection({ ...base, result: withRows }).section?.provenance).toBe("Moments refined against the powder pattern with the nuclear model held; the moment esds come from that fit and include the uncertainty of the scale and the background.");
     // The moments and nuclear rows together.
     const joint = magneticReportSection({ ...base, result: result({ ...momentEsds, scale: 0.01 }) });
     expect(joint.section?.provenance).toBe("Refined jointly with the atomic structure against the powder pattern; the moment esds come from that fit.");

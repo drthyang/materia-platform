@@ -166,7 +166,7 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
       { calls: [{ name: "choose_magnetic_group", input: { id: "G4" } }, { name: "continue_magnetic_refinement" }, { name: "refine" }] },
       { text: "k = 0, P2₁′/m′: nuclear and magnetic refined together over the whole pattern." },
     ],
-    catches: ["refines the nuclear model at d ≤ 1.5 Å before the magnetic step", "refines only the moments once the magnetic model is on the page"],
+    catches: ["refines the nuclear model at d ≤ 1.5 Å before the magnetic step", "refines only the moments once the magnetic model is on the page", "ends the magnetic step on the moments, after the final instrument pass"],
   },
   "magnetic-structure": {
     good: [

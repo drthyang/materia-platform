@@ -154,10 +154,25 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     h().setK(TWO_ARM);
     h().choose(h().state().candidates.find((c) => c.momentParameters > 0)!.id);
     await h().refineMoments();
-    expect(fits).toHaveLength(1);
-    const moments = fits[0]!.filter((p) => p.kind === "momentMode");
-    expect(moments.filter((p) => p.label.includes("[phase gauge]")).map((p) => p.fixed)).toEqual([true]);
-    expect(moments.filter((p) => !p.label.includes("[phase gauge]")).every((p) => !p.fixed)).toBe(true);
+    // Refine moments runs as rounds (momentAlternation.ts): a moments step, then per round the scale and the
+    // background with the moments held and a moments step again. It starts and ends on a moments step.
+    expect(fits.length).toBeGreaterThanOrEqual(3);
+    expect(fits.length % 2).toBe(1);
+    fits.forEach((rows, i) => {
+      const moments = rows.filter((p) => p.kind === "momentMode");
+      const free = rows.filter((p) => !p.fixed && !p.expression);
+      if (i % 2 === 0) {
+        // A moments step: the phase gauge held, every other moment row free, and no nuclear row with them.
+        expect(moments.filter((p) => p.label.includes("[phase gauge]")).map((p) => p.fixed)).toEqual([true]);
+        expect(moments.filter((p) => !p.label.includes("[phase gauge]")).every((p) => !p.fixed)).toBe(true);
+        expect(free.every((p) => p.kind === "momentMode")).toBe(true);
+      } else {
+        // The step between: the scale and the background, every moment row held.
+        expect(moments.every((p) => p.fixed)).toBe(true);
+        expect(free.length).toBeGreaterThan(0);
+        expect(free.every((p) => p.kind === "scale" || p.kind === "background")).toBe(true);
+      }
+    });
   }, 60000);
 
   it("marks a group whose fit fails and ranks the rest", async () => {
