@@ -1,0 +1,16 @@
+! Synthetic FullProf resolution file (invented numbers): the Gaussian variance is negative at short and at long d
+!  Type of profile function: back-to-back exponentials * pseudo-Voigt
+NPROF 9
+!       Tof-min(us)    step      Tof-max(us)
+TOFRG    7500 8.0 50000
+!       Zero     Dtt1        Dtt2
+ZD2TOF   20.0 15000.0 18.0
+!     TOF-TWOTH of the bank
+TWOTH    43.0
+!       Sig-2     Sig-1     Sig-0
+SIGMA    -4.0 30.0 -10.0
+!       Gam-2     Gam-1     Gam-0
+GAMMA    13.0 0.0 6.0
+!          alph0       beta0       alph1       beta1
+ALFBE    4.5 0.5 5.0 0.002
+END

@@ -1,0 +1,16 @@
+! Synthetic FullProf resolution file (invented numbers): the Lorentzian width turns negative at long d; a large alph0, a negative alph1
+!  Type of profile function: back-to-back exponentials * pseudo-Voigt
+NPROF 9
+!       Tof-min(us)    step      Tof-max(us)
+TOFRG    7000 8.0 46000
+!       Zero     Dtt1        Dtt2
+ZD2TOF   -5.5 14000.0 -3.4
+!     TOF-TWOTH of the bank
+TWOTH    20.0
+!       Sig-2     Sig-1     Sig-0
+SIGMA    3.0 30.0 25.0
+!       Gam-2     Gam-1     Gam-0
+GAMMA    -3.0 7.5 -1.0
+!          alph0       beta0       alph1       beta1
+ALFBE    13.0 0.36 -0.4 0.1
+END
