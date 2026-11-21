@@ -39,8 +39,15 @@ release fixes bugs.
   sample's terms. A session opened from such a file starts from a different
   profile than before, and a fit with it takes longer; a saved project keeps
   its rows; an instrument that is a calibration alone (the bundled demo) is
-  unchanged. FullProf `.irf` files are read as before
-  ([report](docs/reports/2026-11-21-tof-profile-assignment.md)).
+  unchanged ([report](docs/reports/2026-11-21-tof-profile-assignment.md)).
+- **A FullProf `.irf`'s time-of-flight profile, by FullProf's function.** A
+  resolution file (NPROF 9) that carries the profile is evaluated with
+  FullProf's function as its documentation gives it: Sig-1 is used, `GAMMA`
+  and alph0 have rows, all held, and the sample starts with a Gaussian
+  microstrain row at 0. This reading is not yet checked against a FullProf
+  run, and the Instrument card says so; a file written for Jana is read the
+  same way and is not verified for Jana. The FullProf bundle's `.pcr` holds
+  the widths the fit used.
 
 ### Changed
 

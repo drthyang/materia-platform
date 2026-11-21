@@ -201,6 +201,11 @@ added to them (GSAS-II: `GetSampleSigGam`):
 - No width is floored. Where σ², α or β is not positive inside the data's
   d-range the reflections are left out and named; a fit step that would make
   one so is rejected.
+- A FullProf `.irf` that carries the profile takes the same path with
+  FullProf's function, and its sample has one row, the Gaussian microstrain
+  ε at 0: FullProf keeps the sample in the `.pcr`, none by default. The
+  FullProf bundle adds ε into Sig-1 as (difC·ε)². Not yet checked against a
+  FullProf run.
 
 ## 6. Refinement integration ✅
 
