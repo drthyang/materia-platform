@@ -75,6 +75,10 @@ moments were measured against. So the moments should end within their esds acros
 where the first pass moves one further, the pass and the moments are run once more, and a
 move that does not shrink says the peak shape trades with the magnetic model.
 
+Where the instrument file gives the TOF profile (`get_state`: `instrument.profile`), its
+rows are held and the pass frees the zero and the sample's Lorentzian rows in their place,
+with the scale and background; a session with a calibration alone frees α, β, σ.
+
 - The synthetic MnWO₄ above, its peak width left 1 % too wide by the nuclear-only fit:
   across the pass a one-component moment moved by 0.04 esd and the two components of an
   in-plane moment by 0.3 esd each, onto the values a fit of everything together gives.

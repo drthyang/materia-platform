@@ -147,6 +147,8 @@ describe("GSAS-II .instprm: several key:value pairs on a line", () => {
       kind: "tof", difC: 7500.5, difA: -0.75, difB: 0.25, zero: 1.5,
       alpha: 1.25, beta0: 0.03, beta1: 0.01, betaQ: 0,
       sig0: 5, sig1: -30, sig2: 2, sigQ: 10,
+      // The Lorentzian X, Y, Z as read, and the program whose function evaluates the profile.
+      gamX: 1, gamY: 0.5, gamZ: 0, profileProgram: "gsas",
     });
     expect(bank.extras).toEqual({ twoTheta: 90, flightPath: 30, lorentzX: 1, lorentzY: 0.5, lorentzZ: 0 });
   }, T);
@@ -163,6 +165,7 @@ describe("GSAS-II .instprm: one bank, one key per line", () => {
       kind: "tof", difC: 21000.5, difA: -1.5, difB: 0, zero: 2.25,
       alpha: 1, beta0: 0.04, beta1: 0.01, betaQ: 0,
       sig0: 0, sig1: -60, sig2: 150, sigQ: 0,
+      gamX: 0, gamY: 0, gamZ: 0, profileProgram: "gsas",
     });
     expect(bank.extras).toEqual({ twoTheta: 90, flightPath: 55.5, lorentzX: 0, lorentzY: 0, lorentzZ: 0 });
     expect(parseInstrumentParameters(SINGLE_BANK_INSTPRM)).toEqual(bank.parameters);

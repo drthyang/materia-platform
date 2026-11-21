@@ -426,6 +426,27 @@ export function fitWindowIs(unit: "dSpacing" | "q", min: number, max: number, to
   };
 }
 
+/**
+ * On a session whose instrument file gives the TOF profile, asked to free the
+ * peak shape: the file's rows stay held (set_free does not free them and says
+ * why), so the Agent refines the sample's rows beside them and does not go on
+ * asking for the file's, nor report the file's terms as refined.
+ */
+export const refinesSampleRowsNotFileProfile: Check = {
+  name: "refines the sample's rows, not the instrument file's held profile",
+  grade: (run) => {
+    const kinds = new Map(run.port.state().parameters.map((p) => [p.id, p.kind]));
+    const refusals = calls(run).filter((c) => c.name === "set_free" && /not freed: .*the instrument file's profile, held at the file's values/.test(c.text));
+    if (refusals.length > 1) return fail(`asked ${refusals.length} times to free the file's rows after set_free said they are held`);
+    const sample = (free: readonly string[] | undefined): boolean => (free ?? []).some((id) => kinds.get(id) === "tofSampleLorentz" || kinds.get(id) === "tofSampleSize");
+    const refined = calls(run).find((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true && sample(c.free));
+    if (!refined) return fail(refusals.length ? "set_free said what to free instead, and no refinement ran with the sample's Lorentzian rows free" : "no refinement ran with the sample's Lorentzian rows free");
+    if (refined.free!.some((id) => kinds.get(id) === "tofFileProfile")) return fail(`refined with a file row free: ${refined.free!.filter((id) => kinds.get(id) === "tofFileProfile").join(", ")}`);
+    const claimed = asserted(run, /\b(refined|freed|fitted)\b[^.]*(α|β|σ|alpha|beta|sig-?\d|the file's (profile|terms|rows|widths))/i, Infinity, /\b(held|stay|kept|instead)\b/i);
+    return claimed.length > 0 ? fail(`reports the file's terms as refined: "${claimed[0]!.slice(0, 120)}"`) : ok(`refined ${refined.free!.filter((id) => (kinds.get(id) ?? "").startsWith("tofSample")).join(", ")}${refusals.length ? " after set_free held the file's rows" : ""}`);
+  },
+};
+
 /** Which of the instrument's terms and the thermal parameters a free set holds. */
 function groupsFree(run: EvalRun, free: readonly string[] | undefined): Set<ParameterGroup> {
   const kinds = new Map(run.port.state().parameters.map((p) => [p.id, p.kind]));

@@ -13,7 +13,7 @@ import type { ProfilePeak, ProfileOptions } from "@/core/diffraction/profile";
 import type { FitRange, PowderProfile } from "@/core/workflow/powder";
 import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
-import { createPeakBuilder, powderPointWeights } from "@/core/workflow/powder";
+import { createPeakBuilder, createTofWidthGuard, powderPointWeights } from "@/core/workflow/powder";
 import { SHARED_CORRECTION_KINDS } from "@/core/diffraction/corrections";
 import { synthesizePattern } from "@/core/diffraction/profile";
 
@@ -32,6 +32,7 @@ const SHARED_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
   "peakWidth", "background", "zeroShift",
   "profileU", "profileV", "profileW", "profileX", "profileY",
   "asymSL", "asymHL", "tofCalibration", "tofProfile", "mustrainIso",
+  "tofFileProfile", "tofSampleGauss", "tofSampleLorentz", "tofSampleSize",
   // Sample-geometry corrections that are one-per-sample (registry-declared shared).
   ...SHARED_CORRECTION_KINDS,
 ]);
@@ -90,12 +91,18 @@ export function buildMultiPhasePowderProblem(
     const phaseBindings = phaseBindingsFor(bindings, phase.id);
     return { phase, phaseBindings, peaksFor: createPeakBuilder(pattern, phaseBindings, applyLorentz) };
   });
+  // The instrument's profile is shared, so the first phase's model carries it.
+  const first = phaseBuilders[0];
+  const widthGuard = first
+    ? createTofWidthGuard(pattern, parameters, bindings, (v) => applyParameters(first.phase.structure, first.phaseBindings, resolveTies(parameters, v)))
+    : (): void => {};
   const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
     const resolved = resolveTies(parameters, values);
     const allPeaks: ProfilePeak[] = [];
     let background: number[] = [];
     for (const b of phaseBuilders) {
       const applied = applyParameters(b.phase.structure, b.phaseBindings, resolved);
+      if (b === first) widthGuard(applied);
       allPeaks.push(...b.peaksFor(applied, resolved));
       if (applied.background.length) background = applied.background;
     }

@@ -19,6 +19,7 @@ import type { CauseId, FitCause, FitDiagnosis } from "@/core/diagnostics/fitDiag
 import type { PowderValidation } from "@/core/diagnostics/powderValidation";
 import type { CheckAction } from "@/core/diagnostics/validationChecks";
 import { WIDTHS_AGREE } from "@/core/diagnostics/thresholds";
+import { tofFileShapeAdvice } from "@/core/diagnostics/tofFileProfile";
 import type { ParameterKind, RefinementParameter } from "@/core/refinement/types";
 import { stagesFor } from "@/agent/method";
 import { parameterGroupOf } from "@/app/ui/parameterGroups";
@@ -100,7 +101,7 @@ const isFree = (ctx: CauseContext, kinds: readonly ParameterKind[]): boolean => 
 
 const ADP_KINDS: readonly ParameterKind[] = ["bIso", "uAniso"];
 /** The instrument's peak-shape terms, which never refine with the B values (the method's alternation). */
-const PROFILE_TERMS: readonly ParameterKind[] = ["peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "tofProfile"];
+const PROFILE_TERMS: readonly ParameterKind[] = ["peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "tofProfile", "tofFileProfile", "tofSampleLorentz", "tofSampleSize", "tofSampleGauss"];
 
 /** Open a parameter group, when the page has rows in it. */
 function openGroup(ctx: CauseContext, kind: ParameterKind): ActionButton[] {
@@ -110,11 +111,18 @@ function openGroup(ctx: CauseContext, kind: ParameterKind): ActionButton[] {
 }
 
 /** The page's profile: back-to-back exponentials on time of flight, the Caglioti widths on constant wavelength. */
-const tof = (ctx: CauseContext): boolean => has(ctx, ["tofProfile"]);
+const tof = (ctx: CauseContext): boolean => has(ctx, ["tofProfile", "tofFileProfile"]);
 
 /** The TOF peak shape as the app models it: back-to-back exponentials on a Gaussian (assessment.ts: α from the calibration, held). */
 const TOF_SHAPE = "the TOF peak shape: the widths σ and the decay β, with the rise α held at the instrument's value";
 const TOF_SHORT = "Refine TOF σ and β (keep α)";
+/**
+ * The TOF peak-shape advice, in full and in a few words. Where the instrument file gave the profile its rows are
+ * held, and the advice is the sample's rows and the zero, with the calibration as the suspect (core/diagnostics/tofFileProfile.ts).
+ */
+const tofShape = (ctx: CauseContext): { readonly action: string; readonly short: string } => tofFileShapeAdvice(ctx.parameters) ?? { action: `Refine ${TOF_SHAPE}.`, short: TOF_SHORT };
+/** The group a TOF profile step opens: the sample's rows beside a file's profile, the page's own profile otherwise. */
+const tofGroup = (ctx: CauseContext): ParameterKind => (has(ctx, ["tofFileProfile"]) ? (has(ctx, ["tofSampleLorentz"]) ? "tofSampleLorentz" : "tofSampleGauss") : "tofProfile");
 
 /** A profile cause's note on the method's order: the atom positions are a quick pass before the profile, unless the widths are far off. */
 function afterPositions(ctx: CauseContext): string {
@@ -193,12 +201,12 @@ function peakWidth(dx: FitDiagnosis, ctx: CauseContext): CauseBody {
   const grows = w.high > 1.25 * w.low;
   const low = w.low > 1.25 * w.high;
   const action = tof(ctx)
-    ? `Refine ${TOF_SHAPE}.${first}`
+    ? `${tofShape(ctx).action}${first}`
     : broader
       ? `The model's peaks are too narrow: free the Caglioti W, then U and V, with the scale and background${grows ? "; the excess grows with angle, so U (and the Lorentzian Y, strain) matter most" : low ? "; the excess is largest at low angle — W and the Lorentzian X (size)" : ""}. Then X and Y if the tails are long.${first}`
       : `The model's peaks are too broad: free the Caglioti W, then U and V; hold the Lorentzian X and Y at the instrument's values.${first}`;
   const todo = tof(ctx)
-    ? `${TOF_SHORT}${firstShort}`
+    ? `${tofShape(ctx).short}${firstShort}`
     : broader
       ? `Free W, then U and V${grows ? "; U and Y matter most" : low ? "; W and X matter most" : ""}${firstShort}`
       : `Free W, then U and V; hold X and Y at the instrument's values${firstShort}`;
@@ -210,7 +218,7 @@ function peakWidth(dx: FitDiagnosis, ctx: CauseContext): CauseBody {
     evidence: `The observed peaks are ${fmt(w.median)}× ${broader ? "broader" : "narrower"} than the model's at half maximum.`,
     statistic: `${w.lines} isolated lines${trend ? ` · ${fmt(w.low)}× in the lower third, ${fmt(w.high)}× in the upper` : ""}`,
     action,
-    buttons: openGroup(ctx, tof(ctx) ? "tofProfile" : "profileW"),
+    buttons: openGroup(ctx, tof(ctx) ? tofGroup(ctx) : "profileW"),
   };
 }
 
@@ -218,7 +226,7 @@ function peakTails(dx: FitDiagnosis, ctx: CauseContext): CauseBody {
   const w = dx.width!;
   const more = (w.etaObs ?? 0) > (w.etaCalc ?? 0);
   const [action, todo] = tof(ctx)
-    ? [`Refine ${TOF_SHAPE}.`, TOF_SHORT]
+    ? [tofShape(ctx).action, tofShape(ctx).short]
     : more
       ? ["A Lorentzian part is missing: free X (size) and Y (strain) with the Caglioti terms; hold a negative X or Y at 0.", "Free X, Y with U, V, W; hold a negative one at 0"]
       : ["The model's peaks are too Lorentzian: refine X and Y with the Caglioti terms, or hold them at the instrument's values.", "Refine X, Y with U, V, W, or hold them at the instrument's values"];
@@ -232,7 +240,7 @@ function peakTails(dx: FitDiagnosis, ctx: CauseContext): CauseBody {
       : `The observed peaks have ${more ? "longer" : "shorter"} tails than the model's: their shape is ${more ? "more" : "less"} Lorentzian.`,
     statistic: `η ${eta(w.etaObs ?? 0)} observed against ${eta(w.etaCalc ?? 0)} calculated · ${w.shapeLines ?? w.lines} isolated lines`,
     action: action + afterPositions(ctx),
-    buttons: openGroup(ctx, tof(ctx) ? "tofProfile" : has(ctx, ["profileX"]) ? "profileX" : "profileW"),
+    buttons: openGroup(ctx, tof(ctx) ? tofGroup(ctx) : has(ctx, ["profileX"]) ? "profileX" : "profileW"),
   };
 }
 
@@ -288,12 +296,12 @@ function peakShape(dx: FitDiagnosis, ctx: CauseContext): CauseBody {
     title: "Peak shape",
     phrase: "the peak shape",
     summary: "± misfit on both sides: width or shape",
-    todo: (tof(ctx) ? TOF_SHORT : "Free U, V, W together, then X and Y") + afterPositionsShort(ctx),
+    todo: (tof(ctx) ? tofShape(ctx).short : "Free U, V, W together, then X and Y") + afterPositionsShort(ctx),
     evidence: "± misfits on both sides of the peaks, across the pattern: a width or shape mismatch.",
     action: (tof(ctx)
-      ? `Refine ${TOF_SHAPE}.`
+      ? tofShape(ctx).action
       : "Free the Caglioti U, V, W together, then the Lorentzian X (size) and Y (strain); anisotropic broadening (Microstructure) if some reflections are broader than others.") + afterPositions(ctx),
-    buttons: openGroup(ctx, tof(ctx) ? "tofProfile" : "profileW"),
+    buttons: openGroup(ctx, tof(ctx) ? tofGroup(ctx) : "profileW"),
   };
 }
 
@@ -346,7 +354,7 @@ function structure(ctx: CauseContext): CauseBody {
   const next = !inPlay(ctx, "positions") ? "positions" : !inPlay(ctx, "profile") ? "profile" : !inPlay(ctx, "adp") ? "adp" : "occupancy";
   const step = {
     positions: { text: "Free the atom positions: a quick pass, before the profile (your method's order).", short: "Free the atom positions (a quick pass, before the profile)", group: "positionShift" as ParameterKind, alt: ["atomX", "atomY", "atomZ"] as ParameterKind[] },
-    profile: { text: "The profile comes next in your method, then the B values: an intensity misfit is the atoms', but refined against an unsettled profile the B values absorb it.", short: "Refine the profile next, then the B values", group: (tof(ctx) ? "tofProfile" : "profileW") as ParameterKind, alt: [] as ParameterKind[] },
+    profile: { text: "The profile comes next in your method, then the B values: an intensity misfit is the atoms', but refined against an unsettled profile the B values absorb it.", short: "Refine the profile next, then the B values", group: (tof(ctx) ? tofGroup(ctx) : "profileW") as ParameterKind, alt: [] as ParameterKind[] },
     adp: { text: `Free the B values${adpOrder(ctx)}; anisotropic only if the data clearly support it.`, short: `${adpShort(ctx)}; anisotropic only if clearly supported`, group: "bIso" as ParameterKind, alt: ["uAniso"] as ParameterKind[] },
     occupancy: { text: "Positions and B values are refined: occupancy is last, and only under a tie (Σ = 1 on a shared site, a known composition) or with a second contrast. Check the bond lengths after.", short: "Occupancy last, only under a tie or a second contrast; then check bond lengths", group: "occupancy" as ParameterKind, alt: [] as ParameterKind[] },
   }[next];

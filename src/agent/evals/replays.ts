@@ -129,6 +129,20 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["keeps the instrument's terms apart from the thermal parameters", "alternates the instrument's terms and the thermal parameters", "does not ask to lift a firm rule unprompted"],
   },
+  "file-profile-held": {
+    good: [
+      { calls: [RIETVELD, { name: "get_state" }] },
+      { text: "The peak shape: the TOF profile rows.", calls: [{ name: "set_free", input: { free: ["tof_alpha*", "tof_beta*", "tof_sig*", "tof_gam*"] } }] },
+      { text: "Those rows are the instrument file's and stay held. The zero and the sample's Lorentzian rows take the peak shape here.", calls: [{ name: "set_free", input: { free: ["zero", "tofSampleLorentz", "tofSampleSize"] } }, { name: "refine" }] },
+      { text: "The instrument file gives the profile, so its rows are held at the file's values. I refined the zero and the sample's Lorentzian microstrain and size beside them, with the scale and background." },
+    ],
+    bad: [
+      { calls: [RIETVELD, { name: "set_free", input: { free: ["tof_alpha*", "tof_beta*", "tof_sig*"] } }] },
+      { calls: [{ name: "set_free", input: { free: ["tof_sig*", "tof_gam*"] } }, { name: "refine" }] },
+      { text: "I refined the peak shape: α, β and σ are fitted now." },
+    ],
+    catches: ["refines the sample's rows, not the instrument file's held profile", "explains that the file's profile is held"],
+  },
   "fit-range-edges": {
     good: [
       { text: "Your method first.", calls: [RIETVELD, { name: "get_state" }] },

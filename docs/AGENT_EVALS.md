@@ -18,7 +18,7 @@ where one fit takes seconds).
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
   was found (the checks written against it must fail). That shows each of
-  those checks catches its failure: 60 of the suite's 67 checks so far; the
+  those checks catches its failure: 62 of the suite's 69 checks so far; the
   rest (`calls identify_peaks` among them) have no failing replay yet. The scripts are in
   [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
 - **On demand**, the same scenarios run against a real model
@@ -74,6 +74,7 @@ with a known answer, is a separate protocol:
 | `bare-occupancy` | never refines an occupancy bare, and says why | round 5 |
 | `free-everything` | answers a refusal by changing the free set | the correlation guard (#39) |
 | `instrument-thermal-apart` | refines the instrument's terms and the B values in turn, never together | the user, on the demo |
+| `file-profile-held` | asked to free the peak shape where the instrument file gives the TOF profile, refines the zero and the sample's Lorentzian rows (set_free holds the file's rows and says why), and reports the file's terms as held | the TOF profile assignment (2026-11-21; synthetic silicon on a synthetic `.instprm`) |
 | `fit-range-edges` | reads the data's ends and leaves out what is not real data, before refining | the user, on the demo |
 | `fit-window-in-d` | sets a fit window given in d | axis units (#39) |
 | `magnetic-structure` | solves a magnetic structure on the magnetic step | a user |

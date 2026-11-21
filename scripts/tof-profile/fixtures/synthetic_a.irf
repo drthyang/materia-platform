@@ -1,0 +1,16 @@
+! Synthetic FullProf resolution file (invented numbers): a Lorentzian width and a constant rise term
+!  Type of profile function: back-to-back exponentials * pseudo-Voigt
+NPROF 9
+!       Tof-min(us)    step      Tof-max(us)
+TOFRG    2000 4.0 13000
+!       Zero     Dtt1        Dtt2
+ZD2TOF   1.0 3800.0 0.5
+!     TOF-TWOTH of the bank
+TWOTH    44.0
+!       Sig-2     Sig-1     Sig-0
+SIGMA    14.0 25.0 5.0
+!       Gam-2     Gam-1     Gam-0
+GAMMA    2.8 5.0 2.0
+!          alph0       beta0       alph1       beta1
+ALFBE    0.5 0.052 0.53 0.0049
+END

@@ -10,7 +10,7 @@
 
 import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
-import type { CalculateOptions, LinearRestraint, ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
+import { ModelDomainError, type CalculateOptions, type LinearRestraint, type ParameterBinding, type ParameterKind, type RefinementParameter } from "@/core/refinement/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
 import { weightsFromSigma, excludedPointMask, applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
 import { resolveTies, tieReferences } from "@/core/refinement/constraints";
@@ -21,7 +21,7 @@ import { correctionsForPattern } from "@/core/diffraction/corrections";
 import { nuclearStructureFactorPartials } from "@/core/diffraction/structureFactor";
 import { braggTheta } from "@/core/crystal/unitCell";
 import { dFromTof, secondLine, secondLineTwoTheta } from "@/core/diffraction/instrument";
-import { synthesizePattern, cagliotiFwhm, lorentzianFwhm, tchPseudoVoigt, fcjSubPeaks, type ProfilePeak, type ProfileOptions, type PeakShape } from "@/core/diffraction/profile";
+import { synthesizePattern, cagliotiFwhm, lorentzianFwhm, tchPseudoVoigt, fcjSubPeaks, tofLorentzSupport, PEAK_WINDOW_FWHM, type ProfilePeak, type ProfileOptions, type PeakShape } from "@/core/diffraction/profile";
 import { evaluateBackground, type BackgroundType } from "@/core/diffraction/background";
 import { quarticStrainInvariants, stephensStrainFwhmDeg, stephensStrainSigmaTof, isotropicStrainSigmaTof, uniaxialStrainFwhmDeg, type QuarticInvariant } from "@/core/diffraction/anisoStrain";
 import { uniaxialSizeFwhmDeg } from "@/core/diffraction/anisoSize";
@@ -100,12 +100,205 @@ function tofDRange(
   return { dMin: Math.max(Math.min(dLo, dHi), TOF_DMIN_FLOOR), dMax: Math.max(dLo, dHi) };
 }
 
+/** The widths of a TOF peak at one d-spacing, when the instrument file gives the profile. */
+export interface TofWidths {
+  readonly alpha: number;
+  readonly beta: number;
+  /** Gaussian variance (µs²): the instrument's σ²(d) plus the sample's Gaussian microstrain. */
+  readonly sig2: number;
+  /** Lorentzian FWHM (µs): the instrument's γ(d) plus the sample's Lorentzian terms; a negative sum counts as none. */
+  readonly gamma: number;
+  /** That sum as the terms give it, negative or not. */
+  readonly gammaAsGiven: number;
+  /** Which width is not positive here, so that no peak is defined; null when all are. */
+  readonly invalid: "σ²" | "α" | "β" | null;
+}
+
+/**
+ * α, β, σ² and γ at d from an instrument file's profile and the sample rows
+ * beside it, each term as its program defines it (GSAS-II: getTOFalpha,
+ * getTOFbeta, getTOFsig, getTOFgamma and GetSampleSigGam; FullProf: LINE 27
+ * and LINE 30 of its manual):
+ *
+ *   α = α₀ + α₁/d        β = β₀ + β₁/d⁴ + β_q/d²
+ *   σ² = σ₀² + σ₁²·d² + σ₂²·d⁴ + σ_q²·d  +  (|dT/dd|·ε·d)²
+ *   γ = X·d + Y·d² + Z  +  10⁻⁶·difC·d·M  +  10⁻⁴·difC·d²/S
+ *
+ * Nothing is floored. Where σ², α or β is not positive there is no peak, and
+ * `invalid` names the first that fails. A negative γ counts as zero: GSAS-II
+ * takes γ below 10⁻⁵ µs as 10⁻⁵ µs; FullProf's manual does not say what it
+ * does, and zero is taken here until a FullProf run shows otherwise (the
+ * Instrument card says where it happens: tofNegativeLorentzian).
+ */
+export function tofWidthsAt(applied: AppliedModel, d: number): TofWidths {
+  const cal = applied.tof!;
+  const tp = applied.tofProfile;
+  const file = applied.tofFile!;
+  const d2 = d * d;
+  const alpha = (tp?.alpha0 ?? 0) + (tp?.alpha1 ?? 0) / d;
+  const beta = (tp?.beta0 ?? 0) + (tp?.beta1 ?? 0) / (d2 * d2) + (tp?.betaQ ?? 0) / d2;
+  let sig2 = (tp?.sig0 ?? 0) + (tp?.sig1 ?? 0) * d2 + (tp?.sig2 ?? 0) * d2 * d2 + (tp?.sigQ ?? 0) * d;
+  if (file.sampleGauss > 0) {
+    const s = isotropicStrainSigmaTof(d, cal, file.sampleGauss);
+    sig2 += s * s;
+  }
+  let gamma = file.gamX * d + file.gamY * d2 + file.gamZ;
+  if (file.sampleLorentz !== 0) gamma += 1e-6 * cal.difC * d * file.sampleLorentz;
+  if (file.sampleSize !== undefined && file.sampleSize > 0) gamma += (1e-4 * cal.difC * d2) / file.sampleSize;
+  const gammaAsGiven = gamma;
+  if (!(gamma > 0)) gamma = 0;
+  const invalid = !(sig2 > 0) ? "σ²" : !(alpha > 0) ? "α" : !(beta > 0) ? "β" : null;
+  return { alpha, beta, sig2, gamma, gammaAsGiven, invalid };
+}
+
+/** d-spacings spread evenly in log d over the pattern's reflection range, for checking a file's widths over the data. */
+function tofWidthGrid(pattern: PowderPattern, applied: AppliedModel, n = 512): number[] {
+  const { dMin, dMax } = reflectionDRange(pattern, applied);
+  if (!(dMax > dMin)) return [dMin];
+  const step = Math.log(dMax / dMin) / (n - 1);
+  return Array.from({ length: n }, (_, i) => dMin * Math.exp(i * step));
+}
+
+/** A stretch of the data's d-range where an instrument file's profile gives no peak. */
+export interface TofWidthProblem {
+  /** The width that is not positive there. */
+  readonly which: "σ²" | "α" | "β";
+  readonly dMin: number;
+  readonly dMax: number;
+}
+
+/**
+ * Where, over the d-range of the loaded data, an instrument file's profile
+ * gives σ² ≤ 0, α ≤ 0 or β ≤ 0 (no peak is defined there, and none is drawn).
+ * Empty when the file's widths are valid everywhere in the data, when the
+ * profile is not an instrument file's, and off time of flight.
+ */
+export function tofWidthProblems(pattern: PowderPattern, applied: AppliedModel): TofWidthProblem[] {
+  if (pattern.xUnit !== "tof" || !applied.tof || !applied.tofFile) return [];
+  const grid = tofWidthGrid(pattern, applied);
+  const out: TofWidthProblem[] = [];
+  let open: { which: "σ²" | "α" | "β"; from: number; to: number } | null = null;
+  for (const d of grid) {
+    const which = tofWidthsAt(applied, d).invalid;
+    if (open && which !== open.which) {
+      out.push({ which: open.which, dMin: open.from, dMax: open.to });
+      open = null;
+    }
+    if (which) open = { which, from: open ? open.from : d, to: d };
+  }
+  if (open) out.push({ which: open.which, dMin: open.from, dMax: open.to });
+  return out;
+}
+
+/** The stretches of the data's d-range where an instrument file's Lorentzian width comes out negative (and is taken as none). */
+export function tofNegativeLorentzian(pattern: PowderPattern, applied: AppliedModel): { dMin: number; dMax: number }[] {
+  if (pattern.xUnit !== "tof" || !applied.tof || !applied.tofFile) return [];
+  const out: { dMin: number; dMax: number }[] = [];
+  let open: { dMin: number; dMax: number } | null = null;
+  for (const d of tofWidthGrid(pattern, applied)) {
+    const w = tofWidthsAt(applied, d);
+    if (w.gammaAsGiven < 0 && !w.invalid) open = { dMin: open ? open.dMin : d, dMax: d };
+    else if (open) { out.push(open); open = null; }
+  }
+  if (open) out.push(open);
+  return out;
+}
+
+/** The reflections of the applied model that an instrument file's profile gives no peak for, in the data's range. */
+export function tofReflectionsLeftOut(pattern: PowderPattern, applied: AppliedModel): { h: number; k: number; l: number; d: number; which: "σ²" | "α" | "β" }[] {
+  if (pattern.xUnit !== "tof" || !applied.tof || !applied.tofFile) return [];
+  const { dMin, dMax } = reflectionDRange(pattern, applied);
+  const out: { h: number; k: number; l: number; d: number; which: "σ²" | "α" | "β" }[] = [];
+  for (const r of generateReflections(applied.model.cell, applied.model.spaceGroup, dMin, dMax)) {
+    const which = tofWidthsAt(applied, r.d).invalid;
+    if (which) out.push({ h: r.h, k: r.k, l: r.l, d: r.d, which });
+  }
+  return out;
+}
+
+/**
+ * A refinement problem's check on an instrument file's TOF widths. Built from
+ * the problem's starting values; called on every model the fit evaluates.
+ *
+ * - Where the file's widths are already invalid at the start, the reflections
+ *   are left out (buildTofFilePeaks) and the fit goes on.
+ * - A step that makes a width invalid somewhere in the data's d-range where it
+ *   was valid at the start is outside the model's domain: the engine rejects
+ *   it as it rejects a cell length ≤ 0.
+ *
+ * It does nothing unless a `tofFileProfile` row is free: held, the file's
+ * widths cannot change.
+ */
+export function createTofWidthGuard(
+  pattern: PowderPattern,
+  parameters: readonly RefinementParameter[],
+  bindings: readonly ParameterBinding[],
+  applyAt: (values: Readonly<Record<string, number>>) => AppliedModel,
+): (applied: AppliedModel) => void {
+  const none = (): void => {};
+  if (pattern.xUnit !== "tof") return none;
+  const freeIds = new Set(parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
+  const freeFileRows = bindings.filter((b) => b.kind === "tofFileProfile" && freeIds.has(b.parameterId));
+  if (freeFileRows.length === 0) return none;
+  const start: Record<string, number> = {};
+  for (const p of parameters) start[p.id] = p.value;
+  const baseline = applyAt(start);
+  if (!baseline.tof || !baseline.tofFile) return none;
+  const grid = tofWidthGrid(pattern, baseline);
+  const validAtStart = grid.map((d) => tofWidthsAt(baseline, d).invalid === null);
+  return (applied) => {
+    if (!applied.tof || !applied.tofFile) return;
+    for (let i = 0; i < grid.length; i++) {
+      if (!validAtStart[i]) continue;
+      const which = tofWidthsAt(applied, grid[i]!).invalid;
+      if (which) throw new ModelDomainError(`the TOF profile gives ${which} ≤ 0 at d = ${grid[i]!.toFixed(3)} Å, inside the data's range`);
+    }
+  };
+}
+
+/** TOF peaks from an instrument file's profile: its program's function, no floor (tofWidthsAt). */
+function buildTofFilePeaks(
+  intensities: readonly { d: number; intensity: number; h?: number; k?: number; l?: number }[],
+  applied: AppliedModel,
+): ProfilePeak[] {
+  const cal = applied.tof!;
+  const lorentzForm = applied.tofFile!.lorentzForm;
+  const stephens = applied.stephensStrain;
+  const invariants = stephens ? strainInvariantsFor(applied) : null;
+  const peaks: ProfilePeak[] = [];
+  for (const p of intensities) {
+    const d = p.d;
+    if (d <= 0) continue;
+    const w = tofWidthsAt(applied, d);
+    // No width, no peak: the reflection is left out, and named where the page reports the file (tofWidthProblems).
+    if (w.invalid) continue;
+    let sig2 = w.sig2;
+    if (stephens && invariants && p.h !== undefined && p.k !== undefined && p.l !== undefined) {
+      const sStrain = stephensStrainSigmaTof(p.h, p.k, p.l, applied.model.cell, cal, stephens, invariants);
+      if (sStrain > 0) sig2 += sStrain * sStrain;
+    }
+    const sigma = Math.sqrt(sig2);
+    const center = cal.difC * d + cal.difA * d * d + cal.difB / d + applied.zeroShift;
+    let support = 2.3548 * sigma + w.gamma + 1 / w.alpha + 1 / w.beta;
+    if (w.gamma > 0) {
+      // The Lorentzian tail is drawn out to where it holds a negligible share of the peak (tofLorentzSupport),
+      // inside the part of the window that is not faded.
+      support = Math.max(support, tofLorentzSupport(sigma, w.gamma) / (0.8 * PEAK_WINDOW_FWHM));
+      peaks.push({ center, intensity: p.intensity, fwhm: support, tof: { alpha: w.alpha, beta: w.beta, sigma, gamma: w.gamma, lorentzForm } });
+    } else {
+      peaks.push({ center, intensity: p.intensity, fwhm: support, tof: { alpha: w.alpha, beta: w.beta, sigma } });
+    }
+  }
+  return peaks;
+}
+
 /** Back-to-back-exponential TOF peaks: positions from the diffractometer
  *  constants, d-dependent α/β/σ from the profile coefficients. */
 function buildTofPeaks(
   intensities: readonly { d: number; intensity: number; h?: number; k?: number; l?: number }[],
   applied: AppliedModel,
 ): ProfilePeak[] {
+  if (applied.tofFile) return buildTofFilePeaks(intensities, applied);
   const cal = applied.tof!;
   const tp = applied.tofProfile;
   // Stephens anisotropic microstrain adds an hkl-dependent Gaussian variance to
@@ -460,10 +653,12 @@ export function buildPowderProblem(
   }
   const applyLorentz = profile.lorentz ?? true;
   const peaksFor = createPeakBuilder(pattern, bindings, applyLorentz);
+  const widthGuard = createTofWidthGuard(pattern, parameters, bindings, (v) => applyParameters(structure, bindings, resolveTies(parameters, v)));
 
   const calculate = (values: Readonly<Record<string, number>>, options?: CalculateOptions): Float64Array => {
     const resolved = resolveTies(parameters, values);
     const applied = applyParameters(structure, bindings, resolved);
+    widthGuard(applied);
     const peaks = peaksFor(applied, resolved, options?.structureFactors);
     const opts: ProfileOptions = {
       shape: profile.shape,

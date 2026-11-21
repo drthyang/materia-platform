@@ -208,7 +208,51 @@ export interface TofSeed {
   readonly sig1?: number;
   readonly sig2?: number;
   readonly sigQ?: number;
+  /**
+   * The profile as the instrument file gives it. With it, the rows are the
+   * file's: only the terms it carries, each of kind `tofFileProfile` (the
+   * instrument's own value, which no stage frees), a term it does not carry
+   * being absent from its program's function; and the sample's rows beside
+   * them. Without it, the seeds above start the app's own refinable profile.
+   */
+  readonly file?: TofFileProfile;
 }
+
+/** A profile term an instrument file can give. */
+export type TofFileTerm = "alpha0" | "alpha1" | "beta0" | "beta1" | "betaQ" | "sig0" | "sig1" | "sig2" | "sigQ" | "gamX" | "gamY" | "gamZ";
+
+export interface TofFileProfile {
+  /** The terms the file carries. */
+  readonly terms: readonly TofFileTerm[];
+  /** Lorentzian FWHM γ = gamX·d + gamY·d² + gamZ (µs; GSAS-II's X, Y, Z). */
+  readonly gamX?: number;
+  readonly gamY?: number;
+  readonly gamZ?: number;
+  /** The file's program, whose function evaluates the Lorentzian part. */
+  readonly lorentzForm: "gsas" | "fullprof";
+  /**
+   * The sample's rows at the start: the Gaussian microstrain (×10⁻⁶); the
+   * Lorentzian microstrain (×10⁻⁶) and size (µm) in GSAS-II's definitions,
+   * each a row only when given.
+   */
+  readonly sample: { readonly gauss: number; readonly lorentz?: number; readonly size?: number };
+}
+
+/** A file's instrument rows: label, and limits wide enough for any real file (the function, not a coefficient, must stay positive: tofWidthsAt). */
+const TOF_FILE_ROWS: readonly (readonly [TofFileTerm, string, number, number])[] = [
+  ["alpha0", "α₀", -100, 1000],
+  ["alpha1", "α₁", -1000, 1000],
+  ["beta0", "β₀", -10, 100],
+  ["beta1", "β₁", -1e8, 1e8],
+  ["betaQ", "β_q", -1e8, 1e8],
+  ["sig0", "σ₀²", -1e7, 1e7],
+  ["sig1", "σ₁²", -1e7, 1e7],
+  ["sig2", "σ₂²", -1e7, 1e7],
+  ["sigQ", "σ_q²", -1e7, 1e7],
+  ["gamX", "X (Lorentzian, ∝ d)", -1e4, 1e4],
+  ["gamY", "Y (Lorentzian, ∝ d²)", -1e4, 1e4],
+  ["gamZ", "Z (Lorentzian)", -1e4, 1e4],
+];
 
 export interface StructureRefinementSpec {
   readonly params: RefinementParameter[];
@@ -361,7 +405,7 @@ export function buildStructureRefinement(
       params.push({ id: `tof_${key}`, label: `TOF ${label}`, kind: "tofCalibration", value, initialValue: value, fixed: true });
       bindings.push({ parameterId: `tof_${key}`, kind: "tofCalibration", targetId: pattern.id, targetKey: key });
     }
-    const prof: [string, string, number, number, number][] = [
+    const prof: [string, string, number, number, number][] = tof.file ? [] : [
       // id, label, value, min, max
       ["alpha0", "α₀", tof.alpha0 ?? 0, 0, 10],
       ["alpha1", "α₁", tof.alpha1 ?? 1, 0, 200],
@@ -379,6 +423,30 @@ export function buildStructureRefinement(
     for (const [key, label, value, min, max] of prof) {
       params.push({ id: `tof_${key}`, label: `TOF ${label}`, kind: "tofProfile", value, initialValue: value, min, max, fixed: false });
       bindings.push({ parameterId: `tof_${key}`, kind: "tofProfile", targetId: pattern.id, targetKey: key });
+    }
+    if (tof.file) {
+      const file = tof.file;
+      const given = new Set(file.terms);
+      for (const [key, label, min, max] of TOF_FILE_ROWS) {
+        if (!given.has(key)) continue;
+        const value = (key === "gamX" ? file.gamX : key === "gamY" ? file.gamY : key === "gamZ" ? file.gamZ : tof[key]) ?? 0;
+        params.push({ id: `tof_${key}`, label: `TOF ${label}`, kind: "tofFileProfile", value, initialValue: value, min, max, fixed: false });
+        bindings.push({ parameterId: `tof_${key}`, kind: "tofFileProfile", targetId: pattern.id, targetKey: key, tofLorentzForm: file.lorentzForm });
+      }
+      // The sample's share of the peak shape, added to the instrument's terms.
+      const sample: [string, "tofSampleGauss" | "tofSampleLorentz" | "tofSampleSize", string, number | undefined, number, number][] = [
+        ["tofSampleGauss", "tofSampleGauss", "mustrain, Gaussian (×10⁻⁶)", file.sample.gauss, 0, 1e5],
+        ["tofSampleLorentz", "tofSampleLorentz", "mustrain, Lorentzian (×10⁻⁶)", file.sample.lorentz, 0, 1e5],
+        ["tofSampleSize", "tofSampleSize", "size (µm)", file.sample.size, 1e-3, 1e3],
+      ];
+      for (const [id, kind, label, value, min, max] of sample) {
+        if (value === undefined) continue;
+        // The Gaussian microstrain widens every peak in proportion to d, as σ₁² does (exactly, when
+        // difA = difB = 0): it is not a row to free with the rest, and the page never has the two free
+        // together (powderPage.withFixed).
+        params.push({ id, label, kind, value, initialValue: value, min, max, fixed: kind === "tofSampleGauss" });
+        bindings.push({ parameterId: id, kind, targetId: pattern.id, tofLorentzForm: file.lorentzForm });
+      }
     }
   }
 
@@ -816,7 +884,10 @@ export const DEFAULT_STAGE_KINDS: readonly StageKinds[] = [
   // mirrors the CW isotropic Mustrain (profileY), which is also a "Microstructure"
   // parameter refined in this profile stage; only the *anisotropic* microstrain
   // (Stephens / uniaxial Y⊥,Y∥) belongs to the later microstructure stage.
-  { name: "profile", kinds: ["peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "zeroShift", "tofCalibration", "tofProfile", "mustrainIso"] },
+  // Where the instrument file gives the TOF profile its rows are `tofFileProfile`,
+  // which no stage frees: the sample's two Lorentzian terms take the stage instead
+  // (the sample's Gaussian microstrain, `tofSampleGauss`, is freed by hand).
+  { name: "profile", kinds: ["peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "zeroShift", "tofCalibration", "tofProfile", "mustrainIso", "tofSampleLorentz", "tofSampleSize"] },
   { name: "ADP", kinds: ["bIso", "uAniso"] },
   { name: "positions", kinds: ["positionShift"] },
   { name: "occupancy", kinds: ["occupancy"] },

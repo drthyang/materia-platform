@@ -24,7 +24,7 @@ import { parsePowderData } from "@/parsers/powderData";
 import { parsePdfData } from "@/parsers/pdfData";
 import { looksLikeFgr, parseFgr, fgrToPattern, type FgrSignal } from "@/parsers/fgrData";
 import { detectDataFormat } from "@/parsers/detectFormat";
-import { parseInstrumentParameters } from "@/parsers/instrument";
+import { defaultInstrumentBank, parseInstrumentFile, parseInstrumentParameters } from "@/parsers/instrument";
 import { buildPowderSpec, type MustrainModel } from "@/app/powderSpec";
 import { runPowderRefinement, runPdfRefinement, runMpdfRefinement } from "@/workers/runPowder";
 import { powderCurves } from "@/core/workflow/powder";
@@ -60,7 +60,7 @@ import { bondValenceReading, bondValenceSums, type BondValenceSum } from "@/core
 import { analyzeSiteSymmetry, type SiteSymmetry } from "@/core/crystal/siteSymmetry";
 import { classifyPointGroup } from "@/core/crystal/pointGroup";
 import { reviewSymmetry, type SymmetryReview } from "@/core/diagnostics/symmetryReview";
-import { isGsasHistogram, parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
+import { isGsasHistogram, parseGsasHistogram, parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { cagliotiOf } from "@/core/workflow/leBail";
 import { searchPropagationVector, type KSearchOptions } from "@/core/magnetic/kSearch";
 import { magneticSubgroupLattice, latticeCandidateLabel, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
@@ -142,18 +142,25 @@ export function parse_structure(args: { cif: string; id?: string; spaceGroupSett
 }
 
 /** Classify + parse powder data; returns the pattern and how the format was detected. */
-export function parse_powder_data(args: { text: string; filename?: string; instrument?: InstrumentParameters }): {
+export function parse_powder_data(args: { text: string; filename?: string; instrument?: InstrumentParameters; bank?: number }): {
   detected: { dataType: string; xUnit?: string; source: string; confidence: string; note?: string };
   pattern: PowderPattern;
-  summary: { points: number; xUnit: string; xMin: number; xMax: number; radiation: string };
+  summary: { points: number; xUnit: string; xMin: number; xMax: number; radiation: string; bank?: number; banksInFile?: number[] };
 } {
   // The instrument sets the radiation: X-ray or neutron, λ, polarization, a lab tube's Kα₂.
   const fmt = detectDataFormat({ text: args.text, filename: args.filename ?? "data", ...(args.instrument ? { instrument: args.instrument } : {}) });
   if (fmt.dataType !== "powder") throw new Error(`detected ${fmt.dataType} data, not powder — use the single-crystal path`);
   // A GSAS histogram (BANK records: STD/ESD/ALT/FXYE, CONST or TOF binning)
   // is read as the app reads it; its packed rows are not columns.
+  // A GSAS histogram's banks, one per bank number: the bank asked for, else the file's first, as before.
+  const banks = isGsasHistogram(args.text) ? parseGsasHistogram(args.text).banks : null;
+  const banksInFile = banks ? [...new Set(banks.filter((b) => b.points.length > 0).map((b) => b.bankNumber))] : [];
+  if (args.bank !== undefined && !banksInFile.includes(args.bank)) {
+    throw new Error(banks ? `Bank ${args.bank} not found in the data file (it has bank${banksInFile.length === 1 ? "" : "s"} ${banksInFile.join(", ")})` : "`bank` selects a bank of a GSAS histogram file; this file has no banks");
+  }
+  const bankRead = args.bank ?? banks?.[0]?.bankNumber;
   const pattern = isGsasHistogram(args.text)
-    ? parseGsasHistogramPattern(args.text, "data", args.filename ?? "data", { radiation: fmt.radiation })
+    ? parseGsasHistogramPattern(args.text, "data", args.filename ?? "data", { radiation: fmt.radiation, ...(args.bank !== undefined ? { bank: args.bank } : {}) })
     : parsePowderData(args.text, {
       id: "data",
       name: args.filename ?? "data",
@@ -165,13 +172,25 @@ export function parse_powder_data(args: { text: string; filename?: string; instr
   return {
     detected: { dataType: fmt.dataType, ...(fmt.xUnit ? { xUnit: fmt.xUnit } : {}), source: fmt.source, confidence: fmt.confidence, ...(fmt.note ? { note: fmt.note } : {}) },
     pattern,
-    summary: { points: pattern.points.length, xUnit: pattern.xUnit, xMin: minMax(xs).min, xMax: minMax(xs).max, radiation: pattern.radiation.kind },
+    summary: {
+      points: pattern.points.length, xUnit: pattern.xUnit, xMin: minMax(xs).min, xMax: minMax(xs).max, radiation: pattern.radiation.kind,
+      ...(bankRead !== undefined ? { bank: bankRead, banksInFile } : {}),
+    },
   };
 }
 
-/** Parse an instrument-parameter file (.instprm / .prm / .irf) into a CW or TOF calibration. */
-export function parse_instrument(args: { text: string }): InstrumentParameters {
-  return parseInstrumentParameters(args.text);
+/**
+ * Parse an instrument-parameter file (.instprm / .prm / .irf) into a CW or TOF
+ * calibration. Of a file with several banks: the bank asked for, else its
+ * lowest-numbered bank (GSAS-II's default). Where the file numbers its banks
+ * the result says which was read and which the file holds (`fileBanks`).
+ */
+export function parse_instrument(args: { text: string; bank?: number }): InstrumentParameters & { readonly fileBanks?: { readonly read: number; readonly inFile: readonly number[] } } {
+  const parameters = parseInstrumentParameters(args.text, args.bank);
+  const file = parseInstrumentFile(args.text);
+  const inFile = file.banks.flatMap((b) => (b.bank === null ? [] : [b.bank]));
+  const read = args.bank ?? defaultInstrumentBank(file).bank;
+  return read === null || inFile.length === 0 ? parameters : { ...parameters, fileBanks: { read, inFile } };
 }
 
 /**

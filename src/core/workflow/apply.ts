@@ -58,6 +58,25 @@ export interface AppliedModel {
     readonly beta0: number; readonly beta1: number; readonly betaQ: number;
     readonly sig0: number; readonly sig1: number; readonly sig2: number; readonly sigQ: number;
   };
+  /**
+   * Present when the instrument file gives the TOF profile (a `tofFileProfile`
+   * or TOF sample binding): the peak is then the file's own program's, with
+   * the Lorentzian width γ = gamX·d + gamY·d² + gamZ (µs; GSAS-II's X, Y, Z)
+   * and the sample's terms added to the instrument's. No width is floored: a
+   * reflection where σ², α or β is not positive is not drawn (see
+   * `tofWidthsAt` in powder.ts).
+   */
+  readonly tofFile?: {
+    readonly gamX: number; readonly gamY: number; readonly gamZ: number;
+    /** Whose function evaluates the Lorentzian part. */
+    readonly lorentzForm: "gsas" | "fullprof";
+    /** The sample's Gaussian microstrain ε (dimensionless): σ += |dT/dd|·ε·d in quadrature. */
+    readonly sampleGauss: number;
+    /** The sample's Lorentzian microstrain, GSAS-II's Mustrain (×10⁻⁶): γ += 10⁻⁶·difC·d·M. */
+    readonly sampleLorentz: number;
+    /** The sample's size, GSAS-II's Size (µm): γ += 10⁻⁴·difC·d²/S. Absent: no size term. */
+    readonly sampleSize?: number;
+  };
   /** Zero-point shift of the abscissa, in the pattern's x-unit. */
   readonly zeroShift: number;
   /**
@@ -181,6 +200,12 @@ export function applyParameters(
   const background: number[] = [];
   const tofCal = new Map<string, number>();
   const tofProf = new Map<string, number>();
+  // The instrument file's profile and the sample rows beside it (AppliedModel.tofFile).
+  let tofFileGiven = false;
+  let tofLorentzForm: "gsas" | "fullprof" = "gsas";
+  let tofSampleGauss = 0;
+  let tofSampleLorentz = 0;
+  let tofSampleSize: number | undefined;
   const pdfVals = new Map<string, number>();
   const mpdfVals = new Map<string, number>();
 
@@ -293,6 +318,25 @@ export function applyParameters(
         break;
       case "tofProfile":
         if (binding.targetKey) tofProf.set(binding.targetKey, v);
+        break;
+      case "tofFileProfile":
+        if (binding.targetKey) tofProf.set(binding.targetKey, v);
+        tofFileGiven = true;
+        if (binding.tofLorentzForm) tofLorentzForm = binding.tofLorentzForm;
+        break;
+      case "tofSampleGauss":
+        tofSampleGauss = v * 1e-6;
+        tofFileGiven = true;
+        break;
+      case "tofSampleLorentz":
+        tofSampleLorentz = v;
+        tofFileGiven = true;
+        if (binding.tofLorentzForm) tofLorentzForm = binding.tofLorentzForm;
+        break;
+      case "tofSampleSize":
+        tofSampleSize = v;
+        tofFileGiven = true;
+        if (binding.tofLorentzForm) tofLorentzForm = binding.tofLorentzForm;
         break;
       case "poRatio":
         po = { axis: (binding.axis ? [...binding.axis] : [0, 0, 1]) as [number, number, number], ratio: v };
@@ -431,6 +475,17 @@ export function applyParameters(
     ...(axial ? { axial } : {}),
     ...(tof ? { tof } : {}),
     ...(tofProfile ? { tofProfile } : {}),
+    ...(tofFileGiven
+      ? {
+          tofFile: {
+            gamX: tofProf.get("gamX") ?? 0, gamY: tofProf.get("gamY") ?? 0, gamZ: tofProf.get("gamZ") ?? 0,
+            lorentzForm: tofLorentzForm,
+            sampleGauss: tofSampleGauss,
+            sampleLorentz: tofSampleLorentz,
+            ...(tofSampleSize !== undefined ? { sampleSize: tofSampleSize } : {}),
+          },
+        }
+      : {}),
     ...(pdf ? { pdf } : {}),
     ...(mpdf ? { mpdf } : {}),
     ...(po ? { po } : {}),

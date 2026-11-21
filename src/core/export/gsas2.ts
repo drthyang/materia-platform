@@ -122,6 +122,46 @@ export interface RefinedInstrumentProfile {
     readonly alpha0: number; readonly alpha1: number;
     readonly beta0: number; readonly beta1: number; readonly betaQ: number;
     readonly sig0: number; readonly sig1: number; readonly sig2: number; readonly sigQ: number;
+    /** Lorentzian FWHM γ = gamX·d + gamY·d² + gamZ (µs; GSAS-II X, Y, Z), when the instrument file gives the profile. */
+    readonly gamX?: number; readonly gamY?: number; readonly gamZ?: number;
+  };
+  /**
+   * The sample's TOF broadening beside an instrument file's profile, as the
+   * rows hold it: Gaussian microstrain (×10⁻⁶), Lorentzian microstrain (×10⁻⁶,
+   * GSAS-II's Mustrain) and size (µm, GSAS-II's Size; absent: no size term).
+   */
+  readonly tofSample?: { readonly gauss: number; readonly lorentz: number; readonly size?: number };
+  /** The program whose function the instrument file's profile was evaluated with. */
+  readonly tofLorentzForm?: "gsas" | "fullprof";
+}
+
+/** GSAS-II's sample parameters for a phase on a TOF histogram (GSASIIstrMath.GetSampleSigGam). */
+export interface Gsas2SampleTerms {
+  /** Mustrain (×10⁻⁶): FWHM 10⁻⁶·difC·d·Mustrain, its fraction `mustrainMix` Lorentzian and the rest Gaussian. */
+  readonly mustrain: number;
+  readonly mustrainMix: number;
+  /** Size (µm), Lorentzian: FWHM 10⁻⁴·difC·d²/Size. */
+  readonly size: number;
+}
+
+/** A size GSAS-II takes as none: its width 10⁻⁴·difC·d²/Size is below 10⁻⁶ of any peak's. */
+const GSAS2_NO_SIZE = 1e6;
+
+/**
+ * The sample rows as GSAS-II's one Mustrain with a mixing coefficient and its
+ * Size. GSAS-II's microstrain width is W = 10⁻⁶·difC·d·Mustrain, of which the
+ * fraction mx is a Lorentzian FWHM and (1 − mx) a Gaussian FWHM, so a
+ * Lorentzian row M_L and a Gaussian row m_G (σ = 10⁻⁶·difC·d·m_G, FWHM
+ * 2√(2 ln 2)·σ) are Mustrain = M_L + 2.3548·m_G with mx = M_L/Mustrain. Exact
+ * when difA = difB = 0 (GSAS-II's sample terms use difC alone).
+ */
+export function gsas2SampleTerms(sample: NonNullable<RefinedInstrumentProfile["tofSample"]>): Gsas2SampleTerms {
+  const gaussianFwhm = 2 * Math.sqrt(2 * Math.LN2) * Math.max(sample.gauss, 0);
+  const mustrain = Math.max(sample.lorentz, 0) + gaussianFwhm;
+  return {
+    mustrain,
+    mustrainMix: mustrain > 0 ? Math.max(sample.lorentz, 0) / mustrain : 1,
+    size: sample.size !== undefined && sample.size > 0 ? sample.size : GSAS2_NO_SIZE,
   };
 }
 
@@ -168,11 +208,14 @@ export function gsas2InstrumentValues(kind: "cw" | "tof", p: RefinedInstrumentPr
     values["sig-1"] = t.sig1;
     values["sig-2"] = t.sig2;
     values["sig-q"] = t.sigQ;
-    // MATERIA's TOF profile is Gaussian ⊗ back-to-back exponentials: no Lorentzian.
-    values.X = 0;
-    values.Y = 0;
-    values.Z = 0;
+    // The Lorentzian widths of an instrument file's profile; the app's own refinable TOF profile has none.
+    values.X = t.gamX ?? 0;
+    values.Y = t.gamY ?? 0;
+    values.Z = t.gamZ ?? 0;
     if (t.alpha0 !== 0) notes.push(`α₀ = ${t.alpha0} (constant rise-time term) has no GSAS-II key (GSAS-II α = alpha/d); omitted.`);
+    if (p.tofLorentzForm === "fullprof") {
+      notes.push("This fit used a FullProf resolution file, evaluated with FullProf's time-of-flight function. Its widths are written as GSAS-II's sig-0, sig-1, sig-2 and X, Y, Z (Gam-1, Gam-2, Gam-0), which mean the same; GSAS-II's function for the Lorentzian part is its own, so the peak is a starting point in GSAS-II, not the same peak: refine the profile there against a standard.");
+    }
   }
   return { values, notes };
 }
@@ -219,6 +262,8 @@ export interface GpxScriptOptions {
   /** Powder background as GSAS-II "lin interpolate" values (evenly spaced
    *  across the fitted data, first to last point). */
   readonly background?: readonly number[];
+  /** The sample's TOF broadening, set on every phase for this histogram. */
+  readonly sample?: Gsas2SampleTerms;
 }
 
 /** Python float literal (finite, compact). */
@@ -301,6 +346,22 @@ export function buildGpxScript(opts: GpxScriptOptions): string {
         "}})",
       );
     }
+  }
+  if (opts.histogramKind !== "single" && opts.sample) {
+    const s = opts.sample;
+    lines.push(
+      "",
+      "# The sample's broadening as MATERIA used it, in GSAS-II's own parameters: Mustrain (x 1e-6) with its",
+      "# Lorentzian fraction, and Size (um, Lorentzian). GSAS-II adds these to the instrument's widths.",
+      `for _phase in (${phaseVars},):`,
+      "    _hap = _phase.data['Histograms'][hist.name]",
+      `    _hap['Mustrain'][0] = 'isotropic'`,
+      `    _hap['Mustrain'][1][0] = _hap['Mustrain'][1][1] = ${py(s.mustrain)}`,
+      `    _hap['Mustrain'][1][2] = ${py(s.mustrainMix)}`,
+      `    _hap['Size'][0] = 'isotropic'`,
+      `    _hap['Size'][1][0] = _hap['Size'][1][1] = ${py(s.size)}`,
+      "    _hap['Size'][1][2] = 1.0",
+    );
   }
   lines.push("", "gpx.save()", `print('Wrote ${opts.gpxName}')`);
   return lines.join("\n") + "\n";

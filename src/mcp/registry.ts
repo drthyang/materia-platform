@@ -75,11 +75,12 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "parse_powder_data",
     title: "Parse powder pattern",
-    description: "Auto-detect and parse powder data (xye/xy/dat/GSAS/FullProf/ILL). Returns the pattern, a summary (points, unit, range, radiation), and how the format was detected (source + confidence). Pass the instrument from parse_instrument so the radiation is right: X-ray or neutron, the wavelength, the polarization, and a lab tube's Kα₂ line.",
+    description: "Auto-detect and parse powder data (xye/xy/dat/GSAS/FullProf/ILL). Returns the pattern, a summary (points, unit, range, radiation), and how the format was detected (source + confidence). Pass the instrument from parse_instrument so the radiation is right: X-ray or neutron, the wavelength, the polarization, and a lab tube's Kα₂ line. Of a GSAS histogram file with several banks it reads the first unless `bank` names another; the summary gives the bank read and the banks in the file.",
     inputSchema: {
       text: z.string().describe("Powder data file text"),
       filename: z.string().optional(),
       instrument: anyObj.optional().describe("InstrumentParameters from parse_instrument; without it a 2θ pattern reads as neutron at the file's (or a default) wavelength"),
+      bank: z.number().int().optional().describe("Bank number of a multi-bank GSAS histogram file (default: the file's first bank)"),
     },
     fileInput: { text: "text", name: "filename" },
     handler: tools.parse_powder_data,
@@ -87,8 +88,11 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "parse_instrument",
     title: "Parse instrument file",
-    description: "Parse an instrument-parameter file (GSAS-II .instprm, classic GSAS .prm, FullProf .irf) into a CW or TOF calibration. Pass the result to build_refinement/refine_powder so the wavelength and profile are right.",
-    inputSchema: { text: z.string().describe("Instrument-parameter file text") },
+    description: "Parse an instrument-parameter file (GSAS-II .instprm, classic GSAS .prm, FullProf .irf) into a CW or TOF calibration. Pass the result to build_refinement/refine_powder so the wavelength and profile are right. Of a file with several banks it reads the lowest-numbered one (as GSAS-II opens it) unless `bank` names another; `fileBanks` gives the bank read and the banks in the file. Take the bank of the data.",
+    inputSchema: {
+      text: z.string().describe("Instrument-parameter file text"),
+      bank: z.number().int().optional().describe("Bank number of a multi-bank file (default: its lowest-numbered bank)"),
+    },
     fileInput: { text: "text" },
     handler: tools.parse_instrument,
   },
@@ -206,7 +210,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "simulate_pattern",
     title: "Simulate pattern (structure only)",
-    description: "Simulate the powder pattern of a structure on an instrument before any data exists — planning, phase identification by eye, generating a reference. Grid defaults: CW 5–120° 2θ; TOF the d = 0.6–6 Å band of the calibration. Pass a magnetic model to include (and separate out) the magnetic contribution.",
+    description: "Simulate the powder pattern of a structure on an instrument before any data exists — planning, phase identification by eye, generating a reference. Grid defaults: CW 5–120° 2θ; TOF the d = 0.6–6 Å band of the calibration. A TOF instrument file that gives the profile (a GSAS-II .instprm, a FullProf NPROF 9 .irf) is drawn as the page draws it: every term by its own program's function, Lorentzian part included, with the sample's rows at their starting values (a GSAS-II file: Lorentzian microstrain 1000, size 1 µm; a FullProf file: none, and that path is not yet checked against a FullProf run). Pass a magnetic model to include (and separate out) the magnetic contribution.",
     inputSchema: {
       structure: anyObj,
       instrument: anyObj.optional().describe("CW or TOF calibration; defaults to CW λ=1.54 Å"),

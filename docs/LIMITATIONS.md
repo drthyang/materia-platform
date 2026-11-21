@@ -238,6 +238,24 @@ approximate, however plausible its output looks.
   α/β/σ, placed by difC/difA/difB (GSAS-II convention). α/β/σ refine in the
   profile stage; difC/difA/difB start fixed at the instrument calibration,
   because they correlate strongly with the cell.
+- With a GSAS-II TOF instrument file that carries the profile, the peak is
+  GSAS-II's: back-to-back exponentials ⊗ pseudo-Voigt, every term of the file
+  as read (alpha, beta-0, beta-1, beta-q, sig-0, sig-1, sig-2, sig-q, and the
+  Lorentzian X, Y, Z), held; the sample's Lorentzian microstrain and size
+  (GSAS-II's definitions, starting at GSAS-II's new-phase 1000 and 1 µm) and
+  a Gaussian microstrain are rows beside them, and a profile stage refines the
+  sample's rows. Where the file gives no positive width inside the data's
+  d-range the reflections are not drawn and the Instrument card says where.
+  The Lorentzian tails are drawn out to where they hold less than 0.02 % of a
+  peak; the first evaluation of such a pattern is slow, and later ones reuse
+  the peaks that did not move.
+- With a FullProf `.irf` (NPROF 9) that carries the profile, the peak is
+  FullProf's as its documentation gives it: alph0, alph1, beta0, beta1, Sig-0,
+  Sig-1, Sig-2 and Gam-1, Gam-2, Gam-0 as read, held, with a Gaussian
+  microstrain row for the sample. This reading, its Lorentzian part and alph0
+  above all, is not yet checked against a FullProf run; a negative Lorentzian
+  width, on which the manual is silent, is taken as none. A resolution file
+  written for Jana is read the same way and is not verified for Jana.
 - Lorentz–polarization: neutron CW 1/(sin²θ cosθ); X-ray CW multiplied by the
   polarization factor (1−P)cos²2θ + P, with P from the instrument (0.5
   unpolarized, about 0.9–0.95 for a monochromated synchrotron beam); TOF ∝ d⁴.
@@ -299,8 +317,10 @@ approximate, however plausible its output looks.
   flat-plate absorption.
 - High-angle axial asymmetry; the Ikeda–Carpenter moderator peak shape; TOF
   absorption and extinction.
-- A Lorentzian part of the time-of-flight peak: an instrument file's `X`, `Y`,
-  `Z` (GSAS-II) are read and left out, and the Instrument card says so.
+- Sample size and Lorentzian microstrain rows for a FullProf session; FullProf's
+  NPROF 10 (refused on reading); what Jana calculates from a resolution file.
+- A session whose instrument gives no profile (a calibration alone) has no
+  Lorentzian part and no size term on time of flight.
 - A joint refinement of several banks: a multi-bank data file and a multi-bank
   instrument file are read one bank at a time, chosen on their cards.
 - Manually placed background points, real-space (Debye) backgrounds, and

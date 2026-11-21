@@ -25,6 +25,43 @@ release fixes bugs.
   start the width and decay rows, `GAMMA`, `TWOTH` and `TOFRG` are read and
   kept, and several banks separated by `END` are offered.
 
+- **A GSAS-II time-of-flight instrument file's profile, as GSAS-II calculates
+  it.** A `.instprm` that carries the profile is evaluated with GSAS-II's own
+  function, back-to-back exponentials convolved with a pseudo-Voigt: sig-1 is
+  used as the file gives it, and the Lorentzian X, Y, Z have rows. The file's
+  rows are held, and no stage frees them. The sample has its own rows: the
+  Lorentzian microstrain and size in GSAS-II's definitions, starting at
+  GSAS-II's new-phase values (1000 and 1 µm, which a GSAS-II calibration
+  assumes), and a Gaussian microstrain at 0. A profile stage refines the
+  sample's rows. Where a file gives no positive peak width inside the data's
+  range, the Instrument card names the d-range and the reflections left out.
+  The GSAS-II bundle writes back the session's bank, sig-1, X, Y, Z and the
+  sample's terms. A session opened from such a file starts from a different
+  profile than before, and a fit with it takes longer; a saved project keeps
+  its rows; an instrument that is a calibration alone (the bundled demo) is
+  unchanged ([report](docs/reports/2026-11-21-tof-profile-assignment.md)).
+- **A FullProf `.irf`'s time-of-flight profile, by FullProf's function.** A
+  resolution file (NPROF 9) that carries the profile is evaluated with
+  FullProf's function as its documentation gives it: Sig-1 is used, `GAMMA`
+  and alph0 have rows, all held, and the sample starts with a Gaussian
+  microstrain row at 0. This reading is not yet checked against a FullProf
+  run, and the Instrument card says so; a file written for Jana is read the
+  same way and is not verified for Jana. The FullProf bundle's `.pcr` holds
+  the widths the fit used.
+- **The Copilot on an instrument file's time-of-flight profile.** What the
+  Copilot reads describes such a session as it is. `set_free` does not free
+  the file's rows: it answers with the reason and with what to free instead
+  (the zero and the sample's Lorentzian rows). `get_state` names the
+  profile's source, the held rows and the rule that σ₁² and the Gaussian
+  microstrain are never free together; where the file gives no positive
+  width inside the data's range, `get_state` and `check_fit_range` name the
+  range. The final instrument pass, the fit-cause advice and the report
+  follow, and the two skills say it. A session whose instrument is a
+  calibration alone reads as before. New eval scenario `file-profile-held`.
+- **MCP: `bank`.** `parse_instrument` and `parse_powder_data` take an
+  optional `bank` and name the bank read and the banks in the file; the
+  default is unchanged.
+
 ### Changed
 
 - **Refine moments runs as rounds** (powder page). The moments with every

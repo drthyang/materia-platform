@@ -24,7 +24,7 @@ import { evaluateBackground } from "@/core/diffraction/background";
 import { structureToCif, type CifRefinementMeta } from "@/core/export/cif";
 import { structureToPcr, type PcrExportOptions, type PcrPhase } from "@/core/export/fullprof";
 import {
-  instrumentToInstprm, buildGpxScript, gsas2InstrumentValues, patchInstprm,
+  instrumentToInstprm, buildGpxScript, gsas2InstrumentValues, gsas2SampleTerms, patchInstprm,
   type RefinedInstrumentProfile,
 } from "@/core/export/gsas2";
 import {
@@ -104,6 +104,30 @@ function isInstprm(name: string, text: string): boolean {
     || /(^|\n)\s*Type\s*:\s*(PNT|PXC|PNC)\b/i.test(text);
 }
 
+/**
+ * The one bank of a multi-bank GSAS-II `.instprm` ("#Bank N: …" blocks) that
+ * the session used, as a single-bank file with the block's lines verbatim. The
+ * bank is the one whose difC is the instrument's as loaded (bank numbers are
+ * not kept with the instrument). Undefined for a single-bank file, off TOF, or
+ * when no block matches.
+ */
+function sessionBankOfInstprm(text: string, instrument: InstrumentParameters | undefined): { text: string; bank: number } | undefined {
+  if (instrument?.kind !== "tof") return undefined;
+  const lines = text.split(/\r?\n/);
+  const starts = lines.map((l, i) => (/^\s*#\s*Bank\s+\d+/i.test(l) ? i : -1)).filter((i) => i >= 0);
+  if (starts.length < 2) return undefined;
+  for (let b = 0; b < starts.length; b++) {
+    const block = lines.slice(starts[b]! + 1, b + 1 < starts.length ? starts[b + 1]! : lines.length);
+    const difC = block.map((l) => l.match(/(?:^|;)\s*difC\s*:\s*(-?\d[\d.eE+-]*)/i)).find((m) => m)?.[1];
+    if (difC === undefined || Math.abs(parseFloat(difC) - instrument.difC) > 1e-9 * Math.abs(instrument.difC)) continue;
+    const bank = parseInt(lines[starts[b]!]!.match(/#\s*Bank\s+(\d+)/i)![1]!, 10);
+    // One key:value per line, as patchInstprm reads it.
+    const body = block.flatMap((l) => (l.trim().startsWith("#") ? [l] : l.split(";"))).filter((l) => l.trim() !== "");
+    return { text: ["#GSAS-II instrument parameter file; do not add/delete items!", ...body].join("\n") + "\n", bank };
+  }
+  return undefined;
+}
+
 /** The detector-bank 2θ a GSAS-II `.instprm` declares (TOF), if any. */
 function instprmTwoTheta(text: string | undefined): number | undefined {
   const m = text?.match(/^\s*2-theta\s*:\s*(-?\d[\d.eE+-]*)/im);
@@ -143,6 +167,7 @@ const EXPORTED_KINDS = new Set<ParameterKind>([
   "scale", "background", "cellLength", "cellAngle", "atomX", "atomY", "atomZ", "positionShift",
   "occupancy", "bIso", "uAniso", "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY",
   "asymSL", "asymHL", "zeroShift", "tofCalibration", "tofProfile", "poRatio", "mustrainIso",
+  "tofFileProfile", "tofSampleGauss", "tofSampleLorentz", "tofSampleSize",
 ]);
 
 /** Readable names for the kinds the bundle does not carry. */
@@ -222,9 +247,16 @@ function powderExtras(
   // An isotropic TOF Mustrain is the ∝d² Gaussian strain term: fold its
   // σ_T² ≈ (difC·ε)²·d² into Sig-1, since neither file carries it separately
   // here (ε is already dimensionless on the applied model).
-  const tofProfile = a.tofProfile && a.mustrainIso && a.tof
-    ? { ...a.tofProfile, sig1: a.tofProfile.sig1 + (a.tof.difC * a.mustrainIso) ** 2 }
-    : a.tofProfile;
+  // An instrument file's profile goes back as it is used: its σ₁² untouched, its
+  // Lorentzian X, Y, Z, and the sample's rows apart (tofSample).
+  const tofProfile = a.tofProfile && a.tofFile
+    ? { ...a.tofProfile, gamX: a.tofFile.gamX, gamY: a.tofFile.gamY, gamZ: a.tofFile.gamZ }
+    : a.tofProfile && a.mustrainIso && a.tof
+      ? { ...a.tofProfile, sig1: a.tofProfile.sig1 + (a.tof.difC * a.mustrainIso) ** 2 }
+      : a.tofProfile;
+  const tofSample = a.tofFile
+    ? { gauss: a.tofFile.sampleGauss * 1e6, lorentz: a.tofFile.sampleLorentz, ...(a.tofFile.sampleSize !== undefined ? { size: a.tofFile.sampleSize } : {}) }
+    : undefined;
   const profile: RefinedInstrumentProfile = {
     zero: a.zeroShift,
     ...(a.caglioti ? { caglioti: a.caglioti } : {}),
@@ -233,6 +265,8 @@ function powderExtras(
     ...(a.axial ? { axial: a.axial } : {}),
     ...(a.tof ? { tof: a.tof } : {}),
     ...(tofProfile ? { tofProfile } : {}),
+    ...(tofSample ? { tofSample } : {}),
+    ...(a.tofFile ? { tofLorentzForm: a.tofFile.lorentzForm } : {}),
   };
   if (!kinds.has("background") || a.background.length === 0 || pattern.points.length < 2) return { profile };
   const { min: xMin, max: xMax } = minMax(pattern.points.map((p) => p.x));
@@ -290,6 +324,31 @@ function powderSpan(pattern: PowderPattern, fitRange: BundleOptions["fitRange"])
   return { xMin, xMax, lo, hi, first, last, excluded, narrowed: excluded.length > 0 };
 }
 
+/**
+ * The TOF profile for the `.pcr`. FullProf holds the instrument's widths and the
+ * sample's in the same functions of d (manual: σ² = (Sig-2 + GSIZ)·d⁴ +
+ * (Sig-1 + DST)·d² + Sig-0, γ = (Gam-2 + DSIZ)·d² + (Gam-1 + LStr)·d + Gam-0),
+ * and this `.pcr` has no resolution file (Res = 0), so its profile lines are
+ * the totals: an instrument file's terms as the fit used them, with the
+ * sample's rows added where they act. The Gaussian microstrain ε widens as
+ * (difC·ε)²·d², the Lorentzian microstrain M as 10⁻⁶·difC·M·d, the size S as
+ * 10⁻⁴·difC/S·d².
+ */
+function pcrTofShape(prof: RefinedInstrumentProfile | undefined, instrument: InstrumentParameters | undefined): PcrExportOptions["tofShape"] | undefined {
+  const t = prof?.tofProfile;
+  if (!t) return undefined;
+  const s = prof.tofSample;
+  if (!s || instrument?.kind !== "tof") return t;
+  const difC = instrument.difC;
+  return {
+    ...t,
+    sig1: t.sig1 + (difC * s.gauss * 1e-6) ** 2,
+    gamX: (t.gamX ?? 0) + 1e-6 * difC * s.lorentz,
+    gamY: (t.gamY ?? 0) + (s.size !== undefined && s.size > 0 ? (1e-4 * difC) / s.size : 0),
+    gamZ: t.gamZ ?? 0,
+  };
+}
+
 /** FullProf bundle: `.pcr` + data + README (+ verbatim originals when present). */
 export function fullprofBundle(structure: StructureModel, dataset: DiffractionDataset, opts: BundleOptions = {}): ZipEntry[] {
   const name = sanitize(opts.name ?? structure.name);
@@ -311,7 +370,7 @@ export function fullprofBundle(structure: StructureModel, dataset: DiffractionDa
     let instrument = opts.instrument;
     if (instrument?.kind === "tof" && prof?.tof) instrument = { ...instrument, ...prof.tof };
     const bank = instprmTwoTheta(opts.rawInstrument?.text);
-    const tofShape = prof?.tofProfile ?? tofShapeFromParams(opts.params, opts.instrument);
+    const tofShape = pcrTofShape(prof, instrument) ?? tofShapeFromParams(opts.params, opts.instrument);
     const caglioti = prof?.caglioti
       ?? (prof?.peakWidth !== undefined ? { u: 0, v: 0, w: (prof.peakWidth * 100) ** 2 } : undefined);
     pcr = structureToPcr(structure, {
@@ -433,6 +492,8 @@ export function gsas2Bundle(structure: StructureModel, dataset: DiffractionDatas
   let instprmMode: InstprmMode | undefined;
   let instNotes: string[] = [];
   let rawInstrName: string | undefined;
+  let instprmBank: number | undefined;
+  const sample = !sc && opts.profile?.tofSample ? gsas2SampleTerms(opts.profile.tofSample) : undefined;
   if (!sc) {
     const inst = opts.instrument ?? deriveInstrument(dataset.radiation);
     const mapped = opts.profile
@@ -441,7 +502,10 @@ export function gsas2Bundle(structure: StructureModel, dataset: DiffractionDatas
     instNotes = mapped.notes;
     const raw = opts.rawInstrument;
     if (raw && isInstprm(raw.name, raw.text)) {
-      const patched = Object.keys(mapped.values).length > 0 ? patchInstprm(raw.text, mapped.values) : undefined;
+      // A multi-bank file: the session's bank alone, so that GSAS-II reads the instrument the fit used.
+      const oneBank = sessionBankOfInstprm(raw.text, opts.instrument);
+      instprmBank = oneBank?.bank;
+      const patched = Object.keys(mapped.values).length > 0 ? patchInstprm(oneBank?.text ?? raw.text, mapped.values) : undefined;
       if (patched !== undefined) {
         instprmFile = `${name}.instprm`;
         entries.push({ name: instprmFile, data: patched });
@@ -492,13 +556,14 @@ export function gsas2Bundle(structure: StructureModel, dataset: DiffractionDatas
       ...(sc ? { dataFmthint: "HKLF" } : {}),
       ...(limits ? { limits } : {}),
       ...(background ? { background } : {}),
+      ...(sample ? { sample } : {}),
     }),
   });
   const rawDataName = addVerbatim(entries, opts.rawData, reserved);
   entries.push({
     name: "README.txt",
     data: gsas2Readme({
-      name, sc, dataName, instprmFile, instprmMode, rawInstrName, rawDataName, instNotes,
+      name, sc, dataName, instprmFile, instprmMode, rawInstrName, rawDataName, instNotes, instprmBank, sample,
       extraCifs: extraCifs.map((c) => c.cifFile), limits, background: background !== undefined, hklScale,
       notExported: opts.notExported ?? [], magnetic: opts.magneticLabel !== undefined,
     }),
@@ -565,6 +630,37 @@ function fullprofReadme(r: {
       `    FullProf's Sig-Q d-dependence is undocumented, so it was left 0 — refine Sig-0/Sig-1 to absorb it.`,
     );
   }
+  // A fit made with an instrument file's profile: what the .pcr's profile lines hold, and what they cannot.
+  const tp = opts.profile?.tofProfile;
+  const ts = opts.profile?.tofSample;
+  if (!sc && tp && ts) {
+    const added = [
+      ...(ts.gauss !== 0 ? [`its Gaussian microstrain ${+ts.gauss.toPrecision(8)} (x 1e-6) in Sig-1`] : []),
+      ...(ts.lorentz !== 0 ? [`its Lorentzian microstrain ${+ts.lorentz.toPrecision(8)} (x 1e-6) in Gam-1`] : []),
+      ...(ts.size !== undefined ? [`its size ${+ts.size.toPrecision(8)} um in Gam-2`] : []),
+    ];
+    lines.push(
+      ``,
+      `Peak profile: the .pcr's Sig-2, Sig-1, Sig-0, Gam-2, Gam-1, Gam-0 and alph0, beta0, alph1, beta1 are the`,
+      `widths the fit used, as totals (no resolution file is named: Res = 0).${added.length ? ` The sample's broadening is` : ""}`,
+      ...(added.length ? [`added where it acts: ${added.join("; ")}.`] : []),
+    );
+    if (opts.profile?.tofLorentzForm === "fullprof") {
+      lines.push(
+        `The fit evaluated your FullProf resolution file with FullProf's NPROF 9 function as its documentation gives`,
+        `it; that reading, its Lorentzian part and alph0 above all, is not yet checked against a FullProf run.`,
+        `To use your .irf as the resolution file instead, set Res = 5, name it, and zero these lines (they are then`,
+        `shifts added to the file's values).`,
+      );
+    } else {
+      lines.push(
+        `The fit used a GSAS-II instrument file, evaluated with GSAS-II's time-of-flight function. The widths mean`,
+        `the same in FullProf (X, Y, Z are Gam-1, Gam-2, Gam-0), but FullProf's function for the Lorentzian part is`,
+        `its own: the peak is a starting point in FullProf, not the same peak. Refine the profile there against a`,
+        `standard.`,
+      );
+    }
+  }
   if (opts.notExported && opts.notExported.length) {
     lines.push(``, `Not carried by this file (re-add in FullProf if needed): ${opts.notExported.join(", ")}.`);
   }
@@ -584,6 +680,10 @@ function gsas2Readme(r: {
   rawInstrName: string | undefined;
   rawDataName: string | undefined;
   instNotes: readonly string[];
+  /** The bank of a multi-bank `.instprm` the bundle's instrument is. */
+  instprmBank?: number | undefined;
+  /** The sample's TOF broadening written into build_gpx.py. */
+  sample?: { readonly mustrain: number; readonly mustrainMix: number; readonly size: number } | undefined;
   extraCifs: readonly string[];
   limits: readonly [number, number] | undefined;
   background: boolean;
@@ -605,12 +705,21 @@ function gsas2Readme(r: {
     `script rather than written directly.`,
   ];
   if (r.instprmMode === "patched") {
-    lines.push(``, `Instrument: ${r.instprmFile} is your original .instprm with the refined profile`, `(zero, peak shape${sc ? "" : ", calibration"}) written in; every other line is unchanged.`, `The untouched original is ${r.rawInstrName}.`);
+    lines.push(``, `Instrument: ${r.instprmFile} is ${r.instprmBank !== undefined ? `bank ${r.instprmBank} of your original .instprm (the bank this fit used)` : "your original .instprm"} with the refined profile`, `(zero, peak shape${sc ? "" : ", calibration"}) written in; every other line is unchanged.`, `The untouched original is ${r.rawInstrName}.`);
   } else if (r.instprmMode === "verbatim") {
     lines.push(``, `Instrument: ${r.instprmFile} is your original .instprm, used verbatim (a multi-bank`, `file is not patched) — refine the profile in GSAS-II before comparing.`);
   } else if (r.instprmMode === "generated") {
     lines.push(``, `Instrument: ${r.instprmFile} was generated from the refined instrument model.`);
     if (r.rawInstrName) lines.push(`Your original instrument file is included verbatim as ${r.rawInstrName}.`);
+  }
+  if (r.sample) {
+    lines.push(
+      ``,
+      `Sample broadening: build_gpx.py sets every phase's Mustrain to ${+r.sample.mustrain.toPrecision(8)} (x 1e-6) with`,
+      `Lorentzian fraction ${+r.sample.mustrainMix.toPrecision(8)}, and Size to ${+r.sample.size.toPrecision(8)} um (Lorentzian): the values MATERIA added`,
+      `to the instrument's widths. An import through the GUI starts from GSAS-II's own defaults`,
+      `(Mustrain 1000, Size 1 um); enter these values there.`,
+    );
   }
   if (r.instNotes.length) lines.push(``, `Profile terms GSAS-II cannot express:`, ...r.instNotes.map((n) => `  - ${n}`));
   if (!sc) {

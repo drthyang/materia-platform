@@ -16,6 +16,7 @@
 import type { AgentPage, LiveToolSpec } from "@/agent/tools";
 import type { AgentPort } from "@/agent/port";
 import { matchIds } from "@/agent/liveCommon";
+import { tofFilePassTerms, tofFileRows } from "@/core/diagnostics/tofFileProfile";
 import { correlationRefusal, refusalLine } from "@/agent/correlationCheck";
 import { PROBE_OPTIONS, carriedText, pairText, readCorrelations } from "@/core/diagnostics/correlationGuard";
 import { PAGE_METHOD } from "@/agent/skills";
@@ -189,16 +190,20 @@ export function instrumentPassOnPath(history: ProjectHistory | null, now: { read
  */
 export function reportNotYet(page: AgentPage, parameters: readonly RefinementParameter[], result: RefinementResult | null | undefined, skills: boolean, passDone: boolean): Held | null {
   if (!skills || page !== "powder" || !parameters.some((p) => isMomentParameterKind(p.kind))) return null;
+  // Where the instrument file gave the TOF profile its rows stay held: the pass is the zero and the sample's rows beside them.
+  const file = tofFileRows(parameters);
   if (!passDone && !isInstrumentPass(parameters, result)) {
     return {
       line: "Not yet: the final instrument pass",
-      message: `Not yet. ${PAGE_METHOD[page]}'s magnetic step ends with a final instrument pass and then the moments again (magnetic-analysis Stage 5): the peak shape was fitted before the magnetic peaks were modelled. Free the instrument's terms — the zero and the peak shape with its asymmetry (TOF α, β, σ; constant wavelength U, V, W, X, Y and S/L, H/L) — with the scale and the background, everything else held (the moments, the structure, the microstrain), and refine to convergence; a term that lands on its bound is fixed alone and the rest refined again. Then refine the moments alone once more, and write the report, quoting the fit before and after the pass.`,
+      message: `Not yet. ${PAGE_METHOD[page]}'s magnetic step ends with a final instrument pass and then the moments again (magnetic-analysis Stage 5): the peak shape was fitted before the magnetic peaks were modelled. ${file
+        ? `The instrument file gave the profile, and its rows stay held: free ${tofFilePassTerms(file)}, with the scale and the background, everything else held (the moments, the structure)`
+        : "Free the instrument's terms — the zero and the peak shape with its asymmetry (TOF α, β, σ; constant wavelength U, V, W, X, Y and S/L, H/L) — with the scale and the background, everything else held (the moments, the structure, the microstrain)"}, and refine to convergence; a term that lands on its bound is fixed alone and the rest refined again. Then refine the moments alone once more, and write the report, quoting the fit before and after the pass.`,
     };
   }
   if (isMomentsRefinement(parameters, result)) return null;
   return {
     line: "Not yet: the moments after the instrument pass",
-    message: `Not yet. The final instrument pass is done; ${PAGE_METHOD[page]}'s magnetic step ends on the moments (magnetic-analysis Stage 5): the pass moved the scale, the background and the peak shape under them. Hold every nuclear row (set_free: fix the instrument's terms, the scale and the background; free the moments, and k's components if they refined) and refine to convergence. That refinement's momentShiftOverEsd is the moments' move across the pass: above 1, run the pass and the moments once more; still above 1, the peak shape trades with the moments: undo the passes, hold the terms that correlate with them, and say so. Then write the report, quoting the fit before and after the pass.`,
+    message: `Not yet. The final instrument pass is done; ${PAGE_METHOD[page]}'s magnetic step ends on the moments (magnetic-analysis Stage 5): the pass moved the scale, the background and the peak shape under them. Hold every nuclear row (set_free: fix ${file ? "the zero and the sample's rows" : "the instrument's terms"}, the scale and the background; free the moments, and k's components if they refined) and refine to convergence. That refinement's momentShiftOverEsd is the moments' move across the pass: above 1, run the pass and the moments once more; still above 1, the peak shape trades with the moments: undo the passes, hold the terms that correlate with them, and say so. Then write the report, quoting the fit before and after the pass.`,
   };
 }
 

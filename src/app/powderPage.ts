@@ -428,8 +428,21 @@ export function withZeroAdpReleased(s: Session, parameterId: string): Session {
 }
 
 /** Free or fix rows by id. */
+/** The two rows that are never free together (withFixed): an instrument file's σ₁² and the sample's Gaussian microstrain. */
+const TOF_FILE_SIG1 = "tof_sig1";
+const TOF_SAMPLE_GAUSS = "tofSampleGauss";
+
 export function withFixed(s: Session, changes: readonly { readonly id: string; readonly fixed: boolean }[]): Session {
   const fixed = new Map(changes.map((c) => [c.id, c.fixed]));
+  // σ₁² of an instrument file and the sample's Gaussian microstrain widen every peak in proportion to d
+  // alike (exactly, when difA = difB = 0): never free together. Freeing one holds the other; freeing both
+  // in one call keeps the instrument's σ₁² held.
+  const frees = (id: string): boolean => fixed.get(id) === false;
+  const isFree = (id: string): boolean => s.powderParams.some((p) => p.id === id && !p.fixed && !p.expression);
+  if (s.powderParams.some((p) => p.id === TOF_FILE_SIG1 && p.kind === "tofFileProfile")) {
+    if (frees(TOF_SAMPLE_GAUSS) && (frees(TOF_FILE_SIG1) || isFree(TOF_FILE_SIG1))) fixed.set(TOF_FILE_SIG1, true);
+    else if (frees(TOF_FILE_SIG1) && isFree(TOF_SAMPLE_GAUSS)) fixed.set(TOF_SAMPLE_GAUSS, true);
+  }
   return withZeroAdpPruned({ ...s, powderParams: s.powderParams.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)) });
 }
 

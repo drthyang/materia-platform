@@ -4,7 +4,7 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { localUserFiles, localUserPage, BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, MN3GA_30K_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, mn3ga30kPage, pdfPage, powderPage, refineNuclear } from "@/agent/evals/pages";
+import { localUserFiles, localUserPage, BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, MN3GA_30K_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, mn3ga30kPage, pdfPage, powderPage, refineNuclear, siFileProfilePage } from "@/agent/evals/pages";
 import {
   askedBeforeLowering,
   mergesFirst,
@@ -52,6 +52,7 @@ import {
   rangeBeforeRefining,
   readsMethodFirst,
   refines,
+  refinesSampleRowsNotFileProfile,
   reportCarriesScan,
   reportsEngineNumbers,
   symmetryLast,
@@ -146,6 +147,15 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Refine the peak width and the B values."],
     autonomy: "auto",
     checks: [readsMethodFirst, keepsGroupsApart, alternatesGroups, liftsNoRule, noStall],
+  },
+  {
+    id: "file-profile-held",
+    title: "Frees the sample's rows when the instrument file gives the TOF profile",
+    origin: "The TOF profile assignment (2026-11-21): a GSAS-II or FullProf instrument file's profile terms are held at the file's values, and the fit's share of the peak shape is the zero and the sample's rows beside them.",
+    page: () => siFileProfilePage(),
+    messages: ["Free the peak shape and refine it."],
+    autonomy: "auto",
+    checks: [refinesSampleRowsNotFileProfile, explains(/\b(held|file's values|calibration)\b/i, "that the file's profile is held"), liftsNoRule, noStall],
   },
   {
     id: "fit-range-edges",

@@ -168,16 +168,17 @@ describe("what the file has that the calculation leaves out", () => {
     expect(unusedNote(null, undefined)).toBeNull();
   }, T);
 
-  it("states what the page really does with sig-1 on load", () => {
+  it("a GSAS-II file's profile is the page's: every term as read and held, the sample's rows beside them", () => {
     const structure = parseCif(readFileSync("examples/mcp/mno.cif", "utf8"));
     const pattern = parseGsasHistogramPattern(SIX_BANK_GSA, "d", "d.gsa", { bank: 1, radiation: { kind: "neutron-tof" } });
     const page = withInstrument(withPattern(withStructure(emptyPage(), structure), pattern, { name: "d.gsa", text: SIX_BANK_GSA, bank: 1 }), bankOf(1).parameters, { name: "i.instprm", text: FIVE_BANK_INSTPRM, bank: 1 });
     const row = (id: string) => page.session.powderParams.find((p) => p.id === id);
-    // Isotropic model (the default): no sig-1 row, a fixed 1500 × 10⁻⁶ microstrain in its place.
-    expect(row("tof_sig1")).toBeUndefined();
-    expect(row("mustrainIso")).toMatchObject({ value: 1500, fixed: true });
+    // sig-1 as the file gives it, on the instrument's own row; no stand-in microstrain.
+    const bank1 = bankOf(1).parameters;
+    expect(row("tof_sig1")).toMatchObject({ value: bank1.kind === "tof" ? bank1.sig1 : NaN, fixed: true, kind: "tofFileProfile" });
+    expect(row("mustrainIso")).toBeUndefined();
     // The other terms as read, the negative sig-0 included, held fixed.
-    expect(row("tof_sig0")).toMatchObject({ value: -18.5, fixed: true });
+    expect(row("tof_sig0")).toMatchObject({ value: -18.5, fixed: true, kind: "tofFileProfile" });
     expect(row("tof_sig2")).toMatchObject({ value: 9.75, fixed: true });
     expect(row("tof_sigQ")).toMatchObject({ value: 0, fixed: true });
     expect(row("tof_alpha1")).toMatchObject({ value: 0.4, fixed: true });
@@ -186,6 +187,13 @@ describe("what the file has that the calculation leaves out", () => {
     expect(row("tof_betaQ")).toMatchObject({ value: 0, fixed: true });
     expect(row("tof_difC")).toMatchObject({ value: 1210.5, fixed: true });
     expect(row("zero")).toMatchObject({ value: -4.5, fixed: true });
+    // GSAS-II has no constant rise term: no α₀ row. The Lorentzian X, Y, Z have rows.
+    expect(row("tof_alpha0")).toBeUndefined();
+    for (const id of ["tof_gamX", "tof_gamY", "tof_gamZ"]) expect(row(id)).toMatchObject({ fixed: true, kind: "tofFileProfile" });
+    // The sample's rows: GSAS-II's new-phase Lorentzian microstrain and size, and a Gaussian microstrain at 0.
+    expect(row("tofSampleLorentz")).toMatchObject({ value: 1000, fixed: true });
+    expect(row("tofSampleSize")).toMatchObject({ value: 1, fixed: true });
+    expect(row("tofSampleGauss")).toMatchObject({ value: 0, fixed: true });
   }, T);
 });
 

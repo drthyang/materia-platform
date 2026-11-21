@@ -8,6 +8,7 @@
 import { pct, sig } from "@/core/math/precision";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { siteSumConstraints, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
+import { SIG1_OR_GAUSS, tofFileFreeRefusal, tofFileRows } from "@/core/diagnostics/tofFileProfile";
 import type { ProjectHistory } from "@/core/project/history";
 import type { AgentRecord } from "@/agent/method";
 import { lineage } from "@/core/project/history";
@@ -274,16 +275,29 @@ export function freePlan(
   const both = [...toFree].filter((id) => toFix.has(id));
   if (both.length) throw new Error(`${both.join(", ")} would be both freed and fixed`);
   const tied: string[] = [];
+  // An instrument file's TOF profile rows are held (core/diagnostics/tofFileProfile.ts): named to be freed, they are not, and the answer says what is.
+  const file = tofFileRows(params);
+  const held: string[] = [];
   const changes: { id: string; fixed: boolean }[] = [];
   for (const p of params) {
     if (toFree.has(p.id)) {
       if (p.expression) tied.push(p.id);
+      else if (p.kind === "tofFileProfile") { if (p.fixed) held.push(p.id); }
       else if (p.fixed) changes.push({ id: p.id, fixed: false });
     } else if (toFix.has(p.id) && !p.fixed && !p.expression) {
       changes.push({ id: p.id, fixed: true });
     }
   }
-  return { changes, ...(tied.length ? { note: `skipped tied parameter${tied.length === 1 ? "" : "s"} ${tied.join(", ")} (they follow their tie)` } : {}) };
+  // σ₁² freed by hand, and the Gaussian microstrain freed now: the page holds σ₁² (powderPage.withFixed); the plan says so.
+  const notes = [
+    ...(tied.length ? [`skipped tied parameter${tied.length === 1 ? "" : "s"} ${tied.join(", ")} (they follow their tie)`] : []),
+    ...(file && held.length ? [tofFileFreeRefusal(file, held)] : []),
+  ];
+  if (file?.sig1 && changes.some((c) => !c.fixed && file.gauss.includes(c.id)) && params.some((p) => p.id === file.sig1 && !p.fixed && !p.expression) && !changes.some((c) => c.id === file.sig1)) {
+    changes.push({ id: file.sig1, fixed: true });
+    notes.push(`${file.sig1} is held now: ${SIG1_OR_GAUSS}`);
+  }
+  return { changes, ...(notes.length ? { note: notes.join("; ") } : {}) };
 }
 
 /** The ids these globs match, in the parameters' order; an unmatched glob is an error naming the ids. */

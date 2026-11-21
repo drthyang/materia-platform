@@ -6,6 +6,7 @@
  * instrument at the end, when they are named in the environment.
  */
 import { describe, it, expect } from "vitest";
+import { fileProfileNote } from "@/app/tofWidthNote";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseInstrumentFile, parseInstrumentParameters, type InstrumentBank } from "@/parsers/instrument";
@@ -35,6 +36,8 @@ describe("FullProf TOF .irf: the calibration line", () => {
       kind: "tof", difC: 6100.5, difA: 1.375, zero: -2.5,
       alpha0: 0.8, alpha: 1.6, beta0: 0.055, beta1: 0.0045,
       sig0: 4.75, sig1: -44.25, sig2: 9.5,
+      // GAMMA Gam-2 Gam-1 Gam-0: the ∝ d term is gamX. The profile is FullProf's to evaluate.
+      gamX: 0.25, gamY: 0.75, gamZ: 0, profileProgram: "fullprof",
     });
     expect(bank.bank).toBe(3);
     expect(bank.format).toBe("irf");
@@ -88,20 +91,28 @@ describe("FullProf TOF .irf: the calibration line", () => {
 });
 
 describe("FullProf TOF .irf: the profile lines", () => {
-  it("SIGMA and ALFBE become the same functions of d; the page builds its rows from them", () => {
+  it("SIGMA, GAMMA and ALFBE are the page's rows, as read and held: FullProf's functions of d", () => {
     const bank = one(IRF_ZD2TOT);
     const structure = parseCif(readFileSync("examples/mcp/mno.cif", "utf8"));
     const pattern = parsePowderData(tofThreeColumnDat(), { id: "d", name: "d.dat", xUnit: "tof", radiation: { kind: "neutron-tof" } });
     const spec = buildPowderSpec(structure, pattern, bank.parameters);
     const row = (id: string) => spec.params.find((p) => p.id === id)?.value;
     expect(spec.profile.shape).toBe("tof");
-    // α = alph0 + alph1/d, β = beta0 + beta1/d⁴, σ² = Sig-0 + Sig-2·d⁴ (+ Sig-1·d², see below).
+    // α = alph0 + alph1/d, β = beta0 + beta1/d⁴, σ² = Sig-0 + Sig-1·d² + Sig-2·d⁴, γ = Gam-2·d² + Gam-1·d + Gam-0.
     expect([row("tof_alpha0"), row("tof_alpha1"), row("tof_beta0"), row("tof_beta1")]).toEqual([0.8, 1.6, 0.055, 0.0045]);
-    expect([row("tof_sig0"), row("tof_sig2"), row("tof_sigQ"), row("tof_betaQ")]).toEqual([4.75, 9.5, 0, 0]);
+    expect([row("tof_sig0"), row("tof_sig1"), row("tof_sig2")]).toEqual([4.75, -44.25, 9.5]);
+    expect([row("tof_gamX"), row("tof_gamY"), row("tof_gamZ")]).toEqual([0.25, 0.75, 0]);
     expect([row("tof_difC"), row("tof_difA"), row("tof_difB"), row("zero")]).toEqual([6100.5, 1.375, 0, -2.5]);
-    // Sig-1 is left out under the default (isotropic) microstrain model, as an .instprm's sig-1 is.
-    expect(row("tof_sig1")).toBeUndefined();
-    expect(row("mustrainIso")).toBe(1500);
+    // FullProf has no beta-q or sig-q in these lines: no such rows. Every profile row is the file's, held.
+    expect(row("tof_sigQ")).toBeUndefined();
+    expect(row("tof_betaQ")).toBeUndefined();
+    expect(spec.params.filter((p) => p.kind === "tofFileProfile").every((p) => p.fixed)).toBe(true);
+    expect(spec.params.some((p) => p.kind === "tofProfile")).toBe(false);
+    // The sample: FullProf keeps it in the .pcr, none by default. A Gaussian microstrain row at 0, no stand-in, no Lorentzian sample rows.
+    expect(row("mustrainIso")).toBeUndefined();
+    expect(row("tofSampleGauss")).toBe(0);
+    expect(row("tofSampleLorentz")).toBeUndefined();
+    expect(row("tofSampleSize")).toBeUndefined();
   }, T);
 
   it("an instrument without alph0 still starts α₀ at 0", () => {
@@ -111,15 +122,17 @@ describe("FullProf TOF .irf: the profile lines", () => {
     expect(spec.params.find((p) => p.id === "tof_alpha0")?.value).toBe(0);
   }, T);
 
-  it("says what is not used, in FullProf's names", () => {
-    const note = unusedNote(one(IRF_ZD2TOT), undefined)!;
-    expect(note.line).toBe("Not used: Lorentzian Gam-1, Gam-2; Sig-1.");
-    expect(note.detail).toContain("Gam-2·d² + Gam-1·d + Gam-0");
+  it("says how the file is used, in FullProf's names, and that it is not yet checked against a FullProf run", () => {
+    const bank = one(IRF_ZD2TOT);
+    const note = fileProfileNote(bank.parameters, bank)!;
+    expect(note.line).toBe("Profile as the file gives it, held, by FullProf's NPROF 9 function: its Lorentzian part and alph0 are not yet checked against a FullProf run, and it is not verified for Jana.");
+    expect(note.detail).toContain("γ = Gam-2·d² + Gam-1·d + Gam-0");
     expect(note.detail).toContain("Calibration line: ZD2TOT read as Zero, Dtt1, Dtt2");
-    // An all-zero ALFBE is no peak shape: not taken, and said.
+    // An all-zero ALFBE is no peak shape: the file's profile is not taken, the page starts its own, and says so.
     const zero = one(IRF_D2TOF_THREE);
     expect(zero.extras.zeroDecay).toBe(true);
-    expect(zero.parameters).toEqual({ kind: "tof", difC: 3315.5, difA: 2.75, zero: 5.125, sig0: -12, sig1: 390.25, sig2: 18.5 });
+    expect(zero.parameters).toMatchObject({ kind: "tof", difC: 3315.5, difA: 2.75, zero: 5.125, sig0: -12, sig1: 390.25, sig2: 18.5 });
+    expect(fileProfileNote(zero.parameters, zero)).toBeNull();
     expect(unusedNote(zero, undefined)!.line).toBe("Not used: Lorentzian Gam-1, Gam-2, Gam-0; Sig-1; ALFBE (all zero).");
   }, T);
 });

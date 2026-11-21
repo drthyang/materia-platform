@@ -115,10 +115,10 @@ they trade with the moments, and the esds hide it.
 ## Stage 5 — the final instrument pass, then the moments (always; the report waits)
 
 The peak shape was fitted before the magnetic peaks were modelled. Once the moments
-converge, `set_free` the instrument's terms — the zero and every peak-shape term (TOF α₀,
-α₁, β₀, β₁, β_q, σ₀², σ₂², σ_q²; CW U, V, W, X, Y, S/L, H/L), never a subset — with the scale
-and background, everything else held (moments, structure, microstrain); `refine` until wR
-stops moving. A term on its bound is fixed alone, the rest refined again. Quote wR
+converge, `set_free` the instrument's terms — the zero and every peak-shape term (TOF α, β,
+σ, or beside a file's held profile the sample's Lorentzian rows; CW U, V, W, X, Y, S/L,
+H/L), never a subset — with the scale and background, everything else held (moments,
+structure, microstrain); `refine` until wR stops moving. A term on its bound is fixed alone, the rest refined again. Quote wR
 before and after.
 
 Then the moments alone once more; the report quotes these. If that `refine`'s
@@ -158,7 +158,7 @@ those terms, report it.
 
 ## References
 
-Longer knowledge bases behind this method. Read one only when a question needs it.
+Read one only when a question needs it.
 
 - [`magnetic_structure_symmetry`](../../../knowledge/magnetic_structure_symmetry_knowledge.md) — k, magnetic space groups, allowed and physical moments, the powder's direction ambiguity, nuclear–magnetic overlap.
 - [`refinement_fitting_algorithms`](../../../knowledge/refinement_fitting_algorithms_knowledge.md) — the least-squares engine: correlations, restraints, esds, the GoF.

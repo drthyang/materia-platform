@@ -206,6 +206,10 @@ function parseIrfTofBank(lines: readonly string[]): InstrumentBank | null {
     ...calibration,
     ...(alfbeGiven ? { alpha0: alfbeGiven[0]!, alpha: alfbeGiven[2]!, beta0: alfbeGiven[1]!, beta1: alfbeGiven[3]! } : {}),
     ...(sigma && sigma.length >= 3 ? { sig0: sigma[2]!, sig1: sigma[1]!, sig2: sigma[0]! } : {}),
+    // FullProf's Lorentzian FWHM, γ = Gam-2·d² + Gam-1·d + Gam-0 (manual, LINE 27-2): the ∝ d term is gamX.
+    ...(gamma && gamma.length >= 3 ? { gamX: gamma[1]!, gamY: gamma[0]!, gamZ: gamma[2]! } : {}),
+    // A file with a profile line is FullProf's to evaluate; a calibration alone names no program.
+    ...(alfbeGiven || (sigma && sigma.length >= 3) || (gamma && gamma.length >= 3) ? { profileProgram: "fullprof" as const } : {}),
   };
   return {
     bank: hint !== undefined ? parseInt(hint, 10) : null,
@@ -648,6 +652,11 @@ function blockParameters(block: KeyValueBlock): InstrumentParameters | null {
       ...(v.get("sig-2") !== undefined ? { sig2: v.get("sig-2")! } : {}),
       // GSAS-II sig-q is the σ² term LINEAR in d (GSASIImath.getTOFsig), as is MATERIA's sigQ.
       ...(v.get("sig-q") !== undefined ? { sigQ: v.get("sig-q")! } : {}),
+      // GSAS-II's Lorentzian FWHM of a TOF bank: γ = X·d + Y·d² + Z (GSASIImath.getTOFgamma).
+      ...(v.get("x") !== undefined ? { gamX: v.get("x")! } : {}),
+      ...(v.get("y") !== undefined ? { gamY: v.get("y")! } : {}),
+      ...(v.get("z") !== undefined ? { gamZ: v.get("z")! } : {}),
+      profileProgram: "gsas",
     };
     return params;
   }

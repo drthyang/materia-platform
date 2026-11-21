@@ -75,7 +75,33 @@ export type InstrumentParameters =
       readonly sig1?: number;
       readonly sig2?: number;
       readonly sigQ?: number;
+      /**
+       * Lorentzian FWHM terms, γ = gamX·d + gamY·d² + gamZ (µs): GSAS-II's
+       * `X`, `Y`, `Z` of a TOF bank, or FullProf's `Gam-1`, `Gam-2`, `Gam-0`,
+       * as read.
+       */
+      readonly gamX?: number;
+      readonly gamY?: number;
+      readonly gamZ?: number;
+      /**
+       * The program the file's profile terms belong to, whose function
+       * evaluates them: "gsas" for a GSAS-II `.instprm`, "fullprof" for a
+       * FullProf `.irf`. Absent: the file's profile terms seed the app's own
+       * refinable Gaussian profile, as before.
+       */
+      readonly profileProgram?: "gsas" | "fullprof";
     };
+
+/**
+ * The instrument as a state saved before file profiles had it: without the
+ * program marker, so that its profile terms seed the app's own refinable
+ * profile and the rows are the ones that state was made with.
+ */
+export function withoutProfileProgram(instrument: InstrumentParameters): InstrumentParameters {
+  if (instrument.kind !== "tof" || instrument.profileProgram === undefined) return instrument;
+  const { profileProgram: _program, ...rest } = instrument;
+  return rest;
+}
 
 export function tofFromD(p: Extract<InstrumentParameters, { kind: "tof" }>, d: number): number {
   const difA = p.difA ?? 0;

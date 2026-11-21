@@ -139,6 +139,10 @@ TOF has no Lorentzian Y, so strain enters the Gaussian variance. A constant
   at Δd/d = 0.0015 (1500 ×10⁻⁶).
 - Emitting it drops the instrument σ₁² term, whose ∝ d² variance would make the
   pair exactly degenerate. The generalized model keeps σ₁².
+- This is the profile of a session whose instrument gives none (a calibration
+  alone). With a GSAS-II TOF instrument file that carries the profile, §5.3
+  applies instead: the file's σ₁² is used as read and the sample has rows of
+  its own.
 - Checked: the Stephens identity and ∝ d scaling in `anisoStrain.test.ts`, and
   emission and broadening in
   [tofMicrostrain.test.ts](../src/core/workflow/tofMicrostrain.test.ts).
@@ -166,6 +170,42 @@ three models.
   Y for CW (X = 1, Y = 0 if absent), and 1500 ×10⁻⁶ for TOF.
 - With uniaxial on, the readout still converts the isotropic Y, although Y⊥ and
   Y∥ set the width.
+
+### 5.3 The sample beside a GSAS-II TOF instrument file ✅
+
+A GSAS-II `.instprm` that carries the profile (alpha, beta-0, sig-1) is
+evaluated with GSAS-II's own function, and its terms are the instrument's:
+rows of kind `tofFileProfile`, as read, which no stage frees. The sample is
+added to them (GSAS-II: `GetSampleSigGam`):
+
+    σ² = sig-0 + sig-1·d² + sig-2·d⁴ + sig-q·d  +  (|dT/dd|·ε·d)²
+    γ  = X·d + Y·d² + Z  +  10⁻⁶·difC·d·M  +  10⁻⁴·difC·d²/S
+
+| Row | Kind | Starts at | Freed by |
+| --- | --- | --- | --- |
+| mustrain, Lorentzian M (×10⁻⁶) | `tofSampleLorentz` | 1000 | the profile stage |
+| size S (µm) | `tofSampleSize` | 1 | the profile stage |
+| mustrain, Gaussian ε (×10⁻⁶) | `tofSampleGauss` | 0 | by hand |
+
+- 1000 and 1 µm are GSAS-II's values for a new phase. A calibration fitted
+  without changing them leaves the file's X and Y as what remained, so the
+  file reproduces the standard's peaks only with these two beside it
+  (public Mn₃Ga 350 K, the nuclear model, instrument held: wR 13.8 % without
+  them, 8.0 % with).
+- These numbers are GSAS-II's, not the readout of §2: M is a Lorentzian FWHM
+  of 10⁻⁶·difC·d·M in TOF, S a size in µm.
+- ε and σ₁² widen every peak in proportion to d alike (exactly when
+  difA = difB = 0): the page never has both free; freeing one holds the other.
+- GSAS-II writes its one Mustrain with a Lorentzian fraction. The bundle
+  exports Mustrain = M + 2.3548·ε with fraction M/Mustrain, and Size = S.
+- No width is floored. Where σ², α or β is not positive inside the data's
+  d-range the reflections are left out and named; a fit step that would make
+  one so is rejected.
+- A FullProf `.irf` that carries the profile takes the same path with
+  FullProf's function, and its sample has one row, the Gaussian microstrain
+  ε at 0: FullProf keeps the sample in the `.pcr`, none by default. The
+  FullProf bundle adds ε into Sig-1 as (difC·ε)². Not yet checked against a
+  FullProf run.
 
 ## 6. Refinement integration ✅
 

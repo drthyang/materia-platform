@@ -87,6 +87,7 @@ import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
+import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
@@ -1289,8 +1290,19 @@ export function PowderWorkbench({
   const instBankChoices = useMemo(() => instrumentBankOptions(instFile), [instFile]);
   const instBank = currentInstrumentBank(instFile, session.rawInstrument, instrument);
   const instAdvice = hasContent ? bankAdvice(instFile, instBank, dataBankRef(dataBank)) : null;
-  const instUnused = unusedNote(instBank, session.mustrain);
-  const instControl = instBankChoices || instAdvice || instUnused ? (
+  // An instrument file whose profile is evaluated with its own program's function (app/tofWidthNote.ts):
+  // one line on how, and a warning only where the file gives no peak width inside the data's range.
+  const instProfile = instrumentLoaded ? fileProfileNote(instrument, instBank) : null;
+  const instUnused = instProfile ? null : unusedNote(instBank, session.mustrain);
+  const instWidths = useMemo(
+    () => tofWidthNote({ structure: session.structure, extraPhases: session.extraPhases, pattern, powderParams, powderBindings: session.powderBindings }),
+    [session.structure, session.extraPhases, pattern, powderParams, session.powderBindings],
+  );
+  const instGamma = useMemo(
+    () => tofNegativeGammaNote({ structure: session.structure, extraPhases: session.extraPhases, pattern, powderParams, powderBindings: session.powderBindings }),
+    [session.structure, session.extraPhases, pattern, powderParams, session.powderBindings],
+  );
+  const instControl = instBankChoices || instAdvice || instUnused || instProfile || instWidths || instGamma ? (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {instBankChoices && (
         <BankChooser
@@ -1308,6 +1320,24 @@ export function PowderWorkbench({
             <button style={toolbarBtn} onClick={() => onInstrumentBank(instAdvice.offer!.bank)}>{instAdvice.offer.label}</button>
           )}
           <InfoBadge width={300} text={instAdvice.detail} />
+        </div>
+      )}
+      {instProfile && (
+        <div data-testid="instrument-profile" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.secondary }}>
+          <span>{instProfile.line}</span>
+          <InfoBadge width={340} text={instProfile.detail} />
+        </div>
+      )}
+      {instGamma && (
+        <div data-testid="instrument-gamma" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.secondary }}>
+          <span>{instGamma.line}</span>
+          <InfoBadge width={340} text={instGamma.detail} />
+        </div>
+      )}
+      {instWidths && (
+        <div data-testid="instrument-widths" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.warnInk }}>
+          <span>{instWidths.line}</span>
+          <InfoBadge width={340} text={instWidths.detail} />
         </div>
       )}
       {instUnused && (
