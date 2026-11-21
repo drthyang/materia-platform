@@ -121,6 +121,21 @@ by more means the profile is trading with the structure or the magnetic model: u
 pass (History), hold the terms that traded, and report it rather than keeping the shifted
 values.
 
+**When the instrument file gives the TOF profile** (`get_state`: `instrument.profile`). A
+GSAS-II `.instprm` or a FullProf `.irf` that carries the profile terms is evaluated with its
+own program's function, and its rows (α, β, σ, the Lorentzian X, Y, Z) are held at the
+file's values: `set_free` does not free them. The two paragraphs above then read with the
+sample's rows in place of α β σ: the profile stage and the final pass free the zero and the
+sample's Lorentzian rows (microstrain and size). A GSAS-II file's session starts those rows at GSAS-II's defaults (Lorentzian microstrain 1000, size
+1 µm), which such a calibration assumes, with a Gaussian microstrain at 0; a FullProf file's
+session has the Gaussian microstrain row alone, and its path is not yet checked against a
+FullProf run. σ₁² and the Gaussian microstrain are never free together. A peak-shape misfit
+the sample's rows leave points to the calibration: say so, and leave the file's rows to the
+user. Where the file gives no positive width inside the data's d-range the reflections
+there are not drawn (`get_state` and `check_fit_range` name the range): set the fit range to
+leave it out. A session with a calibration alone (no profile in the file) refines α β σ as
+above.
+
 **Paired residuals** on opposite sides at nearly the same d read as broadening that depends on
 hkl (`set_microstrain` generalized), not as more σ or Caglioti terms.
 

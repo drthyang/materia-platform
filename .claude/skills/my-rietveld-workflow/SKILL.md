@@ -182,9 +182,9 @@ it; a start far off goes back to the Prefit (Stage 0, step 4).
 
 **Asymmetry is profile.** CW: a one-sided low-angle residual is axial
 divergence (`set_corrections` asymmetry; S/L with Caglioti). TOF: β₁ then
-β₀. Negative X or Y: `reset_parameters`, hold. TOF: every α β σ term and the zero
-refine in stage 3 (cell held, the B's fixed); the **final profile pass** repeats it
-(`rietveld_notes`). Paired residuals at one d: `set_microstrain` generalized.
+β₀. Negative X or Y: `reset_parameters`, hold. TOF: every α β σ term (a file's held
+profile: the sample's Lorentzian rows) and the zero refine in stage 3 (cell held, the B's
+fixed); the **final profile pass** repeats it (`rietveld_notes`). Paired residuals at one d: `set_microstrain` generalized.
 
 **When the starting profile is far off, the profile comes before the positions.** When
 `diagnose_fit` measures the lines much broader (or narrower) than calculated
@@ -348,7 +348,7 @@ comes from `export_bundle` and the tools.
 
 ## References
 
-Longer knowledge bases behind this method. Read one only when a question needs it.
+Read one only when a question needs it.
 
 - [`rietveld_notes`](./notes.md) — the user's cases behind the rules above, stage by stage, and the longer account of the instrument–thermal trade, lab X-ray polarization and the wavelength.
 - [`mcp_tool_map`](./mcp-tools.md) — the method's steps on the MATERIA MCP tools, and the cross-check bundles.
