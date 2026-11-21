@@ -25,7 +25,10 @@ export type InstrumentParameters =
       readonly wavelength: number;
       /** Zero shift in degrees 2θ. */
       readonly zero?: number;
-      /** Caglioti Gaussian width coefficients (GSAS-II, centidegrees²). */
+      /** Caglioti Gaussian width coefficients as this app holds them: FWHM² =
+       *  U·tan²θ + V·tanθ + W in centidegrees². GSAS-II's U, V, W are variances
+       *  (σ²), so these are 8 ln 2 ≈ 5.545 times the numbers in a GSAS-II
+       *  file; the reader converts on load and the export converts back. */
       readonly u?: number;
       readonly v?: number;
       readonly w?: number;
@@ -63,6 +66,8 @@ export type InstrumentParameters =
        * starting from ballparks.
        */
       readonly alpha?: number;
+      /** A constant rise term, α = alpha0 + alpha/d: a FullProf `.irf`'s alph0 (GSAS-II has none). */
+      readonly alpha0?: number;
       readonly beta0?: number;
       readonly beta1?: number;
       readonly betaQ?: number;

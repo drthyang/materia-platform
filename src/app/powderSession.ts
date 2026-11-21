@@ -58,10 +58,10 @@ export interface Session {
    *  into cross-check bundles as-is (the instrument model is lossy — it keeps
    *  difC/λ + a few width terms, not the full peak-shape profile). Undefined for
    *  the bundled demo and synthetic sessions. */
-  rawInstrument?: { name: string; text: string };
+  rawInstrument?: { name: string; text: string; bank?: number };
   /** The user's original data file, retained verbatim on load, shipped in bundles
    *  as the exact original alongside the portable re-serialized data. */
-  rawData?: { name: string; text: string };
+  rawData?: { name: string; text: string; bank?: number };
   /** Optional magnetic model over `structure`, for magnetic reflection ticks. */
   magnetic?: MagneticModel;
   /** The B-at-0 proposals the user applied (core/diagnostics/zeroAdp.ts): the rows carry the tie or the held value; this says why. */
