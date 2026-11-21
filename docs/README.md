@@ -54,6 +54,7 @@ workbench? Start with the [user guide](./USER_GUIDE.md), and read
 | [PDF_MPDF_ROADMAP.md](./PDF_MPDF_ROADMAP.md) | The real-space PDF and magnetic PDF track |
 | [PLAN_SUBGROUPS_AND_INCOMMENSURATE.md](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) | Planned next: PDF subgroups and supercells; incommensurate magnetic studies |
 | [AGENT_PLAN.md](./AGENT_PLAN.md) | Planned before the Agent's validation: its architecture, tools and skills |
+| [PLAN_MULTI_BANK.md](./PLAN_MULTI_BANK.md) | Draft for the owner's review, nothing built: Rietveld refinement over several time-of-flight banks at once |
 
 ## Research
 
