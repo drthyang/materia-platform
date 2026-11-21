@@ -6,7 +6,7 @@ the powder page holds the inputs, and `set_free` with `refine` stand in for
 
 | Step | Tool |
 |------|------|
-| Load | `parse_structure`, `parse_powder_data`, `parse_instrument` |
+| Load | `parse_structure`, `parse_powder_data`, `parse_instrument` (a multi-bank file: pass `bank` to both, the same bank; each result names the bank read) |
 | The fit range (first) | `check_fit_range` (the data's ends: where to start and stop; in the app, then `set_fit_range`) |
 | Cell sanity check (start) | `check_cell_symmetry` (Le Bail cell, unindexed peaks, absence flags) |
 | Build param set + staged plan | `build_refinement` |
