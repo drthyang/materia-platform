@@ -1,0 +1,16 @@
+! Synthetic FullProf resolution file (invented numbers) for scripts/tof-profile
+!  Type of profile function: back-to-back exponentials * pseudo-Voigt
+NPROF 9
+!       Tof-min(us)    step      Tof-max(us)
+TOFRG    2000 5.0 16000
+!       Zerot    Dtt1t       Dtt2t
+ZD2TOT   -9.0 10466.0 -7.7
+!     TOF-TWOTH of the bank
+TWOTH    125.0
+!       Sig-2     Sig-1     Sig-0
+SIGMA    77.0 128.0 2.2
+!       Gam-2     Gam-1     Gam-0
+GAMMA    18.0 -10.5 10.2
+!          alph0       beta0       alph1       beta1
+ALFBE    27.5 0.094 0.0 0.0
+END
