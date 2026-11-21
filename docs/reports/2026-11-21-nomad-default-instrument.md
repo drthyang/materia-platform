@@ -191,5 +191,6 @@ and tools are unchanged, so arms B and C measure what they measured.
 
 ## Checks
 
-`npm run build`, `npm run lint` and `npm test` at the branch head: see the
-pull request.
+At the branch head: `npm run build` and `npm run lint` clean; `npm test` 417
+files passed, 37 skipped (3733 tests passed, 341 skipped; the skipped are the
+opt-in local-data and live checks), 183 s.
