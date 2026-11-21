@@ -117,3 +117,38 @@ export function instrumentHintFromFileName(name: string | undefined): FacilityIn
   const hint = FILE_NAME_HINTS.find((h) => base.startsWith(h.prefix.toUpperCase()));
   return hint ? INSTRUMENTS.find((i) => i.name === hint.instrument) : undefined;
 }
+
+/** How many leading lines of a data file are searched for its `# Instrument:` line. */
+const DATA_HEADER_LINES = 200;
+
+/**
+ * The instrument a DATA file states in its own header, or undefined.
+ *
+ * The rule: among the file's leading lines (up to the first `BANK` record or
+ * the first line that starts with a number, and at most 200 lines), a comment
+ * line of the form `# Instrument: <value>` whose whole value is, in any case,
+ * the name or an alias of one instrument in the registry. Reductions write
+ * this line (`# Instrument: NOMAD`).
+ *
+ * Stricter than `recognizeInstrument`, on purpose: the instrument's name
+ * somewhere else in the header (a title, a sample name, a path), a value with
+ * more than the name in it, a line that is not a comment, and the file's name
+ * are all not enough. This decides whether an instrument's default parameters
+ * are offered, so a near miss must not match.
+ */
+export function instrumentOfDataHeader(text: string | undefined): FacilityInstrument | undefined {
+  if (!text) return undefined;
+  let start = 0;
+  for (let n = 0; n < DATA_HEADER_LINES && start < text.length; n++) {
+    let end = text.indexOf("\n", start);
+    if (end < 0) end = text.length;
+    const line = text.slice(start, end).trim();
+    start = end + 1;
+    if (/^BANK\s/.test(line) || /^[-+.]?\d/.test(line)) return undefined;
+    const m = /^#\s*Instrument\s*:\s*(.*)$/i.exec(line);
+    if (!m) continue;
+    const value = m[1]!.trim().toUpperCase();
+    return INSTRUMENTS.find((i) => i.name.toUpperCase() === value || i.aliases.some((a) => a.toUpperCase() === value));
+  }
+  return undefined;
+}

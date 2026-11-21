@@ -88,6 +88,7 @@ import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
+import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel } from "@/app/defaultInstruments";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
@@ -158,6 +159,8 @@ export interface PowderWorkbenchProps {
   onDataBank?: (bank: number) => void;
   /** Apply another bank of the loaded multi-bank instrument file (the Instrument card's chooser). */
   onInstrumentBank?: (bank: number) => void;
+  /** Load a default instrument file shipped with the app, by its id (the Instrument card's offer; app/defaultInstruments.ts). */
+  onUseDefaultInstrument?: (id: string) => void;
   /** Set an X-ray instrument's polarization and Kα₂ ratio (the shell owns the instrument). */
   onInstrumentConstants?: (update: InstrumentConstants) => void;
   /** Load a bundled demo (from the empty-state prompt). */
@@ -191,7 +194,7 @@ export function PowderWorkbench({
   page, setPage, ownStructure,
   client, active, step, onStep, setMessage, exportsRef,
   onLoadData, onLoadCif, onAddPhase, onAddStructure, onRemovePhase, onClearStructures, detection, onOverrideXUnit,
-  onLoadInstrument, onDataBank, onInstrumentBank, onInstrumentConstants, onLoadDemo, demos = [],
+  onLoadInstrument, onDataBank, onInstrumentBank, onUseDefaultInstrument, onInstrumentConstants, onLoadDemo, demos = [],
   onOpenProject, viewRestore, useGpu = true,
   stepHistory, agentLink,
 }: PowderWorkbenchProps): JSX.Element {
@@ -1056,6 +1059,8 @@ export function PowderWorkbench({
       // The user's original files, retained verbatim on load — bundled as-is so
       // the instrument (whose model is lossy) and data are exactly what they gave.
       ...(session.rawInstrument ? { rawInstrument: session.rawInstrument } : {}),
+      // A default shipped with the app is not the user's calibration: the README says so.
+      ...(defaultInstrumentInUse(session.rawInstrument, instrumentLoaded) ? { instrumentNote: defaultInstrumentInUse(session.rawInstrument, instrumentLoaded)!.report } : {}),
       ...(session.rawData ? { rawData: session.rawData } : {}),
     };
     // The refined values are applied inside: `structure` is the model as loaded.
@@ -1302,8 +1307,27 @@ export function PowderWorkbench({
     () => tofNegativeGammaNote({ structure: session.structure, extraPhases: session.extraPhases, pattern, powderParams, powderBindings: session.powderBindings }),
     [session.structure, session.extraPhases, pattern, powderParams, session.powderBindings],
   );
-  const instControl = instBankChoices || instAdvice || instUnused || instProfile || instWidths || instGamma ? (
+  // A default instrument file shipped with the app (app/defaultInstruments.ts): offered when the data's own
+  // header names its instrument and no instrument is loaded, applied only on the click, and named while in use.
+  const instDefaultOffer = useMemo(
+    () => (hasContent ? defaultInstrumentOffer({ pattern, rawDataText, instrumentLoaded }) : null),
+    [hasContent, pattern, rawDataText, instrumentLoaded],
+  );
+  const instDefault = defaultInstrumentInUse(session.rawInstrument, instrumentLoaded);
+  const instOfferControl = instDefaultOffer && onUseDefaultInstrument ? (
+    <div data-testid="instrument-default-offer" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small }}>
+      <button style={toolbarBtn} onClick={() => onUseDefaultInstrument(instDefaultOffer.id)}>{defaultOfferLabel(instDefaultOffer)}</button>
+      <InfoBadge width={320} text={defaultOfferDetail(instDefaultOffer)} />
+    </div>
+  ) : null;
+  const instControl = instDefault || instBankChoices || instAdvice || instUnused || instProfile || instWidths || instGamma ? (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {instDefault && (
+        <div data-testid="instrument-default-warning" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.warnInk }}>
+          <span>{instDefault.line}</span>
+          <InfoBadge width={320} text={instDefault.detail} />
+        </div>
+      )}
       {instBankChoices && (
         <BankChooser
           testId="instrument-bank"
@@ -1450,10 +1474,11 @@ export function PowderWorkbench({
       help: "Loads instrument files from the major facilities — GSAS-II .instprm, GSAS .prm, FullProf .irf. If your file isn't recognized, contact the author.",
       loadLabel: "Load instrument…", accept: ".instprm,.prm,.irf,text/plain", onFile: onLoadInstrument,
       muted: !hasContent && !instrumentLoaded,
-      chip: instrumentLoaded ? "✓ loaded" : "default",
-      title: !hasContent && !instrumentLoaded ? "No instrument loaded" : instTitle,
+      chip: instDefault ? "default file" : instrumentLoaded ? "✓ loaded" : "default",
+      ...(instDefault ? { chipTone: "warn" as const } : {}),
+      title: !hasContent && !instrumentLoaded ? "No instrument loaded" : instDefault ? instDefault.title : instTitle,
       meta: !hasContent && !instrumentLoaded ? "Load .instprm / .prm / .irf" : instMeta,
-      ...(instrumentLoaded && instControl ? { control: instControl } : {}),
+      ...(instrumentLoaded && instControl ? { control: instControl } : instOfferControl ? { control: instOfferControl } : {}),
     },
   ];
 

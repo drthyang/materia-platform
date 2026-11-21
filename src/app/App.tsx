@@ -39,8 +39,8 @@ import { detectDataFormat, type DetectedFormat } from "@/parsers/detectFormat";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import { parsePdfData } from "@/parsers/pdfData";
 import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
-import { instrumentBank, parseInstrumentFile } from "@/parsers/instrument";
-import { currentDataBank, dataBanksOf, dataBankRef, defaultDataBank, hasBankChoice, openingInstrumentBank } from "@/app/bankChoice";
+import { dataBanksOf, defaultDataBank } from "@/app/bankChoice";
+import { defaultInstrumentById, defaultStepLabel } from "@/app/defaultInstruments";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { loadLocalDemoModule, localDemoAvailable } from "@/app/localDemoGate";
@@ -57,7 +57,7 @@ import { WorkbenchErrorBoundary } from "@/app/ui/WorkbenchErrorBoundary";
 import { color as theme, space } from "@/app/theme";
 import { newSession, loadedSession, bundledSession, emptySession, structureCarried, EMPTY_SOURCE } from "@/app/powderSession";
 import {
-  changed, emptyPage, snapshotOf, specInstrumentOf, withInstrument, withInstrumentConstants, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
+  changed, emptyPage, snapshotOf, specInstrumentOf, withInstrumentConstants, withInstrumentFile, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
 } from "@/app/powderPage";
 import type { WorkbenchExports } from "@/app/workbenchEngine";
 import { AgentLink } from "@/agent/link";
@@ -1149,24 +1149,24 @@ export function App(): JSX.Element {
    * the page when the file has it, else the file's lowest-numbered bank, as
    * GSAS-II; the bank applied is kept with the file. One History step.
    */
-  function applyInstrument(name: string, text: string, askedBank?: number): void {
+  function applyInstrument(name: string, text: string, askedBank?: number, bundledDefault?: string): void {
     try {
-      const file = parseInstrumentFile(text);
-      const data = dataBankRef(currentDataBank(dataBanksOf(session.rawData?.text), session.rawData));
-      const chosen = (askedBank !== undefined ? instrumentBank(file, askedBank) : undefined) ?? openingInstrumentBank(file, data);
-      const parsed = chosen.parameters;
-      const multi = hasBankChoice(file);
+      const opts = { ...(askedBank !== undefined ? { bank: askedBank } : {}), ...(bundledDefault !== undefined ? { bundledDefault } : {}) };
       // The rows built again from the new instrument (withInstrument), so the
       // profile reflects it whichever of the files came first.
-      setPage((p) => withInstrument(p, parsed, { name, text, ...(multi ? { bank: chosen.bank! } : {}) }));
-      const which = multi ? ` bank ${chosen.bank} of ${file.banks.length}` : "";
+      const { page: next, bank: chosen, banks, multi } = withInstrumentFile(page, name, text, opts);
+      const parsed = chosen.parameters;
+      setPage(next);
+      const which = multi ? ` bank ${chosen.bank} of ${banks}` : "";
+      const fromDefault = defaultInstrumentById(bundledDefault);
+      const what = fromDefault ? `default ${fromDefault.instrument} (${fromDefault.cycle}) ` : "";
       setMessage(
         parsed.kind === "tof"
-          ? `Loaded TOF instrument${which}: difC=${parsed.difC.toFixed(2)}, Zero=${(parsed.zero ?? 0).toFixed(3)}. Profile re-seeded.`
-          : `Loaded CW instrument${which}: λ=${parsed.wavelength} Å. Profile re-seeded.`,
+          ? `Loaded ${what}TOF instrument${which}: difC=${parsed.difC.toFixed(2)}, Zero=${(parsed.zero ?? 0).toFixed(3)}. Profile re-seeded.`
+          : `Loaded ${what}CW instrument${which}: λ=${parsed.wavelength} Å. Profile re-seeded.`,
       );
       if (chosen.extras.reading) setMessage(`Instrument calibration line: ${chosen.extras.reading}.`);
-      requestStep("load", multi ? `Loaded instrument ${name}, bank ${chosen.bank}` : `Loaded instrument ${name}`);
+      requestStep("load", fromDefault ? defaultStepLabel(fromDefault, multi ? chosen.bank : null) : multi ? `Loaded instrument ${name}, bank ${chosen.bank}` : `Loaded instrument ${name}`);
     } catch (e) {
       setMessage(`Instrument parse failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -1176,11 +1176,25 @@ export function App(): JSX.Element {
     file.text().then((text) => applyInstrument(file.name, text));
   }
 
-  /** Instrument card bank chooser: apply another bank of the loaded instrument file. */
+  /** Instrument card bank chooser: apply another bank of the loaded instrument file (a default stays a default). */
   function onInstrumentBank(bank: number): void {
     const raw = session.rawInstrument;
     if (!raw || raw.bank === bank) return;
-    applyInstrument(raw.name, raw.text, bank);
+    applyInstrument(raw.name, raw.text, bank, raw.bundledDefault);
+  }
+
+  /**
+   * The Instrument card's "Use default … parameters": the bundled file of that
+   * instrument (app/defaultInstruments.ts), fetched now and loaded as a user's
+   * file is, with its id kept beside the text. Only on the click.
+   */
+  function onUseDefaultInstrument(id: string): void {
+    const d = defaultInstrumentById(id);
+    if (!d) return;
+    d.load().then(
+      (text) => applyInstrument(d.fileName, text, undefined, d.id),
+      (e: unknown) => setMessage(`The default instrument file could not be loaded: ${e instanceof Error ? e.message : String(e)}`),
+    );
   }
 
   /** An X-ray instrument's polarization and Kα₂ ratio, on the instrument and on
@@ -1343,6 +1357,7 @@ export function App(): JSX.Element {
         onLoadInstrument={onLoadInstrument}
         {...(session.rawData ? { onDataBank } : {})}
         onInstrumentBank={onInstrumentBank}
+        onUseDefaultInstrument={onUseDefaultInstrument}
         onInstrumentConstants={onInstrumentConstants}
         onLoadDemo={onLoadDemo}
         demos={demos}
