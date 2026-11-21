@@ -107,9 +107,10 @@ prompt. Each item names where it lives; the full account is in [docs/AGENT_TOOLS
     terms never with the thermal parameters, or (on powder) with the positions; microstrain on its own.
     Only you lift one, through a card that always asks.
   - **The order:** the space group is questioned last (`review_symmetry` waits for a converged fit
-    with the method's stages done). In the magnetic step the moments are fitted against the nuclear
-    model held fixed, the magnetic refinement frees only the moments, and the report waits for the
-    final instrument pass.
+    with the method's stages done). In the magnetic step the moments are fitted with the nuclear
+    structure held (the scale and background re-refined between moments steps), the magnetic
+    refinement frees only the moments, and the report waits for the final instrument pass and
+    the moments refined after it.
 - **One run at a time.** A change is refused while a refinement runs, refinement and posterior sampling
   never run together, and `lower_symmetry` waits while a fit or the sampler runs. **Stop** cancels a
   running fit, and a call it reaches before acting is not run.

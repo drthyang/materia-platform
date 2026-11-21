@@ -37,6 +37,7 @@ import {
   liftsNoRule,
   magneticGroupIs,
   magneticRefinesMomentsOnly,
+  magneticEndsOnMoments,
   refinesMomentsAlone,
   nuclearAtHighAngle,
   magneticSequenceFirst,
@@ -183,7 +184,7 @@ export const SCENARIOS: readonly EvalScenario[] = [
     slow: true,
     messages: ["Fit this 30 K neutron pattern. If the nuclear model leaves intensity unexplained, find the magnetic order."],
     autonomy: "auto",
-    checks: [readsMethodFirst, ran("find_unexplained_peaks"), nuclearAtHighAngle(1.5, MN3GA_30K_TRUTH.wavelength), ran("rank_magnetic_groups"), magneticKIs([MN3GA_30K_TRUTH.k[0], MN3GA_30K_TRUTH.k[1], MN3GA_30K_TRUTH.k[2]]), magneticGroupIs(MN3GA_30K_TRUTH.id), magneticRefinesMomentsOnly, noStall],
+    checks: [readsMethodFirst, ran("find_unexplained_peaks"), nuclearAtHighAngle(1.5, MN3GA_30K_TRUTH.wavelength), ran("rank_magnetic_groups"), magneticKIs([MN3GA_30K_TRUTH.k[0], MN3GA_30K_TRUTH.k[1], MN3GA_30K_TRUTH.k[2]]), magneticGroupIs(MN3GA_30K_TRUTH.id), magneticRefinesMomentsOnly, magneticEndsOnMoments, noStall],
   },
   {
     id: "local-data-user-flow",

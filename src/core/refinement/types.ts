@@ -321,6 +321,20 @@ export interface RefinementDiagnostics {
   readonly maxShiftOverEsd: number;
   /** The free parameter that set `maxShiftOverEsd`, when one did. */
   readonly maxShiftParameterId?: string;
+  /**
+   * The held parameters whose uncertainty the esds include (the option
+   * `esdWith`): the esds are then those of a covariance over the refined
+   * parameters and these, taken at the final point with no step in them.
+   * Absent when none was asked for, or when that covariance could not be
+   * formed (`esdWithFailed`).
+   */
+  readonly esdIncludes?: readonly string[];
+  /**
+   * Why the esds do not include the parameters `esdWith` named: the data do
+   * not determine a combination of them with the refined ones, so the esds
+   * reported are those of the refined parameters alone.
+   */
+  readonly esdWithFailed?: string;
 }
 
 /** Full result of a refinement run. */
@@ -417,6 +431,19 @@ export interface RefinementOptions {
    * declaration.
    */
   readonly analyticDerivatives?: boolean;
+  /**
+   * Held (fixed, untied) parameters, by id, whose uncertainty the reported
+   * esds should include: the covariance is formed over the refined parameters
+   * and these at the final point, and the refined parameters' esds are read
+   * off it. Nothing is stepped in them, and `esd` stays keyed by the refined
+   * parameters only. For a refinement of the moments with the nuclear model
+   * held, naming the scale and the background gives the esd a joint fit of
+   * the three would quote (docs/reports/2026-11-19-moments-alternation.md).
+   * When that covariance drops a direction the esds stay those of the refined
+   * parameters alone, and `diagnostics.esdWithFailed` says so. Correlations
+   * and combination esds are always those of the refined parameters.
+   */
+  readonly esdWith?: readonly string[];
   /**
    * Runtime-only per-cycle callback for live progress (never serialized through
    * the worker protocol — set locally by the worker/runner, not by requests).

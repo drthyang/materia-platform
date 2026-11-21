@@ -563,6 +563,31 @@ export const magneticRefinesMomentsOnly: Check = {
   },
 };
 
+/**
+ * The magnetic step ends on the moments (magnetic-analysis Stage 5): after the final instrument pass — a converged
+ * refine with the moments held, once the model is on the page — the last converged refine is of the magnetic rows
+ * alone. The pass moves the scale, the background and the peak shape under the moments, so the moments a report
+ * quotes are those refined after it.
+ */
+export const magneticEndsOnMoments: Check = {
+  name: "ends the magnetic step on the moments, after the final instrument pass",
+  grade: (run) => {
+    const all = calls(run);
+    const handed = all.findIndex((c) => c.name === "continue_magnetic_refinement" && !c.isError);
+    if (handed < 0) return fail("never handed the magnetic model to the refinement");
+    const refines = all.slice(handed + 1).filter((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true);
+    // The pass holds the moments: a refine with no magnetic row free.
+    const pass = refines.map((c) => !(c.free ?? []).some(isMagneticRow)).lastIndexOf(true);
+    if (pass < 0) return fail("no final instrument pass: no refinement with the moments held after the hand-off");
+    const last = refines[refines.length - 1]!;
+    if (pass === refines.length - 1) return fail("ended on the instrument pass: the moments were not refined after it");
+    const free = last.free ?? [];
+    return free.some(isMomentRow) && free.every(isMagneticRow)
+      ? ok(`the last refinement, after the pass, freed only ${free.join(", ")}`)
+      : fail(`the last refinement after the pass freed ${free.filter((id) => !isMagneticRow(id)).slice(0, 8).join(", ") || "no moment"} with the moments`);
+  },
+};
+
 /** A moment row on the refinement page: a moment-mode amplitude (mom_…), or a modulated amplitude (modAmp_…). */
 const isMomentRow = (id: string): boolean => /^(mom_|modAmp_)/.test(id);
 /** A magnetic row: a moment, or a component of k freed with it (continue_magnetic_refinement's refineK: prop_k1…3). */

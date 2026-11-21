@@ -27,7 +27,8 @@ import { readSkill } from "@/agent/skills";
 import { RULES, advanceAlternation, alternationView, methodProgress, stagesCovered, type Alternation, type MethodRule } from "@/agent/method";
 import { analysisOf, hashText, onPage, type PageAdapter, type StateOf } from "@/agent/pages";
 import type { StepKind } from "@/core/project/history";
-import { Refusal, correlationGate, developedCorrelations, firmRules, methodGate, reportNotYet, staleReason, symmetryNotYet, type RefusalKind } from "@/agent/executorPolicy";
+import { isMagneticModelParameterKind, isMomentParameterKind, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
+import { Refusal, correlationGate, developedCorrelations, firmRules, instrumentPassOnPath, isInstrumentPass, methodGate, reportNotYet, staleReason, symmetryNotYet, type RefusalKind } from "@/agent/executorPolicy";
 import { Answers, addNote, noteRead, recordView, syncStages, withoutMethod, writeReport, type SampledPosterior } from "@/agent/executorRecord";
 import { choicesFor, questionChoices, type ChoiceContext, type ChoiceSet } from "@/agent/choices";
 
@@ -189,11 +190,20 @@ export class AgentExecutor implements ToolRunner {
     this.toolText = [];
     this.asked = null;
     this.magneticUsed = false;
+    this.passSeen = false;
     this.answers.clear();
   }
 
   /** The magnetic step's tools ran in this conversation (its panel then counts in the fingerprint). */
   private magneticUsed = false;
+  /** A final instrument pass (isInstrumentPass) was on screen at some call of this run: what stands where the page keeps no History. */
+  private passSeen = false;
+
+  /** Whether the magnetic workflow's final instrument pass has run: on the History's path to the page as it stands, else as this run saw it. */
+  private passDone(port: AgentPort): boolean {
+    const s = port.state();
+    return instrumentPassOnPath(this.host.history(), { parameters: s.parameters, result: s.result ?? null }) ?? (this.passSeen || isInstrumentPass(s.parameters, s.result));
+  }
 
   /** The page open. */
   page(): "powder" | "pdf" | "singleCrystal" | null {
@@ -304,6 +314,9 @@ export class AgentExecutor implements ToolRunner {
   private async execute(spec: LiveToolSpec, raw: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
     if (signal?.aborted) return stopped();
     if (spec.magneticStep) this.magneticUsed = true;
+    // The page as the calls before this one left it: a final instrument pass on screen is remembered (passDone).
+    const seen = this.host.port()?.state();
+    if (seen && isInstrumentPass(seen.parameters, seen.result)) this.passSeen = true;
     let entry: ActivityEntry = { id: `c${nextCallId++}`, tool: spec.name, title: spec.title, effect: spec.effect, at: Date.now(), status: "running", ...(spec.alwaysAsk ? { alwaysAsk: true } : {}) };
     const update = (patch: Partial<ActivityEntry>): void => {
       entry = { ...entry, ...patch };
@@ -388,8 +401,8 @@ export class AgentExecutor implements ToolRunner {
     }
 
     if (spec.name === "write_report") {
-      // The magnetic workflow's last step comes before its report: the final instrument pass.
-      const pending = reportNotYet(port.technique, port.state().parameters, port.state().result, this.skills);
+      // The magnetic workflow's last steps come before its report: the final instrument pass, then the moments again.
+      const pending = reportNotYet(port.technique, port.state().parameters, port.state().result, this.skills, this.passDone(port));
       if (pending) {
         update({ status: "failed", outcome: pending.line });
         return refused(pending.message, "report-gate");
@@ -608,6 +621,7 @@ function changeOutcome<P extends AgentPort>(
       ...page.figures(before, after, r),
       iterations: r.history.length,
       ...(r.diagnostics ? { atBounds: r.diagnostics.atBounds.map((b) => b.parameterId), maxShiftOverEsd: Number(r.diagnostics.maxShiftOverEsd.toPrecision(3)) } : {}),
+      ...momentsRefinementOutcome(before, after, r),
       ...developedCorrelations(r, after.parameters, after.restraints, page.assemblies(after)),
       // A shared site's last occupancy that left [0, 1]: the tie never clamps it.
       ...(siteSumRangeWarnings(after.parameters).length > 0 ? { occupancyWarnings: siteSumRangeWarnings(after.parameters) } : {}),
@@ -617,6 +631,27 @@ function changeOutcome<P extends AgentPort>(
   // A long free set by kind, as the History's rows give it (a structure of 567 parameters would fill the context with ids).
   if (name === "set_free") return { ...base, free: free.length > 40 ? freeSummary(after.parameters) : free };
   return { ...base, [key]: pct(page.agreement(after)), lastResultCleared: before.result !== null && after.result === null };
+}
+
+/**
+ * For a refinement of the magnetic rows alone: how far its moments moved in it, in their esds, and what those
+ * esds include. After the final instrument pass, which held the moments, that move is the moments' move across
+ * the pass (magnetic-analysis Stage 5: about an esd or less, else the peak shape traded with the model).
+ */
+function momentsRefinementOutcome(before: { readonly parameters: readonly RefinementParameter[] }, after: { readonly parameters: readonly RefinementParameter[] }, r: RefinementResult): Record<string, unknown> {
+  const kind = new Map(after.parameters.map((p) => [p.id, p.kind] as const));
+  const refined = Object.keys(r.esd);
+  const moment = (id: string): boolean => { const k = kind.get(id); return k !== undefined && isMomentParameterKind(k); };
+  if (!refined.some(moment) || !refined.every((id) => { const k = kind.get(id); return k !== undefined && isMagneticModelParameterKind(k); })) return {};
+  const was = new Map(before.parameters.map((p) => [p.id, p.value] as const));
+  let shift = 0;
+  for (const id of refined.filter(moment)) {
+    const esd = r.esd[id];
+    const from = was.get(id);
+    const to = r.parameters[id];
+    if (esd !== undefined && esd > 0 && from !== undefined && to !== undefined) shift = Math.max(shift, Math.abs(to - from) / esd);
+  }
+  return { momentShiftOverEsd: Number(shift.toPrecision(2)), ...(r.diagnostics?.esdIncludes?.length ? { esdsInclude: "the scale and the background (held)" } : {}) };
 }
 
 function outcomeLine<P extends AgentPort>(page: PageAdapter<P>, name: string, before: StateOf<P>, after: StateOf<P>, note: string | undefined): string {

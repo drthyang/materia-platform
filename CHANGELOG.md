@@ -25,6 +25,26 @@ release fixes bugs.
   start the width and decay rows, `GAMMA`, `TWOTH` and `TOFRG` are read and
   kept, and several banks separated by `END` are offered.
 
+### Changed
+
+- **Refine moments runs as rounds** (powder page). The moments with every
+  nuclear row held, then the scale and the background with the moments held,
+  then the moments again, until no moment moves by 0.1 of its esd; at most
+  ten rounds, ending on a moments step. A moment and a nuclear row never
+  refine together. The page's scale and background rows take the re-refined
+  values (one History step), a model shown or continued on the refinement
+  page follows the fitted moments, the button shows the round, and Cancel
+  leaves everything as it was. The readout is one line (`wR = 5.0% · settled
+  in 4 rounds`) with the details behind it; a fit at the cap says it did not
+  settle. The ranking still fits each group once.
+- **The Copilot's magnetic method ends on the moments.** After the final
+  instrument pass the moments are refined alone once more, and the report
+  waits for both. `refine_moments` reports its rounds and each amplitude's
+  esd; `refine` of the moments alone reports how far they moved
+  (`momentShiftOverEsd`). The `magnetic-analysis` skill, the report gate and
+  the scripted replay follow. An MCP client alternates
+  `refine_magnetic_powder` by hand.
+
 ### Fixed
 
 - **A GSAS-II `.instprm` with several banks** gave the values of its last
@@ -52,6 +72,21 @@ release fixes bugs.
   (it had re-solved them, which left the round-off and reset the choices). A
   project saved with such rows refines when reopened
   ([report](docs/reports/2026-11-20-secondary-modes-refine.md)).
+- **A moment refined after a nuclear-only fit read low.** The nuclear-only
+  fit takes magnetic intensity into its background and scale, and one moments
+  fit against those gave 4.06 µ_B for a true 4.2 (10 esd low) on a synthetic
+  MnWO₄ pattern calculated without the app's code. Refine moments now reads
+  4.200 over 48 noise seeds, the value a fit of scale, background and moments
+  together gives ([report](docs/reports/2026-11-19-moments-alternation.md)).
+- **At k = 0, Refine moments undid the ranking.** The ranking refined the
+  scale with each group's moments and Refine moments held it: on a synthetic
+  k = 0 ferromagnet a group ranked at 4.155 µ_B went to 3.520 (truth 4.2).
+  It now goes to 4.224(41).
+- **The esd of a moment refined alone was too small.** It left out the
+  uncertainty of the scale and the background, which were fitted to the same
+  pattern: 10 to 29 % below the scatter over repeated noise. A refinement of
+  the magnetic parameters alone now quotes esds that include them (scatter /
+  esd 0.98 over 1000 seeds), and the report says so.
 
 
 ## [0.5.1] - 2026-11-20
@@ -104,7 +139,6 @@ result changes.
   and the label shown comes from a provider, generic by default, so CDML
   labels from a permitted table could be added later without changing the
   engine, the numbering or saved projects. No table ships.
-
 ## [0.5.0] - 2026-11-07
 
 ### Added

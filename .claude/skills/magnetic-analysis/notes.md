@@ -33,6 +33,25 @@ Neutrons see the moment component perpendicular to Q. Cr₂WO₆ at 4 K: the max
 P4₂'/m'nm', moments along c, left 0 0 1 at 32σ; the in-plane groups of index 4 took wR from
 18.9 to 12 %.
 
+## The moments in rounds with the scale and the background (Stage 3)
+
+A nuclear-only fit takes the magnetic intensity it does not model into its background and
+scale: at k ≠ 0 the satellites between its lines, at k = 0 the intensity on them. One
+moments fit against those two rows reads low, and its esd does not show it.
+`refine_moments` therefore alternates: the moments, then the scale and the background,
+each with the other held, until the moments stop moving. That is the answer a fit of the
+three together gives, reached without a step that frees a moment with a nuclear row. Its
+esds carry the two rows' uncertainty.
+
+- A synthetic MnWO₄ at k = (½ 0 0), true moment 4.2 µB: one moments fit after the
+  nuclear-only fit read 4.06 (ten esds low); the rounds read 4.20 in four rounds, with an
+  esd equal to the scatter over repeated noise.
+- The ranking still fits each group once (it compares groups), so a ranked moment reads
+  1–3 % low until `refine_moments`.
+- Over MCP there is no `refine_moments`: alternate `refine_magnetic_powder` by hand, the
+  moments free, then the scale and the background free with the moments held, until the
+  moments move by less than 0.1 esd, and end on the moments.
+
 ## Only the magnetic parameters in the magnetic refinement (Stage 4)
 
 The nuclear model is settled first so that it is the fixed reference the moments are
@@ -48,9 +67,21 @@ one the moments were measured against.
 The peak shape is refined in the nuclear stages, before the magnetic peaks are modelled,
 so it was fitted to a pattern missing some of its intensity. Once the moments converge,
 refining the profile again, with the moments and the atomic structure held, lets it fit the
-whole pattern; the moments then refine once more against it, with the scale (which trades
-with their size) and the background. The atomic structure stays held: this tweaks the
-instrument's description, not the model the moments were measured against.
+whole pattern, with the scale (which trades with the moments' size) and the background;
+the moments then refine once more against it, alone. The pass and that last refinement
+are one more round of Stage 3's rounds, with the peak shape in the step between. The
+atomic structure stays held: this tweaks the instrument's description, not the model the
+moments were measured against. So the moments should end within their esds across it:
+where the first pass moves one further, the pass and the moments are run once more, and a
+move that does not shrink says the peak shape trades with the magnetic model.
+
+- The synthetic MnWO₄ above, its peak width left 1 % too wide by the nuclear-only fit:
+  across the pass a one-component moment moved by 0.04 esd and the two components of an
+  in-plane moment by 0.3 esd each, onto the values a fit of everything together gives.
+- A simulated k = 0 pattern (three sites, six amplitudes, the peak shape never refined
+  with the magnetic intensity in the model): the first pass moved a moment by 1.7 esd,
+  the second by 0.4, and every amplitude ended within 1 esd of the simulated value
+  (|M| 2.52, 2.82, 2.52 µB for a true 2.53, 2.83, 2.53).
 
 - A k ≠ 0 POWGEN TOF dataset: after the moments-only refinement, the scale, background,
   every TOF α, β, σ term and the zero refined together cut wR by about an eighth (GoF too),

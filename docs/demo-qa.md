@@ -38,6 +38,7 @@ counted as slow.
 | Open the Mn₃Ga demo / the GaTa₄Se₈ demo | 0.3 s / 0.9–1.0 s |
 | Refine: Mn₃Ga / GaTa₄Se₈ / SrTiO₃ | 0.2 s / 1.0 s / 0.2 s |
 | Validation tab; Posterior Stop; k-search; Refine moments | 0.15 s; 0.04 s; 0.06 s; 0.2 s |
+| Refine moments since it runs as rounds (2026-11-20, 1600×1100, one round on this page; progress and Cancel) | 0.9 s |
 | Rank 14 magnetic candidates (background, progress and Cancel) | 18–29 s |
 | Subgroups listing at 2×2×2 / 1×1×2 (worker, rows stream in) | 7.6–7.8 s / 3.6 s |
 | Activate the 1×1×2 child; ✕ clear | 0.5 s; 0.4 s |

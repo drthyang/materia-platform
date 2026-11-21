@@ -686,7 +686,8 @@ const TOOLS = [
   {
     name: "refine_moments",
     title: "Fit the moments",
-    description: "Powder page only. Fit the chosen group's moment amplitudes against the pattern, the nuclear model held fixed. Returns wR and the moments (µB).",
+    description:
+      "Powder page only. Fit the chosen group's moment amplitudes in rounds: the moments (nuclear rows held), then the scale and background (moments held), until no moment moves by 0.1 esd; at most 10 rounds, ending on the moments. The page's scale and background rows take the re-refined values. Returns wR, the rounds, the moments (µB) and their esds. \"not settled\": the data do not determine a moment; tie or hold it.",
     inputSchema: {},
     effect: "change",
     pages: ["powder"],
