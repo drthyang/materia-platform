@@ -174,7 +174,8 @@ describe("what the file has that the calculation leaves out", () => {
     const page = withInstrument(withPattern(withStructure(emptyPage(), structure), pattern, { name: "d.gsa", text: SIX_BANK_GSA, bank: 1 }), bankOf(1).parameters, { name: "i.instprm", text: FIVE_BANK_INSTPRM, bank: 1 });
     const row = (id: string) => page.session.powderParams.find((p) => p.id === id);
     // sig-1 as the file gives it, on the instrument's own row; no stand-in microstrain.
-    expect(row("tof_sig1")).toMatchObject({ value: bankOf(1).parameters.kind === "tof" ? bankOf(1).parameters.sig1 : NaN, fixed: true, kind: "tofFileProfile" });
+    const bank1 = bankOf(1).parameters;
+    expect(row("tof_sig1")).toMatchObject({ value: bank1.kind === "tof" ? bank1.sig1 : NaN, fixed: true, kind: "tofFileProfile" });
     expect(row("mustrainIso")).toBeUndefined();
     // The other terms as read, the negative sig-0 included, held fixed.
     expect(row("tof_sig0")).toMatchObject({ value: -18.5, fixed: true, kind: "tofFileProfile" });
