@@ -1,0 +1,307 @@
+import { describe, it, expect } from "vitest";
+import {
+  caseOf, noisy, nuclearOnlyRows, sequence, sessionOf, Fitter,
+  FIT_RANGE, MODEL_A, MODEL_B, MODEL_F_K0, type Case,
+} from "@/testSupport/momentSequenceCase";
+import type { SpinModel } from "@/testSupport/independentMnwo4";
+import { magneticStepOn } from "@/testSupport/magneticHeadless";
+import { fitRows, type MagneticStep } from "@/app/magneticStep";
+import type { Session } from "@/app/powderSession";
+import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
+import { parseSymmetryOperation } from "@/core/crystal/symmetry";
+import { magneticPowderComponents } from "@/core/workflow/magneticPowder";
+import type { StructureModel } from "@/core/crystal/types";
+import type { PowderPattern } from "@/core/diffraction/types";
+import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
+import { transportSchema } from "@/mcp/host";
+import { TOOL_REGISTRY } from "@/mcp/registry";
+import { assess_refinement, build_magnetic_model, export_bundle, refine_magnetic_powder, refine_moments } from "@/mcp/tools";
+
+/**
+ * The moments fit over MCP, against a KNOWN TRUTH and against the page.
+ *
+ * `refine_moments` runs the module the powder page's Refine moments runs
+ * (core/magnetic/momentsFit.ts). On the synthetic MnWO₄ of
+ * testSupport/independentMnwo4.ts (a calculation that shares no code with
+ * `src/core`; true moment 4.2 µ_B) it must give the page's answer:
+ *
+ *  - with the rows in the page's order, the page's moments and esds to within
+ *    1 part in 10⁹ (the difference is printed);
+ *  - with the rows in another order, the page's own known-truth bounds: within
+ *    3 esd of the truth and within 0.05 esd of the joint fit.
+ *
+ * And the rule on `refine_magnetic_powder`: moments and nuclear rows together
+ * are refused unless the joint fit is asked for by name, and that fit's result
+ * carries its label into what is written from it.
+ */
+
+/** The page after its nuclear-only fit of a noisy pattern, the true group chosen, and the MCP arguments of the same problem in the page's row order. */
+function pageAndArgs(model: SpinModel, seed: number): { c: Case; step: MagneticStep; session: () => Session; fitter: Fitter; args: Parameters<typeof refine_moments>[0]; momentIds: string[] } {
+  const c = caseOf(model, 6);
+  const points = noisy(c.clean, seed);
+  let session = sessionOf(c, points, nuclearOnlyRows(c, points));
+  const step = magneticStepOn(() => ({ session, window: FIT_RANGE }), (s) => { session = s; }, () => {});
+  step.handle.setK([c.k[0], c.k[1], c.k[2]]);
+  step.handle.selectIons(["Mn1"]);
+  const sig = magneticOperationSignature(c.build.magnetic.operations!);
+  const i = step.view().reps.findIndex((r) => magneticOperationSignature(r.candidate.operations) === sig);
+  expect(i).toBeGreaterThanOrEqual(0);
+  step.handle.choose(`G${i + 1}`);
+  // The model the page fits (built on the page's structure), its rows from the page's start, and the page's rows before the fit.
+  const v = step.view();
+  const build = v.build!;
+  const moments = fitRows(build, v.resolvedAmps);
+  const args = {
+    structure: session.structure, magnetic: build.magnetic, pattern: session.pattern,
+    parameters: [...session.powderParams, ...moments], bindings: [...session.powderBindings, ...build.bindings],
+    profile: session.powderProfile, fitRange: { ...FIT_RANGE },
+  };
+  return { c, step, session: () => session, fitter: new Fitter(c, points), args, momentIds: moments.filter((p) => !p.fixed).map((p) => p.id) };
+}
+
+const relative = (a: number, b: number): number => (a === b ? 0 : Math.abs(a - b) / Math.max(Math.abs(a), Math.abs(b)));
+
+describe("refine_moments over MCP gives the page's Refine moments (independent MnWO4, truth 4.2 µB)", () => {
+  for (const [name, model] of [["model A, k = (½ 0 0), one moment row", MODEL_A], ["model B, two moment rows", MODEL_B], ["a ferromagnet at k = 0", MODEL_F_K0]] as const) {
+    it(`${name}: with the rows in the page's order, the same moments and esds to 1 part in 10⁹`, async () => {
+      const { step, session, args, momentIds } = pageAndArgs(model, 0);
+      const mcp = await refine_moments(args);
+      expect(await step.refineMoments()).not.toBeNull();
+      const v = step.view();
+      const rounds = v.fitRounds!;
+      const dMoment = momentIds.map((id) => relative(mcp.moments[id]!, v.resolvedAmps[id]!));
+      const dEsd = momentIds.map((id) => relative(mcp.esd[id]!, rounds.esd[id]!));
+      const dHeld = Object.keys(rounds.held).map((id) => relative(mcp.reRefined[id]!, rounds.held[id]!));
+      console.log(`[mcp-moments] ${name}: page ${momentIds.map((id) => `${v.resolvedAmps[id]!.toFixed(6)}(${rounds.esd[id]!.toFixed(6)})`).join(", ")} µB in ${rounds.count} rounds, wR ${(100 * v.fitWR!).toFixed(4)} % · MCP ${momentIds.map((id) => `${mcp.moments[id]!.toFixed(6)}(${mcp.esd[id]!.toFixed(6)})`).join(", ")} in ${mcp.rounds} rounds, wR ${(100 * mcp.wR!).toFixed(4)} % · relative difference: moments ${dMoment.map((d) => d.toExponential(2)).join(", ")}; esds ${dEsd.map((d) => d.toExponential(2)).join(", ")}; scale and background at most ${Math.max(...dHeld).toExponential(2)}; wR ${relative(mcp.wR!, v.fitWR!).toExponential(2)}`);
+      for (const d of [...dMoment, ...dEsd, ...dHeld]) expect(d).toBeLessThan(1e-9);
+      expect(relative(mcp.wR!, v.fitWR!)).toBeLessThan(1e-9);
+      expect(mcp.rounds).toBe(rounds.count);
+      expect(mcp.settled).toBe(rounds.settled);
+      expect(mcp.settled).toBe(true);
+      expect(relative(mcp.lastShiftOverEsd, rounds.lastShiftOverEsd)).toBeLessThan(1e-6);
+      expect(mcp.esdIncludes).toEqual(rounds.esdIncludes);
+      expect(mcp.esdIncludes).toEqual(["scale", "bkg0", "bkg1", "bkg2", "bkg3", "bkg4", "bkg5"]);
+      expect(mcp.esdAloneReason).toBeNull();
+      expect(Object.keys(mcp.reRefined)).toEqual(Object.keys(rounds.held));
+      expect(mcp.kHeld).toBeUndefined();
+      // The rows it hands back are the page's rows after the fit: only the scale, the background and the moments moved.
+      const page = Object.fromEntries(session().powderParams.map((p) => [p.id, p.value]));
+      for (const p of mcp.parameters) {
+        if (momentIds.includes(p.id)) continue;
+        expect(relative(p.value, page[p.id]!), p.id).toBeLessThan(1e-9);
+        if (!(p.id in mcp.reRefined)) expect(p.value, p.id).toBe(args.parameters.find((q) => q.id === p.id)!.value);
+      }
+      // The flags come back as they were passed.
+      expect(mcp.parameters.map((p) => p.fixed)).toEqual(args.parameters.map((p) => p.fixed));
+      expect(mcp.reading).toMatch(new RegExp(`^Moments fitted with the nuclear model held, settled in ${mcp.rounds} rounds: wR \\d+\\.\\d\\d%\\. The esds include the scale and the background\\. \`parameters\` carries the re-refined scale and background\\.$`));
+    }, 60_000);
+  }
+
+  it("model A is the known answer: 4.20 µB for a true 4.2, within 3 esd, with the joint fit's value", async () => {
+    const { c, fitter, args } = pageAndArgs(MODEL_A, 0);
+    const mcp = await refine_moments(args);
+    const moment = fitter.moment(Object.fromEntries(mcp.parameters.map((p) => [p.id, p.value])));
+    const esd = mcp.esd.mom_Mn1_0!;
+    const joint = sequence(c, noisy(c.clean, 0), 0).joint;
+    console.log(`[mcp-moments] model A: MCP ${moment.toFixed(4)}(${(1e4 * esd).toFixed(0)}) µB; truth 4.2 (${((moment - 4.2) / esd).toFixed(2)} esd); joint fit ${joint.moment.toFixed(4)} (${((moment - joint.moment) / esd).toFixed(3)} esd)`);
+    expect(moment).toBeCloseTo(4.203, 2);
+    expect(Math.abs(moment - 4.2) / esd).toBeLessThan(3);
+    expect(Math.abs(moment - joint.moment) / esd).toBeLessThan(0.05);
+    expect(esd / joint.quotedEsd[0]!).toBeCloseTo(1, 2);
+  }, 60_000);
+
+  it("with the rows in another order (the moments first, the nuclear rows reversed): within 3 esd of the truth and 0.05 esd of the joint fit", async () => {
+    const { c, step, fitter, args, momentIds } = pageAndArgs(MODEL_A, 0);
+    const nuclear = args.parameters.filter((p) => p.kind !== "momentMode");
+    const moments = args.parameters.filter((p) => p.kind === "momentMode");
+    const mcp = await refine_moments({ ...args, parameters: [...moments, ...[...nuclear].reverse()], bindings: [...args.bindings].reverse() });
+    expect(await step.refineMoments()).not.toBeNull();
+    const v = step.view();
+    const moment = fitter.moment(Object.fromEntries(mcp.parameters.map((p) => [p.id, p.value])));
+    const esd = mcp.esd.mom_Mn1_0!;
+    const joint = sequence(c, noisy(c.clean, 0), 0).joint;
+    const id = momentIds[0]!;
+    console.log(`[mcp-moments] another row order: MCP ${moment.toFixed(6)}(${esd.toFixed(6)}) µB in ${mcp.rounds} rounds; from the page: moment ${relative(mcp.moments[id]!, v.resolvedAmps[id]!).toExponential(2)}, esd ${relative(esd, v.fitRounds!.esd[id]!).toExponential(2)} (relative); from the truth ${((moment - 4.2) / esd).toFixed(2)} esd; from the joint fit ${((moment - joint.moment) / esd).toFixed(3)} esd`);
+    expect(Math.abs(moment - 4.2) / esd).toBeLessThan(3);
+    expect(Math.abs(moment - joint.moment) / esd).toBeLessThan(0.05);
+    expect(mcp.settled).toBe(true);
+    expect(mcp.parameters.map((p) => p.id)).toEqual([...moments, ...[...nuclear].reverse()].map((p) => p.id));
+  }, 60_000);
+});
+
+describe("refine_moments decides its own rows", () => {
+  it("ignores the flags on the nuclear rows: whatever is free or held there, the same fit", async () => {
+    const { args } = pageAndArgs(MODEL_A, 0);
+    const base = await refine_moments(args);
+    // Everything nuclear marked free (the width, the cell, the atoms too): nothing but the scale and the background moves.
+    const allFree = await refine_moments({ ...args, parameters: args.parameters.map((p) => (p.kind === "momentMode" || p.expression ? p : { ...p, fixed: false })) });
+    expect(allFree.moments).toEqual(base.moments);
+    expect(allFree.esd).toEqual(base.esd);
+    expect(allFree.reRefined).toEqual(base.reRefined);
+    for (const p of allFree.parameters) if (p.kind !== "momentMode" && !(p.id in allFree.reRefined)) expect(p.value, p.id).toBe(args.parameters.find((q) => q.id === p.id)!.value);
+  }, 60_000);
+
+  it("a moment row passed fixed stays held: its value and no esd, the other row refined", async () => {
+    const { args, momentIds } = pageAndArgs(MODEL_B, 0);
+    expect(momentIds).toHaveLength(2);
+    const [held, refined] = momentIds as [string, string];
+    const start = args.parameters.find((p) => p.id === held)!.value;
+    const out = await refine_moments({ ...args, parameters: args.parameters.map((p) => (p.id === held ? { ...p, fixed: true } : p)) });
+    expect(out.parameters.find((p) => p.id === held)!.value).toBe(start);
+    expect(Object.keys(out.moments)).toEqual([refined]);
+    expect(Object.keys(out.esd)).toEqual([refined]);
+    expect(out.moments[refined]).not.toBe(args.parameters.find((p) => p.id === refined)!.value);
+  }, 60_000);
+
+  it("no moment row free: refused, with what to pass", async () => {
+    const { args } = pageAndArgs(MODEL_A, 0);
+    await expect(refine_moments({ ...args, parameters: args.parameters.map((p) => ({ ...p, fixed: true })) })).rejects.toThrow(/^refine_moments: no moment row is free, so there is nothing to refine\. The moment rows from build_magnetic_model come fixed\./);
+  });
+
+  it("takes no free set, stage, restart or iteration argument, on the handler or over the transport", () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === "refine_moments")!;
+    expect(tool.selectsFree).toBeUndefined();
+    expect(Object.keys(transportSchema(tool)).sort()).toEqual(["bindings", "extraPhases", "fitRange", "magnetic", "parameters", "pattern", "profile", "structure"]);
+  });
+});
+
+describe("refine_moments holds k", () => {
+  const structure: StructureModel = {
+    id: "helix", name: "helix",
+    cell: { a: 4, b: 4.6, c: 5, alpha: 90, beta: 90, gamma: 90 },
+    spaceGroup: { hermannMauguin: "P 1", operations: [parseSymmetryOperation("x,y,z")] },
+    sites: [{ label: "Fe1", element: "Fe", oxidationState: 3, position: [0, 0, 0], occupancy: 1, adp: { kind: "isotropic", bIso: 0.3 } }],
+  };
+  const K: [number, number, number] = [0, 0, 0.2317];
+  const nuc: RefinementParameter[] = [
+    { id: "scale", label: "s", kind: "scale", value: 20, initialValue: 20, fixed: false, min: 0 },
+    { id: "bkg0", label: "b", kind: "background", value: 5, initialValue: 5, fixed: false },
+    { id: "width", label: "w", kind: "peakWidth", value: 0.5, initialValue: 0.5, fixed: true, min: 1e-3 },
+  ];
+  const nucBindings: ParameterBinding[] = [
+    { parameterId: "scale", kind: "scale", targetId: structure.id },
+    { parameterId: "bkg0", kind: "background", targetId: "pat", targetKey: "0" },
+    { parameterId: "width", kind: "peakWidth", targetId: "pat" },
+  ];
+  /** A helix's pattern (2 µB on each quadrature) with counting noise from a fixed seed. */
+  function pattern(): PowderPattern {
+    const truth = build_magnetic_model({ structure, ionLabels: ["Fe1"], k: K, moment: 2 });
+    const grid = Array.from({ length: 1200 }, (_, i) => 8 + (i * 112) / 1199);
+    const empty: PowderPattern = { id: "pat", name: "p", xUnit: "twoTheta", radiation: { kind: "neutron", wavelength: 1.8 }, wavelength: 1.8, points: grid.map((x) => ({ x, yObs: 0 })) };
+    const values: Record<string, number> = { mom_Fe1_0: 2, mom_Fe1_1q: 2 };
+    const sim = magneticPowderComponents(structure, truth.magnetic, empty, [...nuc, ...truth.parameters.map((p) => ({ ...p, value: values[p.id] ?? 0 }))], [...nucBindings, ...truth.bindings]);
+    let state = 12345;
+    const gauss = (): number => {
+      // Box–Muller on a small linear congruential generator: the same noise every run.
+      const next = (): number => { state = (1103515245 * state + 12345) % 2147483648; return (state + 0.5) / 2147483648; };
+      return Math.sqrt(-2 * Math.log(next())) * Math.cos(2 * Math.PI * next());
+    };
+    return { ...empty, points: empty.points.map((p, i) => { const y = Math.max(sim.yCalc[i]!, 1); return { x: p.x, yObs: y + Math.sqrt(y) * gauss(), sigma: Math.sqrt(y) }; }) };
+  }
+  const FREE = new Set(["mom_Fe1_0", "mom_Fe1_1q"]);
+  const START: Record<string, number> = { mom_Fe1_0: 1.5, mom_Fe1_1q: 1.5 };
+  const rowsOf = (b: ReturnType<typeof build_magnetic_model>, freeK: boolean): RefinementParameter[] =>
+    b.parameters.map((p) => ({ ...p, value: START[p.id] ?? p.value, fixed: p.kind === "propagationK" ? !freeK || !!p.expression : !FREE.has(p.id) }));
+
+  it("a k row passed free is held, the result says so, and the moments are those of the same fit without it", async () => {
+    const data = pattern();
+    const withK = build_magnetic_model({ structure, ionLabels: ["Fe1"], k: K, moment: 2, refineK: true });
+    const noK = build_magnetic_model({ structure, ionLabels: ["Fe1"], k: K, moment: 2 });
+    const common = { structure, pattern: data, profile: { shape: "gaussian" as const } };
+    const passed = [...nuc, ...rowsOf(withK, true)];
+    expect(passed.filter((p) => p.kind === "propagationK" && !p.fixed).map((p) => p.id)).toEqual(["prop_k1", "prop_k2", "prop_k3"]);
+    const held = await refine_moments({ ...common, magnetic: withK.magnetic, parameters: passed, bindings: [...nucBindings, ...withK.bindings] });
+    const plain = await refine_moments({ ...common, magnetic: noK.magnetic, parameters: [...nuc, ...rowsOf(noK, false)], bindings: [...nucBindings, ...noK.bindings] });
+    expect(held.kHeld).toEqual({
+      parameterIds: ["prop_k1", "prop_k2", "prop_k3"],
+      note: "k was held: refine_moments refines moment amplitudes only, with the propagation vector at the value in the model. The k rows passed free were not refined; their fixed flags are returned unchanged.",
+    });
+    expect(plain.kHeld).toBeUndefined();
+    // k did not move, in the rows or in the model, and its rows come back flagged as they were passed.
+    for (const p of held.parameters.filter((q) => q.kind === "propagationK")) {
+      expect(p.value, p.id).toBe(passed.find((q) => q.id === p.id)!.value);
+      expect(p.fixed, p.id).toBe(false);
+    }
+    expect(held.magnetic.propagation[0]).toEqual(K);
+    expect(Object.keys(held.esd)).toEqual(["mom_Fe1_0", "mom_Fe1_1q"]);
+    const d = Object.keys(plain.moments).map((id) => relative(held.moments[id]!, plain.moments[id]!));
+    console.log(`[mcp-moments] k held: ${Object.entries(held.moments).map(([id, v]) => `${id} ${v.toFixed(5)}(${held.esd[id]!.toFixed(5)})`).join(", ")} in ${held.rounds} rounds; relative difference from the fit without k rows: ${d.map((x) => x.toExponential(2)).join(", ")}`);
+    for (const x of d) expect(x).toBeLessThan(1e-9);
+    expect(held.rounds).toBe(plain.rounds);
+    expect(held.settled).toBe(true);
+    for (const id of Object.keys(held.moments)) expect(Math.abs(Math.abs(held.moments[id]!) - 2) / held.esd[id]!, id).toBeLessThan(3);
+  }, 60_000);
+});
+
+describe("refine_magnetic_powder: one side at a time", () => {
+  const free = (rows: readonly RefinementParameter[], pick: (p: RefinementParameter) => boolean): RefinementParameter[] => rows.map((p) => ({ ...p, fixed: !!p.expression || !pick(p) }));
+  const isMoment = (p: RefinementParameter): boolean => p.kind === "momentMode";
+  const isScaleOrBackground = (p: RefinementParameter): boolean => p.kind === "scale" || p.kind === "background";
+
+  it("moments and nuclear rows together: refused, with the rule and what to call", async () => {
+    const { args } = pageAndArgs(MODEL_A, 0);
+    const both = free(args.parameters, (p) => isMoment(p) || isScaleOrBackground(p));
+    await expect(refine_magnetic_powder({ ...args, parameters: both })).rejects.toThrow(
+      "refine_magnetic_powder: not run. This call frees moment-side rows (mom_Mn1_0) together with nuclear rows (scale, bkg0, bkg1, bkg2, bkg3, bkg4, … (7)). MATERIA refines the moments with the nuclear model held, never in one step with a nuclear row; the scale and the background count as nuclear. For the moments, call refine_moments: it re-refines the scale and the background in rounds with them. Here, free only nuclear rows (the moments held), or only moment rows (one moments step; with `restarts`, the moment search). To run the joint fit all the same, pass joint: true; its result is then labelled a joint fit.",
+    );
+    // The scale alone with a moment is refused too, restarts or not, staged or not.
+    const scale = free(args.parameters, (p) => isMoment(p) || p.kind === "scale");
+    await expect(refine_magnetic_powder({ ...args, parameters: scale, restarts: 2, staged: false })).rejects.toThrow(/not run\. This call frees moment-side rows \(mom_Mn1_0\) together with nuclear rows \(scale\)\./);
+    // `joint: false` is the default.
+    await expect(refine_magnetic_powder({ ...args, parameters: both, joint: false })).rejects.toThrow(/not run/);
+  });
+
+  it("with joint: true the fit runs, and its label goes with the result into the assessment and the export bundle", async () => {
+    const { c, fitter, args } = pageAndArgs(MODEL_A, 0);
+    const both = free(args.parameters, (p) => isMoment(p) || isScaleOrBackground(p));
+    const out = await refine_magnetic_powder({ ...args, parameters: both, joint: true, staged: false, maxIterations: 40 });
+    const label = "Joint nuclear + magnetic fit, run on request (joint: true): moment rows and nuclear rows were refined in one step. This is not MATERIA's method, in which the moments are refined with the nuclear model held (refine_moments). Say so wherever these values are quoted.";
+    expect(out.note).toBe(label);
+    expect(out.result.methodNote).toBe(label);
+    // It is the joint fit the known-truth tests use as their reference.
+    const joint = sequence(c, noisy(c.clean, 0), 0).joint;
+    expect(fitter.moment(out.result.parameters)).toBeCloseTo(joint.moment, 3);
+    // What reads the result repeats the label.
+    const assessed = assess_refinement({ result: out.result, parameters: out.parameters, observationCount: out.observationCount });
+    expect(assessed.methodNote).toBe(label);
+    for (const target of ["gsas2", "fullprof"] as const) {
+      const bundle = export_bundle({ target, structure: args.structure, pattern: args.pattern, parameters: out.parameters, bindings: args.bindings, result: out.result });
+      const readme = bundle.files.find((f) => f.name === "README.txt")!.text;
+      expect(readme, target).toContain(`How the fit behind these values was run: ${label}`);
+      if (target === "gsas2") expect(bundle.files.find((f) => f.name.endsWith(".cif"))!.text).toContain(`_refine_special_details\n;\n${label}\n;`);
+    }
+    // Without the label nothing is added: the result of a nuclear-only fit, and its bundle.
+    const nuclearOnly = await refine_magnetic_powder({ ...args, parameters: free(args.parameters, isScaleOrBackground), joint: true });
+    expect(nuclearOnly.note).toBeUndefined();
+    expect(nuclearOnly.result.methodNote).toBeUndefined();
+    expect(assess_refinement({ result: nuclearOnly.result, parameters: nuclearOnly.parameters, observationCount: nuclearOnly.observationCount }).methodNote).toBeUndefined();
+    const plain = export_bundle({ target: "gsas2", structure: args.structure, pattern: args.pattern, parameters: nuclearOnly.parameters, bindings: args.bindings, result: nuclearOnly.result });
+    expect(plain.files.map((f) => f.text).join("\n")).not.toMatch(/_refine_special_details|How the fit behind these values was run/);
+  }, 60_000);
+
+  it("moment rows alone: one moments step, and the result says it is not the moments fit", async () => {
+    const { fitter, args } = pageAndArgs(MODEL_A, 0);
+    const note = "A single moments step with the nuclear model held, not the settled moments fit: the scale and the background were not re-refined with the moments, and the esds do not include them. For the moments to report, pass these `parameters` to refine_moments.";
+    const once = await refine_magnetic_powder({ ...args, parameters: free(args.parameters, isMoment) });
+    expect(once.note).toBe(note);
+    expect(once.result.methodNote).toBeUndefined();
+    expect(once.result.diagnostics?.esdIncludes).toBeUndefined();
+    // The single step reads low (4.06 for 4.2): the bias the moments fit removes.
+    expect(fitter.moment(once.result.parameters)).toBeCloseTo(4.064, 2);
+    // With restarts it is the moment search, still moment rows alone, with the same note; its rows go straight to refine_moments.
+    const searched = await refine_magnetic_powder({ ...args, parameters: free(args.parameters, isMoment), restarts: 2 });
+    expect(searched.note).toBe(note);
+    expect(searched.multiStart?.restartsRun).toBe(2);
+    const settled = await refine_moments({ ...args, magnetic: searched.magnetic, parameters: searched.parameters });
+    expect(Math.abs(fitter.moment(Object.fromEntries(settled.parameters.map((p) => [p.id, p.value])))) ).toBeCloseTo(4.203, 2);
+  }, 60_000);
+
+  it("nuclear rows alone, the moments held: as before, with no note", async () => {
+    const { args } = pageAndArgs(MODEL_A, 0);
+    const out = await refine_magnetic_powder({ ...args, parameters: free(args.parameters, isScaleOrBackground) });
+    expect(out.note).toBeUndefined();
+    expect(out.result.methodNote).toBeUndefined();
+    expect(out.result.status).toBe("converged");
+    expect(out.result.parameters.mom_Mn1_0).toBe(args.parameters.find((p) => p.id === "mom_Mn1_0")!.value);
+  }, 60_000);
+});
