@@ -16,7 +16,8 @@ only. No number on the page or in the Copilot moves: the dump of the first
 part (every refinement's inputs and results, as float64 bits, and the
 Copilot's replies) is identical on `main` and on this branch's code. At the
 head it differs in one line, the length of the `magnetic-analysis` skill text
-the Copilot reads, which the text commit shortened by 8 characters.
+the Copilot reads, which the two table-row edits shortened by 36 characters
+(10,457 to 10,421).
 
 The decisions are the owner's (2026-11-21 and 2026-11-22) and are recorded in
 [ADR 0006](../adr/0006-moments-refine-with-the-nuclear-model-held.md).
@@ -174,7 +175,7 @@ for `refine_magnetic_powder` frees nuclear rows only and needed no change.
   (`model-text.arm-b.md`, 92,581 bytes; `model-text.arm-c.md`, 85,657 bytes)
   are unchanged: no in-app tool's text changed.
 - The Copilot reads the skills: `magnetic-analysis/notes.md` grew by 96 bytes
-  and its `SKILL.md` shrank by 8 (one table row); `my-rietveld-workflow/mcp-tools.md`
+  and its `SKILL.md` shrank by 36 (two table rows); `my-rietveld-workflow/mcp-tools.md`
   grew by 18. The changed lines are about MCP.
 - An MCP client's tool list grew from 78,121 to 82,643 bytes of names, titles,
   descriptions and input schemas (41 to 42 tools): `refine_moments` 3,478,
@@ -192,16 +193,20 @@ for `refine_magnetic_powder` frees nuclear rows only and needed no change.
   ffmpeg and a look at the animation's layout for 21 steps.
 - **Example 3 was not re-run by a model.** Its magnetic steps are the method's
   sequence replayed through the server, and the page says so.
-- **Free moment rows over MCP.** `build_magnetic_model` returns its moment
-  rows fixed, and `refine_moments` takes no `free`. A caller gets free moment
-  rows from a `refine_magnetic_powder` call with only the moment rows in
-  `free` (the search the description points to), or passes rows flagged free.
-  Whether `refine_moments` should free every moment row by itself, as the
-  page does, or take a selection, is the owner's to decide.
-- **The magnetic skill's Stage 4 row over MCP** still reads
-  "`refine_magnetic_powder` (free: the moments)". It is still a valid call
-  (one moments step, and the result says so); `refine_moments` would be the
-  closer match. Left as it was: not untrue.
+- **`refine_moments` freeing the moment rows itself.** `build_magnetic_model`
+  returns its moment rows fixed, and `refine_moments` as built here refines
+  the moment rows passed free: a caller gets those from a
+  `refine_magnetic_powder` call with only the moment rows in `free` (the
+  search the description points to). The owner has decided that the tool is
+  to free the moment amplitudes itself, as the page's button does. That is
+  not built yet: how the tool knows the phase-gauge row of a two-arm k, which
+  the page reads off the model build and an MCP caller does not pass, is
+  waiting for the owner's choice.
+- **How Example 3's true group converges.** Its moments fit settles in the
+  tenth round, the most a fit runs, with a last shift of 0.098 esd against the
+  limit of 0.1. The shift per round is to be measured and laid out so that the
+  owner can judge the cap of 10 and the 0.1 esd limit later. The stop rule is
+  not changed here.
 - **A moment search inside `refine_moments`**, the two restart schemes, the
   single-crystal and magnetic-PDF moment fits, and refining k
   (incommensurate structures) stay on the follow-up list.
