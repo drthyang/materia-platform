@@ -17,7 +17,7 @@ the powder page holds the inputs, and `set_free` with `refine` stand in for
 | Geometry / bonds sanity | `bond_geometry`, `interpret_structure` |
 | Cross-check export | `export_bundle` (`fullprof` + `gsas2`, into `outDir`) |
 | The written report (in the app) | `write_report` |
-| Magnetic handoff | `build_magnetic_model`, `list_magnetic_subgroups`, `refine_magnetic_powder` |
+| Magnetic handoff | `build_magnetic_model`, `list_magnetic_subgroups`, `refine_magnetic_powder`, `refine_moments` |
 | Symmetry review (last, if at all) | `review_symmetry` on the converged residual; then the `symmetry-review` skill |
 
 **The cross-check bundles.** `export_bundle` with `target` `"fullprof"` and `"gsas2"`, the

@@ -115,3 +115,9 @@ One coset of a child group; there are [G : H] of them.
 
 **Realisation**:
 The child structure built from the parent structure, a child group and its child basis, with the parent's Wyckoff orbits split.
+
+## Magnetic refinement
+
+**Moments fit**:
+The refinement of a magnetic model's moment amplitudes against a powder pattern with the nuclear model held. It runs in rounds: the moments with every nuclear row held, then the scale and the background with the moments held, until no moment moves by 0.1 of its esd (at most ten rounds), and it ends on a moments step; its esds include the uncertainty of the scale and the background. A moment and a nuclear row never refine in one step. One module runs it on every surface (`core/magnetic/momentsFit.ts`): the powder page's Refine moments, the Copilot's `refine_moments` and MCP's `refine_moments`. A fit that frees moments and nuclear rows together is a **joint fit**: not MATERIA's method, run only when asked for by name, and labelled.
+_Avoid_: co-refinement (for the moments fit), alternation, magnetic refinement (when the moments fit is meant)

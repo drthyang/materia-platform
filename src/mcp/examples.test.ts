@@ -226,39 +226,48 @@ describe("worked examples, replayed through an MCP client", () => {
     const subs = await call("list_magnetic_subgroups", { structure: s.structure, k: [0, 0, 0] });
     const candidates = subs.candidates as { bns: string; index: number }[];
 
-    // Every maximal group, each with a moment search.
+    // Every maximal group by the method: the moments searched with only the moment rows free (the nuclear
+    // model held), then the moments fit, which re-refines the scale and the background in rounds.
     const fit = async (bns: string, restarts: number) => {
       const i = candidates.findIndex((c) => c.bns === bns);
       const mm = await call("build_magnetic_model", {
         structure: s.structure, ionLabels: ["Mn1_0", "Mn2_1", "Mn3_2"], operations: { ref: `${subs.ref}/candidates/${i}/operations` }, k: [0, 0, 0], moment: 2,
       });
-      const r = await call("refine_magnetic_powder", {
+      const search = await call("refine_magnetic_powder", {
         structure: s.structure, magnetic: mm.magnetic, pattern: p.pattern, profile: m.profile,
-        parameters: [nuc.parameters, mm.parameters], bindings: [m.bindings, mm.bindings], free: ["scale", "bkg*", "mom_*"], restarts,
+        parameters: [nuc.parameters, mm.parameters], bindings: [m.bindings, mm.bindings], free: ["mom_*"], restarts,
       });
-      return { mm, r, wR: r.result.agreement.rWeighted as number };
+      const r = await call("refine_moments", {
+        structure: s.structure, magnetic: search.magnetic, pattern: p.pattern, profile: m.profile,
+        parameters: search.parameters, bindings: [m.bindings, mm.bindings],
+      });
+      return { mm, search, r, searchWR: search.result.agreement.rWeighted as number, wR: r.wR as number };
     };
     const maximal = candidates.filter((c) => c.index === 2).map((c) => c.bns);
     expect(maximal.sort()).toEqual(["P2_1'/m", "P2_1'/m'", "P2_1/m", "P2_1/m'"]);
     const fits = Object.fromEntries(await Promise.all(maximal.map(async (bns) => [bns, await fit(bns, 12)] as const)));
     const best = fits["P2_1'/m'"]!;
     expect(best.wR).toBeLessThan(0.047); // 4.61 %, GoF 1.07
+    expect(best.r.result.agreement.goodnessOfFit).toBeLessThan(1.1);
     for (const bns of maximal.filter((b) => b !== "P2_1'/m'")) expect(fits[bns]!.wR, bns).toBeGreaterThan(0.09);
+    // The search alone is one moments step against the nuclear fit's scale and background, which had taken up
+    // magnetic intensity: it reads 8.05 %. The moments fit re-refines those two rows and says so.
+    expect(best.searchWR).toBeGreaterThan(0.07);
+    expect(best.search.note).toMatch(/^A single moments step with the nuclear model held, not the settled moments fit/);
+    expect(best.r.esdIncludes).toEqual(["scale", "bkg0", "bkg1", "bkg2", "bkg3"]);
+    expect(best.r.rounds).toBeGreaterThanOrEqual(3);
+    expect(best.r.kHeld).toBeUndefined();
     // One LM run from the same start stops in a wrong minimum with Mn1 switched off.
     const once = await fit("P2_1'/m'", 0);
     expect(once.wR).toBeGreaterThan(0.048);
 
-    // Everything free, atoms included.
-    const final = await call("refine_magnetic_powder", {
-      structure: s.structure, magnetic: best.r.magnetic, pattern: p.pattern, profile: m.profile,
-      parameters: best.r.parameters, bindings: [m.bindings, best.mm.bindings],
-      free: ["scale", "bkg*", "cell_*", "profU", "profV", "profW", "pos_*", "B_*", "mom_*"],
-    });
-    expect(final.result.agreement.goodnessOfFit).toBeLessThan(1.05);
-    const values = (await call("read_ref", { ref: `${final.result.ref}/parameters` })).value as Record<string, number>;
-    for (const [id, v] of Object.entries(values)) if (id.startsWith("pos_")) expect(Math.abs(v), id).toBeLessThan(1e-3);
+    // The nuclear model stayed as the nuclear fit left it; of its rows only the scale and the background moved.
+    const nuclearBefore = (await call("read_ref", { ref: `${nuc.result.ref}/parameters` })).value as Record<string, number>;
+    const values = (await call("read_ref", { ref: `${best.r.result.ref}/parameters` })).value as Record<string, number>;
+    for (const [id, v] of Object.entries(nuclearBefore)) if (!/^(scale|bkg\d)$/.test(id)) expect(values[id], id).toBe(v);
+    expect(values.scale).not.toBe(nuclearBefore.scale);
     // The moments are the ones the pattern was simulated from, up to the global ±m.
-    const found = (await call("read_ref", { ref: final.magnetic.ref })).value as { moments: { siteLabel: string; components: number[] }[] };
+    const found = (await call("read_ref", { ref: best.r.magnetic.ref })).value as { moments: { siteLabel: string; components: number[] }[] };
     const truth = exampleMagnetic().magnetic.moments;
     const sign = Math.sign(found.moments[0]!.components[0]! * truth[0]!.components[0]!);
     for (const t of truth) {

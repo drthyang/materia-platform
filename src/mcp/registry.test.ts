@@ -222,7 +222,21 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
         profile: built.profile,
         maxIterations: 2,
       },
+      // Nuclear rows only are free (the builder's moment rows come fixed): no note on the result.
       keys: ["components", "magnetic", "observationCount", "parallel", "parameters", "result"],
+    };
+  })(),
+  refine_moments: (() => {
+    const build = tools.build_magnetic_model({ structure, ionLabels: ["Po1"], moment: 0.5 });
+    return {
+      args: {
+        structure, magnetic: build.magnetic, pattern,
+        // Straight from the builder, whose moment rows come fixed: the fit frees the amplitudes itself.
+        parameters: [...built.parameters, ...build.parameters],
+        bindings: [...built.bindings, ...build.bindings],
+        profile: built.profile,
+      },
+      keys: ["components", "esd", "esdAloneReason", "esdIncludes", "lastShiftOverEsd", "magnetic", "moments", "observationCount", "parallel", "parameters", "reRefined", "reading", "result", "rounds", "settled", "wR"],
     };
   })(),
   parse_single_crystal_data: {

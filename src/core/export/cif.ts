@@ -55,6 +55,8 @@ export interface CifRefinementMeta {
   readonly nParam?: number;
   /** Restraint count, as SHELXL counts them, → `_refine_ls_number_restraints`. */
   readonly nRestraints?: number;
+  /** A statement about how the fit was run (the result's `methodNote`), → `_refine_special_details`. */
+  readonly specialDetails?: string;
   /** The Flack parameter with its esd, as printed (e.g. "0.435(15)"), → `_refine_ls_abs_structure_Flack`. */
   readonly flack?: string;
   /** How the Flack x was determined, → `_refine_ls_abs_structure_details`. */
@@ -275,6 +277,7 @@ function refinementBlock(meta: CifRefinementMeta | undefined): string {
   if (meta.r1 !== undefined) lines.push(`_refine_ls_R_factor_gt        ${meta.r1.toFixed(4)}`);
   if (meta.wr2 !== undefined) lines.push(`_refine_ls_wR_factor_ref      ${meta.wr2.toFixed(4)}`);
   if (meta.gof !== undefined) lines.push(`_refine_ls_goodness_of_fit_all ${meta.gof.toFixed(3)}`);
+  if (meta.specialDetails !== undefined) lines.push(`_refine_special_details\n;\n${meta.specialDetails}\n;`);
   return lines.join("\n");
 }
 

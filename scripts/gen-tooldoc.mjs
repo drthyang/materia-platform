@@ -50,7 +50,7 @@ const TOOL_GROUPS = [
   ["Structure, data and instrument", ["parse_structure", "parse_powder_data", "parse_instrument", "reflection_list", "bond_geometry", "analyze_site_symmetry"]],
   ["Powder refinement", ["check_fit_range", "check_cell_symmetry", "build_refinement", "refine_powder", "evaluate_pattern", "simulate_pattern", "rank_next_parameters", "review_symmetry"]],
   ["Judging a refinement", ["assess_refinement", "suggest_next_steps", "interpret_structure"]],
-  ["Magnetic structures", ["find_unexplained_peaks", "search_propagation_vector", "list_magnetic_subgroups", "allowed_moments", "build_magnetic_model", "refine_magnetic_powder"]],
+  ["Magnetic structures", ["find_unexplained_peaks", "search_propagation_vector", "list_magnetic_subgroups", "allowed_moments", "build_magnetic_model", "refine_magnetic_powder", "refine_moments"]],
   ["Single crystal", ["parse_single_crystal_data", "write_single_crystal_data", "merge_magnetic_supercell", "expand_structure_supercell", "build_modulated_moment_model"]],
   ["Pair distribution function (PDF)", ["parse_pdf_data", "build_pdf_model", "refine_pdf", "refine_pdf_boxcar", "compute_partial_pdf", "calibrate_qdamp", "sample_posterior"]],
   ["Magnetic PDF", ["build_mpdf_model", "refine_mpdf", "compute_mpdf_components"]],

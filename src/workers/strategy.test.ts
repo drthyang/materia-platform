@@ -148,7 +148,8 @@ describe("the moment search, one driver for both runtimes", () => {
     );
     const mcp = await refine_magnetic_powder({
       structure: s.structure, magnetic: mm.magnetic, pattern: s.pattern, parameters, bindings, profile, fitRange,
-      staged: false, restarts: 3, maxIterations: 20,
+      // The app's Prefit ends on one fit of the scale, the background and the moments: over MCP that is the joint fit, by name.
+      staged: false, restarts: 3, maxIterations: 20, joint: true,
     });
     expect(app.restartsRun).toBe(3);
     expect(mcp.multiStart?.restartsRun).toBe(3);

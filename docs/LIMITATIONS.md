@@ -448,9 +448,10 @@ approximate, however plausible its output looks.
   moments while the project is open, not in the project file: a reopened
   project shows the page's own value, which the re-refined scale and
   background make a little higher.
-- The MCP tools have no rounds: alternate `refine_magnetic_powder` by hand
-  (the moments free; then the scale and the background free, the moments
-  held).
+- Over MCP, `refine_moments` runs the same rounds. It starts from the values
+  in the rows it is given and runs no moment search of its own
+  (`refine_magnetic_powder` with `restarts` and only the moment rows free
+  searches first), and it holds k: a k component passed free is not refined.
 - The k = 0 guard is advice, not a rule: the method's order (ADPs before the
   magnetic step) is the user's. It does not apply to k ≠ 0 satellites that
   overlap nuclear lines by accident in d, where a nuclear-first fit can still

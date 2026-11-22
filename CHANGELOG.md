@@ -79,8 +79,32 @@ release fixes bugs.
   waits for both. `refine_moments` reports its rounds and each amplitude's
   esd; `refine` of the moments alone reports how far they moved
   (`momentShiftOverEsd`). The `magnetic-analysis` skill, the report gate and
-  the scripted replay follow. An MCP client alternates
-  `refine_magnetic_powder` by hand.
+  the scripted replay follow. Over MCP the rounds are `refine_moments`
+  (below).
+- **MCP: the moments fit is `refine_moments`, and `refine_magnetic_powder`
+  no longer refines moments and nuclear rows together unless asked. A
+  breaking change for MCP callers.** `refine_moments` is new: it runs the
+  page's Refine moments (the same module) and returns the moments, their
+  esds with the scale and the background included, the rounds, whether the
+  fit settled, wR and the re-refined rows. It takes no free set and no
+  iteration limit, holds k (a k row passed free is held, and the result says
+  so), and starts from the values in the rows it is given. It frees the
+  moment amplitudes itself, as the page does, so it runs on the rows
+  `build_magnetic_model` returns: the `fixed` flags on moment rows are not
+  read (a tie holds a component), and every flag comes back as passed. For a
+  two-arm k it needs `phaseGaugeParameterId` from `build_magnetic_model`.
+  `refine_magnetic_powder` now refuses a call that frees moment rows or a k
+  component together with any nuclear row, the scale and the background
+  included, and says what to call instead. A caller that freed both before
+  must either use `refine_moments`, or pass the new `joint: true`: the fit
+  then runs as before, and its result is labelled a joint fit (`note`,
+  `result.methodNote`), which `assess_refinement` repeats and
+  `export_bundle` writes into the CIF and the README. With only moment rows
+  free the tool runs as before (with `restarts`, the moment search), and its
+  result says it is a single moments step. With only nuclear rows free
+  nothing changes. Worked Example 3 follows the method
+  ([report](docs/reports/2026-11-22-moments-fit-mcp.md),
+  [decision](docs/adr/0006-moments-refine-with-the-nuclear-model-held.md)).
 
 ### Fixed
 

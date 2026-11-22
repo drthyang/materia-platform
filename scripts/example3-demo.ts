@@ -1,7 +1,8 @@
 /**
  * Replays Example 3 of docs/AGENT_EXAMPLES.md (a magnetic structure from the
  * peaks the nuclear model leaves) through MATERIA's MCP server, the same tool
- * sequence src/mcp/examples.test.ts checks, and writes what the demo animation
+ * sequence src/mcp/examples.test.ts checks (the method: a nuclear fit, a moment
+ * search with only the moment rows free, then the moments fit), and writes what the demo animation
  * shows: per call the tool, its key arguments and a one-line result, plus the
  * pattern curves after the nuclear-only fit and after the final magnetic fit.
  * Nothing is typed in by hand; every number comes from the tools.
@@ -82,42 +83,52 @@ const candidates = subs.candidates as { bns: string; index: number }[];
 const maximal = candidates.filter((c) => c.index === 2).map((c) => c.bns).sort();
 log({ n: "9", tool: "list_magnetic_subgroups", args: "k = (0 0 0)", result: `${maximal.length} maximal groups (index 2), ${candidates.length - maximal.length} lower` });
 
+// Each group by the method: the moments searched with only the moment rows free (the nuclear model held),
+// then the moments fit, which re-refines the scale and the background in rounds with the moments.
 const fit = async (bns: string, restarts: number) => {
   const i = candidates.findIndex((c) => c.bns === bns);
   const mm = await call("build_magnetic_model", {
     structure: s.structure, ionLabels: ["Mn1_0", "Mn2_1", "Mn3_2"], operations: { ref: `${subs.ref}/candidates/${i}/operations` }, k: [0, 0, 0], moment: 2,
   });
-  const r = await call("refine_magnetic_powder", {
+  const search = await call("refine_magnetic_powder", {
     structure: s.structure, magnetic: mm.magnetic, pattern: p.pattern, profile: m.profile,
-    parameters: [nuc.parameters, mm.parameters], bindings: [m.bindings, mm.bindings], free: ["scale", "bkg*", "mom_*"], restarts,
+    parameters: [nuc.parameters, mm.parameters], bindings: [m.bindings, mm.bindings], free: ["mom_*"], restarts,
+  });
+  const r = await call("refine_moments", {
+    structure: s.structure, magnetic: search.magnetic, pattern: p.pattern, profile: m.profile,
+    parameters: search.parameters, bindings: [m.bindings, mm.bindings],
   });
   // Which moment components the group allows: those the refined moments use.
-  const refined = (await call("read_ref", { ref: r.magnetic.ref })).value as { moments: { components: number[] }[] };
+  const refined = (await call("read_ref", { ref: r.magnetic.ref })).value as { moments: { siteLabel: string; components: number[] }[] };
   const axes = ["a", "b", "c"].filter((_, j) => refined.moments.some((x) => Math.abs(x.components[j]!) > 1e-6));
-  return { mm, r, axes, wR: r.result.agreement.rWeighted as number, gof: r.result.agreement.goodnessOfFit as number };
+  const a = r.result.agreement;
+  return { mm, search, r, refined, axes, searchWR: search.result.agreement.rWeighted as number, wR: a.rWeighted as number, gof: a.goodnessOfFit as number };
 };
-// The four groups ran in parallel in the recorded run; the calls are listed per group.
+// The four groups ran in parallel; the calls are listed per group.
 const fits = Object.fromEntries(await Promise.all(maximal.map(async (bns) => [bns, await fit(bns, 12)] as const)));
 const order = ["P2_1/m", "P2_1'/m", "P2_1/m'", "P2_1'/m'"];
 maximal.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-const groups = maximal.map((bns) => ({ bns: pretty(bns), axes: fits[bns]!.axes, wR: fits[bns]!.wR, gof: fits[bns]!.gof }));
+const groups = maximal.map((bns) => ({ bns: pretty(bns), axes: fits[bns]!.axes, searchWR: fits[bns]!.searchWR, wR: fits[bns]!.wR, gof: fits[bns]!.gof, rounds: fits[bns]!.r.rounds as number, settled: fits[bns]!.r.settled as boolean }));
 console.log(JSON.stringify(groups));
 maximal.forEach((bns, j) => log({
-  n: `${10 + 2 * j}–${11 + 2 * j}`, tool: "build_magnetic_model + refine_magnetic_powder", args: `${pretty(bns)}, 12 restarts`,
-  result: `wR ${pct(fits[bns]!.wR)}, GoF ${fits[bns]!.gof.toFixed(2)}`,
+  n: `${10 + 3 * j}–${12 + 3 * j}`, tool: "build_magnetic_model + refine_magnetic_powder + refine_moments", args: `${pretty(bns)}, moments only, 12 restarts; then the moments fit`,
+  result: `search wR ${pct(fits[bns]!.searchWR)}; moments fit wR ${pct(fits[bns]!.wR)}, GoF ${fits[bns]!.gof.toFixed(2)}, ${fits[bns]!.r.rounds as number} rounds`,
 }));
 
 const best = fits["P2_1'/m'"]!;
-const final = await call("refine_magnetic_powder", {
-  structure: s.structure, magnetic: best.r.magnetic, pattern: p.pattern, profile: m.profile,
-  parameters: best.r.parameters, bindings: [m.bindings, best.mm.bindings],
-  free: ["scale", "bkg*", "cell_*", "profU", "profV", "profW", "pos_*", "B_*", "mom_*"],
-});
+const final = best.r;
 const finA = final.result.agreement;
-log({ n: "18", tool: "refine_magnetic_powder", args: "P2₁'/m', everything free", result: `wR ${pct(finA.rWeighted)}, GoF ${finA.goodnessOfFit.toFixed(2)}` });
+console.log(`best: ${final.reading as string}`);
+// How many of the search's starts reached the lowest cost, and what one run without restarts gives.
+const costs = (await call("read_ref", { ref: `${best.search.ref}/multiStart/costByStart` })).items as number[] | undefined;
+if (costs) console.log(`search: ${costs.filter((c) => c < 1.001 * Math.min(...costs)).length} of ${costs.length} starts reached the lowest cost`);
+const once = await fit("P2_1'/m'", 0);
+console.log(`without restarts: ${once.r.reading as string} GoF ${once.gof.toFixed(2)}; moments ${once.refined.moments.map((x) => `${x.siteLabel} (${x.components.map((c) => c.toFixed(2)).join(", ")})`).join(" ")}`);
+const esd = (await call("read_ref", { ref: `${final.ref}/esd` })).value as Record<string, number>;
+console.log(`esds: ${Object.entries(esd).map(([id, e]) => `${id} ${e.toFixed(3)}`).join(", ")}`);
 
 // The moments against the ones the pattern was simulated from, up to the global ±m.
-const found = (await call("read_ref", { ref: final.magnetic.ref })).value as { moments: { siteLabel: string; components: number[] }[] };
+const found = best.refined;
 const truth = exampleMagnetic().magnetic.moments;
 const sign = Math.sign(found.moments[0]!.components[0]! * truth[0]!.components[0]!);
 let maxDev = 0;

@@ -73,7 +73,8 @@ describe("refine_magnetic_powder moves k", () => {
     }))];
     const out = await tools.refine_magnetic_powder({
       structure, magnetic: start.magnetic, pattern, parameters: params,
-      bindings: [...nucBindings, ...start.bindings], profile: { shape: "gaussian" }, maxIterations: 60,
+      // The scale refines with the moments and k: a joint fit, asked for by name.
+      bindings: [...nucBindings, ...start.bindings], profile: { shape: "gaussian" }, maxIterations: 60, joint: true,
     });
     expect(out.result.parameters.prop_k3).toBeCloseTo(0.2317, 4);
     expect(out.magnetic.propagation[0]![2]).toBeCloseTo(0.2317, 4);
