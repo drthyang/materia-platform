@@ -18,7 +18,7 @@ import type { AnnotatedExtraPeak } from "@/core/magnetic/extraPeaks";
 import { searchPropagationVector, type KCandidate } from "@/core/magnetic/kSearch";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { magneticSubgroupLattice, latticeRepresentatives, maximalWithMoment, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
-import { buildMagneticModel, type MagneticModelBuild } from "@/core/magnetic/momentModel";
+import { buildMagneticModel, momentFitRows, type MagneticModelBuild } from "@/core/magnetic/momentModel";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { fitMomentsWithRestarts, RANK_RESTARTS, type MomentFit } from "@/core/magnetic/momentRestarts";
 import { ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE } from "@/core/magnetic/momentsFit";
@@ -264,14 +264,11 @@ export interface MagneticFit {
  * The rows a moment fit refines, from a start (absent: the model's seeds):
  * every amplitude free but a derived one (an |M| tie's "= ±hypot(…)", which
  * follows its reference) and the phase gauge of a two-arm k (the global
- * modulation phase, which the data cannot see).
+ * modulation phase, which the data cannot see). The rule is the core's
+ * (momentModel.ts, momentFitRows), shared with the MCP moments fit.
  */
 export function fitRows(build: MagneticModelBuild, start?: Readonly<Record<string, number>>): RefinementParameter[] {
-  const gauge = build.phaseGauge?.parameterId;
-  return build.params.map((p) => {
-    const v = start?.[p.id] ?? p.value;
-    return { ...p, value: v, initialValue: v, fixed: !!p.expression || p.id === gauge };
-  });
+  return momentFitRows(build.params, build.phaseGauge?.parameterId, start);
 }
 
 /** One fit of a model's moments, from a start. */

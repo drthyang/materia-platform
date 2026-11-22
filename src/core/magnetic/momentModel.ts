@@ -204,6 +204,34 @@ function groupByPosition(sites: readonly AtomSite[], tie: boolean): AtomSite[][]
 }
 
 /**
+ * How a moment model at k is written, judged as the builder judges it: k
+ * against the parent's true reciprocal lattice (its centring translations
+ * counted). `twoArms` is the builder's own condition for a Fourier model,
+ * cosine and sine amplitudes per mode with one sine amplitude held as the
+ * phase gauge. One place for it, so a caller that must know whether a model
+ * has a phase gauge asks here and does not restate the rule.
+ */
+export function momentModelPropagation(structure: StructureModel, k: Vec3): PropagationClass {
+  return classifyPropagation(k, { centrings: centringTranslations(structure.spaceGroup.operations) });
+}
+
+/**
+ * The rows a moments fit refines, among a model's moment rows, from a start
+ * (absent: the rows' own values): every amplitude free but a derived one (a
+ * tie: an |M| tie's "= ±hypot(…)", which follows its reference) and the phase
+ * gauge of a two-arm k (the global modulation phase, which the data cannot
+ * see), named by its id as the model build gives it (`phaseGauge`). The flags
+ * the rows come with are not read. The page's Refine moments and ranking, and
+ * the MCP moments fit, all take their rows from here.
+ */
+export function momentFitRows(momentRows: readonly RefinementParameter[], phaseGaugeId: string | undefined, start?: Readonly<Record<string, number>>): RefinementParameter[] {
+  return momentRows.map((p) => {
+    const v = start?.[p.id] ?? p.value;
+    return { ...p, value: v, initialValue: v, fixed: !!p.expression || p.id === phaseGaugeId };
+  });
+}
+
+/**
  * Assemble the magnetic model + moment-mode parameters for the given magnetic
  * ion sites, propagation vector, and (little-group) magnetic subgroup operations.
  * Sites whose allowed-moment space is empty under the group are skipped.
@@ -256,7 +284,7 @@ export function buildMagneticModel(
   // a sine (quadrature) amplitude; one quadrature amplitude is the phase gauge.
   // "Distinct" is judged against the parent's true reciprocal lattice: in a
   // C-centred cell k = (½,0,0) has two arms (2k = (1,0,0) is not a C node).
-  const propagation = classifyPropagation(k, { centrings: centringTranslations(structure.spaceGroup.operations) });
+  const propagation = momentModelPropagation(structure, k);
   const fourier = propagation.twoArms;
   let phaseGauge: { parameterId: string } | undefined;
 

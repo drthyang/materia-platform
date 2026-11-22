@@ -365,6 +365,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
       bindings: anyArr, profile: anyObj.describe("From build_refinement: the peak shape, η, the Lorentz factor and the background basis"),
       extraPhases: anyArr.optional().describe("Additional (non-magnetic) crystallographic phases, as for refine_powder"),
       fitRange: z.object({ min: z.number(), max: z.number() }).optional().describe("Window on the pattern's own axis, as for refine_powder"),
+      phaseGaugeParameterId: z.string().optional().describe("For a two-arm k only: the id build_magnetic_model returned as `phaseGaugeParameterId`. That row stays held"),
     },
     handler: tools.refine_moments,
   },

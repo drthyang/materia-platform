@@ -231,8 +231,8 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
     return {
       args: {
         structure, magnetic: build.magnetic, pattern,
-        // The builder's moment rows come fixed: the fit refines the ones passed free.
-        parameters: [...built.parameters, ...build.parameters.map((p) => ({ ...p, fixed: !!p.expression }))],
+        // Straight from the builder, whose moment rows come fixed: the fit frees the amplitudes itself.
+        parameters: [...built.parameters, ...build.parameters],
         bindings: [...built.bindings, ...build.bindings],
         profile: built.profile,
       },

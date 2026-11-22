@@ -16,6 +16,7 @@ import type { ParameterBinding, RefinementParameter } from "@/core/refinement/ty
 import { transportSchema } from "@/mcp/host";
 import { TOOL_REGISTRY } from "@/mcp/registry";
 import { assess_refinement, build_magnetic_model, export_bundle, refine_magnetic_powder, refine_moments } from "@/mcp/tools";
+import { mn3gaMagneticSession } from "@/agent/evals/pages";
 
 /**
  * The moments fit over MCP, against a KNOWN TRUTH and against the page.
@@ -25,17 +26,27 @@ import { assess_refinement, build_magnetic_model, export_bundle, refine_magnetic
  * testSupport/independentMnwo4.ts (a calculation that shares no code with
  * `src/core`; true moment 4.2 µ_B) it must give the page's answer:
  *
- *  - with the rows in the page's order, the page's moments and esds to within
- *    1 part in 10⁹ (the difference is printed);
+ *  - on the first call after `build_magnetic_model`, whose moment rows come
+ *    fixed, with the rows in the page's order: the page's moments and esds to
+ *    within 1 part in 10⁹ (the difference is printed);
  *  - with the rows in another order, the page's own known-truth bounds: within
  *    3 esd of the truth and within 0.05 esd of the joint fit.
+ *
+ * Which amplitudes refine is the page's rule (core/magnetic/momentModel.ts,
+ * momentFitRows): every moment row but a tied one and the phase gauge of a
+ * two-arm k, which the caller names as the builder named it. The `fixed` flags
+ * on moment rows are not read, and come back as passed.
  *
  * And the rule on `refine_magnetic_powder`: moments and nuclear rows together
  * are refused unless the joint fit is asked for by name, and that fit's result
  * carries its label into what is written from it.
  */
 
-/** The page after its nuclear-only fit of a noisy pattern, the true group chosen, and the MCP arguments of the same problem in the page's row order. */
+/**
+ * The page after its nuclear-only fit of a noisy pattern, the true group
+ * chosen; and the MCP arguments of the same problem in the page's row order,
+ * its moment rows straight from `build_magnetic_model` (every one fixed).
+ */
 function pageAndArgs(model: SpinModel, seed: number): { c: Case; step: MagneticStep; session: () => Session; fitter: Fitter; args: Parameters<typeof refine_moments>[0]; momentIds: string[] } {
   const c = caseOf(model, 6);
   const points = noisy(c.clean, seed);
@@ -47,23 +58,24 @@ function pageAndArgs(model: SpinModel, seed: number): { c: Case; step: MagneticS
   const i = step.view().reps.findIndex((r) => magneticOperationSignature(r.candidate.operations) === sig);
   expect(i).toBeGreaterThanOrEqual(0);
   step.handle.choose(`G${i + 1}`);
-  // The model the page fits (built on the page's structure), its rows from the page's start, and the page's rows before the fit.
-  const v = step.view();
-  const build = v.build!;
-  const moments = fitRows(build, v.resolvedAmps);
+  // What an MCP caller has: the model from build_magnetic_model at the page's seed (2 µB), and the page's rows before the fit.
+  const mm = build_magnetic_model({ structure: session.structure, ionLabels: ["Mn1"], operations: [...c.build.magnetic.operations!], k: [c.k[0], c.k[1], c.k[2]], moment: 2 });
+  expect(mm.parameters.every((p) => p.fixed)).toBe(true);
+  expect(mm.phaseGaugeParameterId).toBeUndefined();
+  expect(mm.parameters.map((p) => [p.id, p.value])).toEqual(fitRows(step.view().build!, step.view().resolvedAmps).map((p) => [p.id, p.value]));
   const args = {
-    structure: session.structure, magnetic: build.magnetic, pattern: session.pattern,
-    parameters: [...session.powderParams, ...moments], bindings: [...session.powderBindings, ...build.bindings],
+    structure: session.structure, magnetic: mm.magnetic, pattern: session.pattern,
+    parameters: [...session.powderParams, ...mm.parameters], bindings: [...session.powderBindings, ...mm.bindings],
     profile: session.powderProfile, fitRange: { ...FIT_RANGE },
   };
-  return { c, step, session: () => session, fitter: new Fitter(c, points), args, momentIds: moments.filter((p) => !p.fixed).map((p) => p.id) };
+  return { c, step, session: () => session, fitter: new Fitter(c, points), args, momentIds: mm.parameters.filter((p) => !p.expression).map((p) => p.id) };
 }
 
 const relative = (a: number, b: number): number => (a === b ? 0 : Math.abs(a - b) / Math.max(Math.abs(a), Math.abs(b)));
 
 describe("refine_moments over MCP gives the page's Refine moments (independent MnWO4, truth 4.2 µB)", () => {
   for (const [name, model] of [["model A, k = (½ 0 0), one moment row", MODEL_A], ["model B, two moment rows", MODEL_B], ["a ferromagnet at k = 0", MODEL_F_K0]] as const) {
-    it(`${name}: with the rows in the page's order, the same moments and esds to 1 part in 10⁹`, async () => {
+    it(`${name}: the first call after build_magnetic_model, the rows in the page's order: the same moments and esds to 1 part in 10⁹`, async () => {
       const { step, session, args, momentIds } = pageAndArgs(model, 0);
       const mcp = await refine_moments(args);
       expect(await step.refineMoments()).not.toBeNull();
@@ -91,8 +103,9 @@ describe("refine_moments over MCP gives the page's Refine moments (independent M
         expect(relative(p.value, page[p.id]!), p.id).toBeLessThan(1e-9);
         if (!(p.id in mcp.reRefined)) expect(p.value, p.id).toBe(args.parameters.find((q) => q.id === p.id)!.value);
       }
-      // The flags come back as they were passed.
+      // The flags come back as they were passed: the moment rows came fixed from the builder and go out fixed.
       expect(mcp.parameters.map((p) => p.fixed)).toEqual(args.parameters.map((p) => p.fixed));
+      expect(mcp.parameters.filter((p) => p.kind === "momentMode").every((p) => p.fixed)).toBe(true);
       expect(mcp.reading).toMatch(new RegExp(`^Moments fitted with the nuclear model held, settled in ${mcp.rounds} rounds: wR \\d+\\.\\d\\d%\\. The esds include the scale and the background\\. \`parameters\` carries the re-refined scale and background\\.$`));
     }, 60_000);
   }
@@ -141,27 +154,62 @@ describe("refine_moments decides its own rows", () => {
     for (const p of allFree.parameters) if (p.kind !== "momentMode" && !(p.id in allFree.reRefined)) expect(p.value, p.id).toBe(args.parameters.find((q) => q.id === p.id)!.value);
   }, 60_000);
 
-  it("a moment row passed fixed stays held: its value and no esd, the other row refined", async () => {
+  it("does not read the flags on the moment rows: fixed, free or mixed, the same fit, and each flag returned as passed", async () => {
     const { args, momentIds } = pageAndArgs(MODEL_B, 0);
     expect(momentIds).toHaveLength(2);
-    const [held, refined] = momentIds as [string, string];
-    const start = args.parameters.find((p) => p.id === held)!.value;
-    const out = await refine_moments({ ...args, parameters: args.parameters.map((p) => (p.id === held ? { ...p, fixed: true } : p)) });
-    expect(out.parameters.find((p) => p.id === held)!.value).toBe(start);
-    expect(Object.keys(out.moments)).toEqual([refined]);
-    expect(Object.keys(out.esd)).toEqual([refined]);
-    expect(out.moments[refined]).not.toBe(args.parameters.find((p) => p.id === refined)!.value);
+    const flagged = (flags: readonly boolean[]): typeof args.parameters => {
+      let n = 0;
+      return args.parameters.map((p) => (p.kind === "momentMode" ? { ...p, fixed: flags[n++]! } : p));
+    };
+    const asBuilt = await refine_moments(args);
+    expect(Object.keys(asBuilt.moments)).toEqual(momentIds);
+    for (const flags of [[false, false], [true, false], [false, true]]) {
+      const passed = flagged(flags);
+      const out = await refine_moments({ ...args, parameters: passed });
+      expect(out.moments, String(flags)).toEqual(asBuilt.moments);
+      expect(out.esd, String(flags)).toEqual(asBuilt.esd);
+      expect(out.rounds).toBe(asBuilt.rounds);
+      expect(out.parameters.map((p) => p.fixed), String(flags)).toEqual(passed.map((p) => p.fixed));
+    }
+    for (const id of momentIds) expect(asBuilt.moments[id]).not.toBe(args.parameters.find((p) => p.id === id)!.value);
   }, 60_000);
 
-  it("no moment row free: refused, with what to pass", async () => {
+  it("a tied moment row is not refined: it follows its tie, and has no esd of its own", async () => {
+    const { args, momentIds } = pageAndArgs(MODEL_B, 0);
+    const [reference, tied] = momentIds as [string, string];
+    const out = await refine_moments({ ...args, parameters: args.parameters.map((p) => (p.id === tied ? { ...p, expression: `= 0.5*${reference}` } : p)) });
+    expect(Object.keys(out.moments)).toEqual([reference]);
+    expect(Object.keys(out.esd)).toEqual([reference]);
+    expect(out.moments[reference]).not.toBe(args.parameters.find((p) => p.id === reference)!.value);
+    expect(out.result.parameters[tied]).toBeCloseTo(0.5 * out.moments[reference]!, 12);
+    // The model at the fitted moments carries the tie: the second component is half the first.
+    const free = await refine_moments(args);
+    expect(out.moments[reference]).not.toBe(free.moments[reference]);
+  }, 60_000);
+
+  it("no moment amplitude among the rows: refused, with what to pass", async () => {
     const { args } = pageAndArgs(MODEL_A, 0);
-    await expect(refine_moments({ ...args, parameters: args.parameters.map((p) => ({ ...p, fixed: true })) })).rejects.toThrow(/^refine_moments: no moment row is free, so there is nothing to refine\. The moment rows from build_magnetic_model come fixed\./);
+    const message = "refine_moments: not run. `parameters` holds no moment amplitude to refine: no moment row, or only tied rows and the phase gauge. Pass the moment rows build_magnetic_model returned, joined to the nuclear rows.";
+    await expect(refine_moments({ ...args, parameters: args.parameters.filter((p) => p.kind !== "momentMode") })).rejects.toThrow(message);
+    await expect(refine_moments({ ...args, parameters: args.parameters.map((p) => (p.kind === "momentMode" ? { ...p, expression: "= 2*scale" } : p)) })).rejects.toThrow(message);
   });
 
-  it("takes no free set, stage, restart or iteration argument, on the handler or over the transport", () => {
+  it("a phase gauge named for a model that has none (one-arm k), or naming a row that is not a moment row: refused", async () => {
+    const { args } = pageAndArgs(MODEL_A, 0);
+    await expect(refine_moments({ ...args, phaseGaugeParameterId: "mom_Mn1_0" })).rejects.toThrow(
+      "refine_moments: not run. `phaseGaugeParameterId` was passed, but this model has no phase gauge: its k has one arm (-k is k up to a lattice vector), so every moment row is a real amplitude and refines. Leave the argument out. To hold a component, tie it.",
+    );
+    for (const id of ["scale", "mom_nobody"]) {
+      await expect(refine_moments({ ...args, phaseGaugeParameterId: id })).rejects.toThrow(
+        `refine_moments: not run. \`phaseGaugeParameterId\` is "${id}", which is not a moment row in \`parameters\`. Pass the id build_magnetic_model returned as \`phaseGaugeParameterId\`, with the moment rows it returned.`,
+      );
+    }
+  });
+
+  it("takes no free set, stage, restart or iteration argument over the transport; beside the model and the data, only the phase gauge's id", () => {
     const tool = TOOL_REGISTRY.find((t) => t.name === "refine_moments")!;
     expect(tool.selectsFree).toBeUndefined();
-    expect(Object.keys(transportSchema(tool)).sort()).toEqual(["bindings", "extraPhases", "fitRange", "magnetic", "parameters", "pattern", "profile", "structure"]);
+    expect(Object.keys(transportSchema(tool)).sort()).toEqual(["bindings", "extraPhases", "fitRange", "magnetic", "parameters", "pattern", "phaseGaugeParameterId", "profile", "structure"]);
   });
 });
 
@@ -198,10 +246,10 @@ describe("refine_moments holds k", () => {
     };
     return { ...empty, points: empty.points.map((p, i) => { const y = Math.max(sim.yCalc[i]!, 1); return { x: p.x, yObs: y + Math.sqrt(y) * gauss(), sigma: Math.sqrt(y) }; }) };
   }
-  const FREE = new Set(["mom_Fe1_0", "mom_Fe1_1q"]);
+  // The helix's two amplitudes start off their true 2 µB; the other rows start at 0. The moment rows keep the builder's flags (fixed).
   const START: Record<string, number> = { mom_Fe1_0: 1.5, mom_Fe1_1q: 1.5 };
   const rowsOf = (b: ReturnType<typeof build_magnetic_model>, freeK: boolean): RefinementParameter[] =>
-    b.parameters.map((p) => ({ ...p, value: START[p.id] ?? p.value, fixed: p.kind === "propagationK" ? !freeK || !!p.expression : !FREE.has(p.id) }));
+    b.parameters.map((p) => (p.kind === "propagationK" ? { ...p, fixed: !freeK || !!p.expression } : { ...p, value: START[p.id] ?? 0 }));
 
   it("a k row passed free is held, the result says so, and the moments are those of the same fit without it", async () => {
     const data = pattern();
@@ -210,8 +258,12 @@ describe("refine_moments holds k", () => {
     const common = { structure, pattern: data, profile: { shape: "gaussian" as const } };
     const passed = [...nuc, ...rowsOf(withK, true)];
     expect(passed.filter((p) => p.kind === "propagationK" && !p.fixed).map((p) => p.id)).toEqual(["prop_k1", "prop_k2", "prop_k3"]);
-    const held = await refine_moments({ ...common, magnetic: withK.magnetic, parameters: passed, bindings: [...nucBindings, ...withK.bindings] });
-    const plain = await refine_moments({ ...common, magnetic: noK.magnetic, parameters: [...nuc, ...rowsOf(noK, false)], bindings: [...nucBindings, ...noK.bindings] });
+    // A two-arm k: the builder names the phase gauge, and the caller passes it on.
+    expect(withK.phaseGaugeParameterId).toBe("mom_Fe1_0q");
+    const gauge = { phaseGaugeParameterId: withK.phaseGaugeParameterId! };
+    const held = await refine_moments({ ...common, ...gauge, magnetic: withK.magnetic, parameters: passed, bindings: [...nucBindings, ...withK.bindings] });
+    const plain = await refine_moments({ ...common, ...gauge, magnetic: noK.magnetic, parameters: [...nuc, ...rowsOf(noK, false)], bindings: [...nucBindings, ...noK.bindings] });
+
     expect(held.kHeld).toEqual({
       parameterIds: ["prop_k1", "prop_k2", "prop_k3"],
       note: "k was held: refine_moments refines moment amplitudes only, with the propagation vector at the value in the model. The k rows passed free were not refined; their fixed flags are returned unchanged.",
@@ -223,14 +275,72 @@ describe("refine_moments holds k", () => {
       expect(p.fixed, p.id).toBe(false);
     }
     expect(held.magnetic.propagation[0]).toEqual(K);
-    expect(Object.keys(held.esd)).toEqual(["mom_Fe1_0", "mom_Fe1_1q"]);
+    // Every amplitude but the gauge was the fit's to refine; the gauge kept its value and has no esd.
+    expect(Object.keys(held.moments)).toEqual(["mom_Fe1_0", "mom_Fe1_1", "mom_Fe1_1q", "mom_Fe1_2", "mom_Fe1_2q"]);
+    expect(held.parameters.find((p) => p.id === "mom_Fe1_0q")!.value).toBe(0);
+    expect(held.esd.mom_Fe1_0q).toBeUndefined();
+    // An amplitude that starts at exactly 0 has no gradient (the intensity is quadratic in it): it stays at 0.
+    for (const id of ["mom_Fe1_1", "mom_Fe1_2", "mom_Fe1_2q"]) expect(held.moments[id], id).toBe(0);
+    // The flags of the moment rows come back as the builder set them.
+    expect(held.parameters.filter((p) => p.kind === "momentMode").every((p) => p.fixed)).toBe(true);
     const d = Object.keys(plain.moments).map((id) => relative(held.moments[id]!, plain.moments[id]!));
     console.log(`[mcp-moments] k held: ${Object.entries(held.moments).map(([id, v]) => `${id} ${v.toFixed(5)}(${held.esd[id]!.toFixed(5)})`).join(", ")} in ${held.rounds} rounds; relative difference from the fit without k rows: ${d.map((x) => x.toExponential(2)).join(", ")}`);
     for (const x of d) expect(x).toBeLessThan(1e-9);
     expect(held.rounds).toBe(plain.rounds);
     expect(held.settled).toBe(true);
-    for (const id of Object.keys(held.moments)) expect(Math.abs(Math.abs(held.moments[id]!) - 2) / held.esd[id]!, id).toBeLessThan(3);
+    for (const id of ["mom_Fe1_0", "mom_Fe1_1q"]) expect(Math.abs(Math.abs(held.moments[id]!) - 2) / held.esd[id]!, id).toBeLessThan(3);
   }, 60_000);
+
+  it("a two-arm model without the phase gauge's id is refused: the tool does not guess the row", async () => {
+    const data = pattern();
+    const noK = build_magnetic_model({ structure, ionLabels: ["Fe1"], k: K, moment: 2 });
+    await expect(refine_moments({ structure, pattern: data, profile: { shape: "gaussian" }, magnetic: noK.magnetic, parameters: [...nuc, ...rowsOf(noK, false)], bindings: [...nucBindings, ...noK.bindings] })).rejects.toThrow(
+      "refine_moments: not run. This model's k has two arms (-k is not k), so every mode has a cosine and a sine amplitude, and one sine amplitude is the phase gauge: it must stay held, because the data cannot see the global phase. The tool does not guess which row that is. Pass `phaseGaugeParameterId` as build_magnetic_model returned it.",
+    );
+  });
+});
+
+describe("refine_moments on a two-arm k gives the page's Refine moments (synthetic Mn3Ga, k = (0 0 ¼))", () => {
+  it("with the phase gauge named: the gauge held, the same moments and esds as the page to 1 part in 10⁹", async () => {
+    let session: Session = mn3gaMagneticSession();
+    const step = magneticStepOn(() => ({ session, window: null }), (next) => { session = next; }, () => {});
+    step.handle.setK([0, 0, 0.25]);
+    step.handle.choose(step.handle.state().candidates.find((g) => g.momentParameters > 0)!.id);
+    // The model the page fits, as its builder made it: the rows (as built, at the page's start) and the gauge's id.
+    const v = step.view();
+    const build = v.build!;
+    const gauge = build.phaseGauge!.parameterId;
+    const nuclear = session.powderParams.filter((p) => p.kind !== "momentMode" && p.kind !== "propagationK");
+    const args = {
+      structure: session.structure, magnetic: build.magnetic, pattern: session.pattern,
+      parameters: [...nuclear, ...build.params.map((p) => ({ ...p, value: v.resolvedAmps[p.id] ?? p.value }))],
+      bindings: [...session.powderBindings.filter((b) => b.kind !== "momentMode" && b.kind !== "propagationK"), ...build.bindings],
+      profile: session.powderProfile,
+    };
+    expect(build.params.every((p) => p.fixed)).toBe(true);
+    const mcp = await refine_moments({ ...args, phaseGaugeParameterId: gauge });
+    expect(await step.refineMoments()).not.toBeNull();
+    const after = step.view();
+    const rounds = after.fitRounds!;
+    const ids = fitRows(build).filter((p) => !p.fixed).map((p) => p.id);
+    expect(ids).not.toContain(gauge);
+    expect(Object.keys(mcp.moments)).toEqual(ids);
+    const dMoment = ids.map((id) => relative(mcp.moments[id]!, after.resolvedAmps[id]!));
+    const dEsd = ids.filter((id) => rounds.esd[id] !== undefined).map((id) => relative(mcp.esd[id]!, rounds.esd[id]!));
+    console.log(`[mcp-moments] two-arm Mn3Ga (gauge ${gauge} held): page ${ids.map((id) => `${id} ${after.resolvedAmps[id]!.toFixed(6)}(${(rounds.esd[id] ?? NaN).toFixed(6)})`).join(", ")} in ${rounds.count} rounds, wR ${(100 * after.fitWR!).toFixed(4)} % · MCP in ${mcp.rounds} rounds, wR ${(100 * mcp.wR!).toFixed(4)} % · relative difference: moments at most ${Math.max(...dMoment).toExponential(2)}; esds at most ${Math.max(...dEsd).toExponential(2)}; wR ${relative(mcp.wR!, after.fitWR!).toExponential(2)}`);
+    for (const d of [...dMoment, ...dEsd]) expect(d).toBeLessThan(1e-9);
+    expect(relative(mcp.wR!, after.fitWR!)).toBeLessThan(1e-9);
+    expect(mcp.rounds).toBe(rounds.count);
+    expect(mcp.settled).toBe(rounds.settled);
+    expect(Object.keys(mcp.esd)).toEqual(Object.keys(rounds.esd));
+    // The gauge stayed where it was, and has no esd.
+    expect(mcp.parameters.find((p) => p.id === gauge)!.value).toBe(args.parameters.find((p) => p.id === gauge)!.value);
+    expect(mcp.esd[gauge]).toBeUndefined();
+    // Without the id the same call does not run.
+    await expect(refine_moments(args)).rejects.toThrow(/^refine_moments: not run\. This model's k has two arms/);
+    // An id that is one of the nuclear rows is refused too.
+    await expect(refine_moments({ ...args, phaseGaugeParameterId: "scale" })).rejects.toThrow(/`phaseGaugeParameterId` is "scale", which is not a moment row in `parameters`/);
+  }, 120_000);
 });
 
 describe("refine_magnetic_powder: one side at a time", () => {

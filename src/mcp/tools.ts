@@ -66,7 +66,7 @@ import { searchPropagationVector, type KSearchOptions } from "@/core/magnetic/kS
 import { magneticSubgroupLattice, latticeCandidateLabel, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
 import { magneticOrbitRepresentatives } from "@/core/crystal/cellExpansion";
-import { buildMagneticModel } from "@/core/magnetic/momentModel";
+import { buildMagneticModel, momentFitRows, momentModelPropagation } from "@/core/magnetic/momentModel";
 import { describePropagation } from "@/core/magnetic/propagation";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { buildMagneticPowderProblem, magneticPowderComponents, magneticStage1Parameters } from "@/core/workflow/magneticPowder";
@@ -1039,8 +1039,18 @@ export async function refine_magnetic_powder(args: {
   }
 }
 
-/** refine_moments with no free moment row: there is nothing for the fit to refine. */
-const REFINE_MOMENTS_NO_MOMENT = "refine_moments: no moment row is free, so there is nothing to refine. The moment rows from build_magnetic_model come fixed. Pass the `parameters` of a refine_magnetic_powder call that had only the moment rows in `free` (with `restarts` it also searches the moments), or rows with fixed:false on the moments to refine. The phase gauge of a two-arm k stays fixed.";
+/** refine_moments on rows with no moment amplitude it could refine. */
+const REFINE_MOMENTS_NO_MOMENT = "refine_moments: not run. `parameters` holds no moment amplitude to refine: no moment row, or only tied rows and the phase gauge. Pass the moment rows build_magnetic_model returned, joined to the nuclear rows.";
+
+/** refine_moments on a two-arm model without the id of its phase gauge. */
+const REFINE_MOMENTS_GAUGE_NEEDED = "refine_moments: not run. This model's k has two arms (-k is not k), so every mode has a cosine and a sine amplitude, and one sine amplitude is the phase gauge: it must stay held, because the data cannot see the global phase. The tool does not guess which row that is. Pass `phaseGaugeParameterId` as build_magnetic_model returned it.";
+
+/** refine_moments given a phase gauge for a model that has none. */
+const REFINE_MOMENTS_NO_GAUGE = "refine_moments: not run. `phaseGaugeParameterId` was passed, but this model has no phase gauge: its k has one arm (-k is k up to a lattice vector), so every moment row is a real amplitude and refines. Leave the argument out. To hold a component, tie it.";
+
+/** refine_moments given a phase-gauge id that is not one of the moment rows passed. */
+const gaugeNotAMomentRow = (id: string): string =>
+  `refine_moments: not run. \`phaseGaugeParameterId\` is "${id}", which is not a moment row in \`parameters\`. Pass the id build_magnetic_model returned as \`phaseGaugeParameterId\`, with the moment rows it returned.`;
 
 /** Why refine_moments held a k row the caller passed free. */
 const REFINE_MOMENTS_K_HELD = "k was held: refine_moments refines moment amplitudes only, with the propagation vector at the value in the model. The k rows passed free were not refined; their fixed flags are returned unchanged.";
@@ -1066,17 +1076,26 @@ function momentsFitReading(out: MomentsFitOutcome): string {
  * (core/magnetic/momentsFit.ts). The moments refine with every nuclear row
  * held, in rounds with the scale and the background, and the fit ends on a
  * moments step; the module decides which rows each step refines, when the
- * rounds stop, the iterations and the esds. A caller chooses none of that: its
- * `fixed` flags count on a moment row only (a held one stays held).
+ * rounds stop, the iterations and the esds.
+ *
+ * Which amplitudes refine is the page's rule too (momentModel.ts,
+ * momentFitRows): every moment row but a tied one and the phase gauge of a
+ * two-arm k. The caller's `fixed` flags are not read, so the rows work as
+ * build_magnetic_model returns them (fixed), and they are returned as passed.
+ * The phase gauge is named by the caller, as the builder named it
+ * (`phaseGaugeParameterId`): a two-arm model without it is refused.
  *
  * k is held: a free k component among the rows is held for this fit, and the
  * result says so (`kHeld`). The fit starts from the values in the rows; it
  * runs no moment search.
  */
-export async function refine_moments(args: MagneticPowderArgs): Promise<{
+export async function refine_moments(args: MagneticPowderArgs & {
+  /** The phase gauge of a two-arm k, as build_magnetic_model returned it: that row stays held. */
+  phaseGaugeParameterId?: string;
+}): Promise<{
   /** The last moments step's engine result: its esds are the moments', with `esdIncludes`' uncertainty in them. */
   result: RefinementResult;
-  /** Every row at its value after the fit (the caller's `fixed` flags unchanged): ready for the next call. */
+  /** Every row at its value after the fit, each `fixed` flag as the caller sent it: ready for the next call. */
   parameters: RefinementParameter[];
   magnetic: MagneticModel;
   observationCount: number;
@@ -1105,11 +1124,19 @@ export async function refine_moments(args: MagneticPowderArgs): Promise<{
   /** The outcome in one line. */
   reading: string;
 }> {
-  const untied = (p: RefinementParameter): boolean => !p.expression;
+  const isMoment = (p: RefinementParameter): boolean => isMomentParameterKind(p.kind);
+  // The phase gauge: a two-arm model has one (the builder's own condition), and the caller names it.
+  const gauge = args.phaseGaugeParameterId;
+  const twoArm = momentModelPropagation(args.structure, args.magnetic.propagation[0] ?? [0, 0, 0]).twoArms;
+  if (gauge !== undefined && !args.parameters.some((p) => p.id === gauge && isMoment(p))) throw new Error(gaugeNotAMomentRow(gauge));
+  if (gauge !== undefined && !twoArm) throw new Error(REFINE_MOMENTS_NO_GAUGE);
+  if (gauge === undefined && twoArm && args.parameters.some(isMoment)) throw new Error(REFINE_MOMENTS_GAUGE_NEEDED);
+  // The amplitudes the fit refines, as the page's Refine moments takes them: every moment row but a tied one and the gauge.
+  const momentRows = new Map(momentFitRows(args.parameters.filter(isMoment), gauge).map((p) => [p.id, p]));
   // k is not refined by the moments fit: a free k row is held before the module sees the rows.
-  const kHeldIds = args.parameters.filter((p) => p.kind === "propagationK" && !p.fixed && untied(p)).map((p) => p.id);
-  const rows = args.parameters.map((p) => (kHeldIds.includes(p.id) ? { ...p, fixed: true } : { ...p }));
-  const momentIds = rows.filter((p) => isMomentParameterKind(p.kind) && !p.fixed && untied(p)).map((p) => p.id);
+  const kHeldIds = args.parameters.filter((p) => p.kind === "propagationK" && !p.fixed && !p.expression).map((p) => p.id);
+  const rows = args.parameters.map((p) => momentRows.get(p.id) ?? (kHeldIds.includes(p.id) ? { ...p, fixed: true } : { ...p }));
+  const momentIds = rows.filter((p) => isMoment(p) && !p.fixed).map((p) => p.id);
   if (momentIds.length === 0) throw new Error(REFINE_MOMENTS_NO_MOMENT);
   const spec = magneticPowderSpec({ ...args, parameters: rows });
   // Node evaluator pool when the runtime supports it, serial otherwise, as refine_magnetic_powder runs a fit.
