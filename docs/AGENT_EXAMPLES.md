@@ -4,7 +4,12 @@ Worked examples of a language model driving the MATERIA tools over MCP. Each
 gives the prompt, the calls the model made, and what it concluded.
 
 The runs are real: Claude (Opus 5.5) in Claude Code, calling the `materia`
-server. Examples 1 and 4 ran on 2026-09-28, Example 3 on 2026-10-05. A test replays each tool sequence through an MCP client
+server. Examples 1 and 4 ran on 2026-09-28, Example 3 on 2026-10-05. Example 3's
+magnetic steps (10 onward) were rewritten on 2026-11-22 to MATERIA's method, the
+moments refined with the nuclear model held. The run of 2026-10-05 refined
+moments and nuclear rows in one step, which `refine_magnetic_powder` now refuses
+unless asked. Those steps are the tool sequence replayed through the server,
+not a new model run. A test replays each tool sequence through an MCP client
 and checks the outcomes stated here
 ([`examples.test.ts`](../src/mcp/examples.test.ts)), so this page cannot drift
 from the tools.
@@ -50,7 +55,7 @@ shortest contact.
 
 ## Example 3 — a magnetic structure from the peaks the nuclear model leaves
 
-*Watch it replayed: [GIF](media/agent-example3.gif) · [MP4](media/agent-example3.mp4) (38 s; the same tool sequence through the MCP server, every number recomputed; made with `scripts/example3-demo.ts`).*
+*Watch the earlier run replayed: [GIF](media/agent-example3.gif) · [MP4](media/agent-example3.mp4) (38 s; recorded before 2026-11-22, with each group fitted in one call and a last call that freed everything; made with `scripts/example3-demo.ts`, which now replays the steps below).*
 
 **Prompt**
 
@@ -63,7 +68,7 @@ shortest contact.
 The pattern is simulated from the app's bundled Mn₃Ga 30 K magnetic structure,
 so the true moments are known. The model is not given them.
 
-**What the model did** — 18 calls. Bulky results travel as refs; the group
+**What the model did** — 21 calls. Bulky results travel as refs; the group
 fits pass the nuclear and moment parameter sets as a list of two refs.
 
 | # | Tool | Arguments | What came back |
@@ -75,18 +80,25 @@ fits pass the nuclear and moment parameter sets as a list of two refs.
 | 7 | `find_unexplained_peaks` | the residual | no unexplained peak; three misfits on nuclear lines, d = 3.167, 2.710, 4.632 Å, with `k0Magnetic`: on a neutron pattern of magnetic ions they may be k = 0 order |
 | 8 | `search_propagation_vector` | those d values | k = (0 0 0) matches all three, rmsd 0.0016 Å |
 | 9 | `list_magnetic_subgroups` | k = (0 0 0) | four maximal groups (index 2) and seven lower ones |
-| 10–17 | `build_magnetic_model`, `refine_magnetic_powder` | each maximal group, all three Mn sites; free: scale, background, moments; 12 restarts | the table below |
-| 18 | `refine_magnetic_powder` | the best group; free: scale, background, cell, U V W, positions, B, moments | wR 4.35 %, GoF 1.01 |
+| 10–21 | `build_magnetic_model`, `refine_magnetic_powder`, `refine_moments` | each maximal group, all three Mn sites: a moment search (free: the moments only; 12 restarts), then the moments fit on its `parameters` | the table below |
 
 Each maximal group allows different moment directions, and the data separate
 them:
 
-| Magnetic group | Moments allowed | wR | GoF |
-|---|---|---|---|
-| P2₁/m | along b | 9.30 % | 2.16 |
-| P2₁'/m | along b | 12.10 % | 2.81 |
-| P2₁/m' | in the ac plane | 11.79 % | 2.74 |
-| P2₁'/m' | in the ac plane | 4.61 % | 1.07 |
+| Magnetic group | Moments allowed | wR after the search | wR after the moments fit | GoF |
+|---|---|---|---|---|
+| P2₁/m | along b | 10.21 % | 9.30 % | 2.16 |
+| P2₁'/m | along b | 12.12 % | 12.10 % | 2.81 |
+| P2₁/m' | in the ac plane | 11.85 % | 11.79 % | 2.74 |
+| P2₁'/m' | in the ac plane | 8.05 % | 4.61 % | 1.07 |
+
+The moments refine with the nuclear model held. The search
+(`refine_magnetic_powder` with only the moment rows free) is one moments step
+from the best of its starts. It reads high, 8.05 % for P2₁'/m', because the
+nuclear fit's scale and background had taken up magnetic intensity: at k = 0
+that intensity sits on the nuclear lines. `refine_moments` re-refines those two
+rows in rounds with the moments, never in one step with them, and reaches
+4.61 %. Its esds include the uncertainty of the scale and the background.
 
 Four judgement calls, each stated in the run:
 
@@ -98,25 +110,27 @@ Four judgement calls, each stated in the run:
   one, and only P2₁'/m' reaches GoF ≈ 1.
 - **Restarts.** Magnetic intensity is quadratic in the moments, so the fit has
   several minima. Without restarts, P2₁'/m' stops at wR 4.86 %, GoF 1.13. That
-  looks acceptable, but Mn1 is nearly switched off (−0.57, −0.02 μB). Only
-  one of the 13 starts found the lower minimum.
+  looks acceptable, but Mn1 is nearly switched off (−0.56, −0.02 μB), and
+  `refine_moments` says the fit did not settle. Only one of the 13 starts
+  found the lower minimum.
 
 **What it concluded.** The order is k = 0 in P2₁'/m', with moments in the ac
-plane on all three Mn sites. With the atoms freed in step 18, every position
-shift stays below 0.0003, about one esd, so the magnetic order needs no
-distortion. The recovered moments match the ones the pattern was simulated
-from to within 0.06 μB. Diffraction cannot fix the global sign, so the found
-moments are shown with it flipped:
+plane on all three Mn sites. The nuclear model stayed as the nuclear fit left
+it, the atoms at the CIF's positions: of its rows only the scale and the
+background were re-refined, with the magnetic model. The recovered moments
+match the ones the pattern was simulated from to within 0.07 μB. Diffraction
+cannot fix the global sign, so the found moments are shown with it flipped:
 
 | Site | Found (mₐ, m꜀) μB | Simulated from (mₐ, m꜀) μB |
 |---|---|---|
-| Mn1_0 | −1.63 ± 0.03, −1.33 ± 0.03 | −1.58, −1.35 |
-| Mn2_1 | −2.78 ± 0.03, 2.79 ± 0.03 | −2.78, 2.82 |
-| Mn3_2 | 2.72 ± 0.03, −2.21 ± 0.03 | 2.72, −2.22 |
+| Mn1_0 | −1.51 ± 0.04, −1.34 ± 0.03 | −1.58, −1.35 |
+| Mn2_1 | −2.79 ± 0.04, 2.76 ± 0.04 | −2.78, 2.82 |
+| Mn3_2 | 2.68 ± 0.04, −2.17 ± 0.04 | 2.72, −2.22 |
 
 **Checked by the test:** the nuclear wR, the first unexplained peak, k = 0,
 the four maximal groups, P2₁'/m' alone below 4.7 % with the others above 9 %,
-the single run stopping higher, and the final GoF, positions and moments.
+the search alone above 7 %, the single run stopping higher, that of the nuclear
+rows only the scale and the background moved, and the moments.
 
 ## Example 4 — a PDF fit block by block, then local vs average
 
