@@ -21,7 +21,7 @@ import { magneticSubgroupLattice, latticeRepresentatives, maximalWithMoment, typ
 import { buildMagneticModel, type MagneticModelBuild } from "@/core/magnetic/momentModel";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { fitMomentsWithRestarts, RANK_RESTARTS, type MomentFit } from "@/core/magnetic/momentRestarts";
-import { ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE, K0_SCALE_WITH_MOMENTS } from "@/core/magnetic/momentAlternation";
+import { ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE } from "@/core/magnetic/momentsFit";
 import { momentCartesian } from "@/core/magnetic/moment";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { resolveTies } from "@/core/refinement/constraints";
@@ -193,7 +193,7 @@ export interface FitOptions {
    */
   readonly freeScale?: boolean;
   /**
-   * Run the fit as rounds (core/magnetic/momentAlternation.ts): the moments,
+   * Run the fit as rounds (core/magnetic/momentsFit.ts): the moments,
    * then the scale and the background with the moments held, then the moments
    * again, until they settle. The step's Refine moments asks for them; the
    * ranking's fits do not (one fit per start). A page whose fit has no rounds
@@ -1108,7 +1108,7 @@ export class MagneticStep {
 
   /**
    * Fit the chosen model's moments, its amplitudes then the fitted ones. On a
-   * page whose fit runs as rounds (powder: momentAlternation.ts) the scale and
+   * page whose fit runs as rounds (powder: core/magnetic/momentsFit.ts) the scale and
    * the background are re-refined with the magnetic model between moments
    * steps; the page takes those rows (onMomentFit), and the nuclear-only
    * agreement from before stays the step's baseline. Stopped, or with the
@@ -1128,8 +1128,8 @@ export class MagneticStep {
     const stopped = (): boolean => this.refineCancelRequested || this.view().fitKey !== on;
     this.commit({ ...this.s, refining: true, refineRound: null, fitWR: null });
     try {
+      // Which rows the rounds refine, at k = 0 as at any k, is the fit's own business (powder: momentsFit.ts).
       const out = await fitMoments(at.fit, build, v.resolvedAmps, {
-        ...(K0_SCALE_WITH_MOMENTS && this.s.k.every((x) => Math.abs(x) < 1e-9) ? { freeScale: true } : {}),
         rounds: { cancelled: stopped, onRound: (round, max) => this.commit({ ...this.s, refineRound: { round, max } }) },
       });
       if (out.cancelled || stopped()) {

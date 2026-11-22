@@ -23,7 +23,7 @@ import { momentCartesian } from "@/core/magnetic/moment";
 import { formatMagneticSymbol } from "@/core/magnetic/bnsOg";
 import { buildFor, fitRows, momentParameters, rankCandidates, type MagneticFit } from "@/app/magneticStep";
 import { noiseOf, RANK_RESTARTS } from "@/core/magnetic/momentRestarts";
-import { alternateMoments } from "@/core/magnetic/momentAlternation";
+import { runMomentsFit } from "@/core/magnetic/momentsFit";
 import { withinNoiseOfBest } from "@/core/diagnostics/hamilton";
 import { RANK_NOISE_ALPHA } from "@/core/diagnostics/thresholds";
 import { fCritical } from "@/core/math/fDistribution";
@@ -53,7 +53,7 @@ import type { Vec3 } from "@/core/math/types";
  *      those within the noise of the best fit, by Hamilton's test at 5 %
  *      (topDownGroup below states N, m and b);
  *   4. the magnetic refinement of the chosen candidate, as the page's Refine
- *      moments runs it (core/magnetic/momentAlternation.ts): the moments (and
+ *      moments runs it (core/magnetic/momentsFit.ts): the moments (and
  *      k's components where the little group lets k move) with every nuclear
  *      row held, then the scale and the background with the moments held,
  *      then the moments again, until they settle; it ends on a moments step.
@@ -198,12 +198,13 @@ describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with
     const free = finalParams.filter((p) => !p.fixed).map((p) => p.id);
     expect(free.length).toBeGreaterThan(0);
     expect(free.every((id) => magneticRows.some((p) => p.id === id))).toBe(true);
-    const reRefined = nuclear.filter((p) => (p.kind === "scale" || p.kind === "background") && !p.expression).map((p) => p.id);
-    const rounds = await alternateMoments({
-      rows: finalParams, momentIds: free, betweenIds: reRefined,
+    // The moments fit decides its own rows: the free magnetic rows in a moments step, the scale and the background between.
+    const rounds = await runMomentsFit({
+      rows: finalParams, magnetic: bestBuild.magnetic,
       fit: (rows, options) => refine(buildMagneticPowderProblem(structure, bestBuild.magnetic, pattern, rows, [...spec.bindings, ...bestBuild.bindings, ...kRows.bindings], spec.profile), options),
     });
-    if (!rounds) throw new Error("the rounds were cancelled");
+    if (rounds.cancelled) throw new Error("the rounds were cancelled");
+    const reRefined = Object.keys(rounds.reRefined);
     const fitted = rounds.result;
     const finalValues: Record<string, number> = {};
     for (const p of finalParams) finalValues[p.id] = rounds.values[p.id] ?? p.value;

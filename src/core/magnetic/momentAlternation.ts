@@ -14,6 +14,12 @@
  *
  * Sans-io: `fit` runs one refinement of the rows marked free, wherever the
  * page runs its fits (the worker pool, or this thread).
+ *
+ * Internal: this is the loop over rows it is told. Which rows those are, and
+ * every number of the rule, is momentsFit.ts, the only application file that
+ * imports this one (momentsFit.test.ts holds that); a fit is run through
+ * `runMomentsFit`. Tests may call the loop to ask of it what the fit does not
+ * take from a caller (a smaller cap, the other k = 0 choice).
  */
 
 import type { RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";

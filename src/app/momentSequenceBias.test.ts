@@ -6,9 +6,11 @@ import {
 import { CELL, GAMMA_R0_HALF, j0Mn2, momentSize, reflection, type SpinModel } from "@/testSupport/independentMnwo4";
 import { MagneticStep, fitMoments, fitRows, momentFitReadout, MOMENT_ROUNDS_SUMMARY, type MomentRounds } from "@/app/magneticStep";
 import { magneticStepOn, sessionCurves } from "@/testSupport/magneticHeadless";
-import { momentEsdOptions, momentRoundValues, powderFit, powderPageCurves, weightedR, withFitResult, withMomentRoundRows } from "@/app/powderPage";
+import { powderFit, powderPageCurves, weightedR, withFitResult, withMomentRoundRows } from "@/app/powderPage";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import { alternateMoments, ALTERNATION_MAX_ROUNDS, K0_SCALE_WITH_MOMENTS } from "@/core/magnetic/momentAlternation";
+import { ALTERNATION_MAX_ROUNDS, K0_SCALE_WITH_MOMENTS, momentsOnlyEsdOptions, reRefinedRows } from "@/core/magnetic/momentsFit";
+// The loop under the moments fit, for the two tests that ask of it what the fit itself does not take: a cap, the other k = 0 choice.
+import { alternateMoments } from "@/core/magnetic/momentAlternation";
 import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { refine } from "@/core/refinement/engine";
@@ -27,7 +29,7 @@ import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
  * uncertainty of the held scale.
  *
  * The step's Refine moments now runs as rounds (core/magnetic/
- * momentAlternation.ts): the moments, then the scale and the background with
+ * momentsFit.ts): the moments, then the scale and the background with
  * the moments held, then the moments again, until they settle; it ends on a
  * moments step, hands the re-refined rows to the page, and quotes esds that
  * include them. These tests drive the step itself (MagneticStep, as the panel
@@ -238,8 +240,8 @@ describe("the rows Refine moments hands back to the page", () => {
     const held = r.rounds.held;
     // The scale and the six background terms, and no other row.
     expect(Object.keys(held).sort()).toEqual(["bkg0", "bkg1", "bkg2", "bkg3", "bkg4", "bkg5", "scale"]);
-    expect(momentRoundValues(page.session())).toEqual(held);
-    expect(held.scale).not.toBe(momentRoundValues(page.nuclearOnly).scale);
+    expect(reRefinedRows(page.session().powderParams)).toEqual(held);
+    expect(held.scale).not.toBe(reRefinedRows(page.nuclearOnly.powderParams).scale);
     const moved = page.session().powderParams.filter((p, i) => p.value !== page.nuclearOnly.powderParams[i]!.value).map((p) => p.id);
     expect(moved.sort()).toEqual(Object.keys(held).sort());
     // The width, which the nuclear-only fit left 1 % wide, is no part of the rounds.
@@ -250,7 +252,7 @@ describe("the rows Refine moments hands back to the page", () => {
     const session = page.session();
     const free = session.powderParams.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
     expect(free).toEqual(["mom_Mn1_0"]);
-    expect(momentEsdOptions(session)).toEqual({ esdWith: Object.keys(held) });
+    expect(momentsOnlyEsdOptions(session.powderParams)).toEqual({ esdWith: Object.keys(held) });
     const client = new ComputeClient();
     const result = await powderFit(client, { session, instrument: DEFAULT_INSTRUMENT, fitRange: FIT_RANGE, result: null }, { maxIterations: 20 });
     // The Refine button's fit of the moments alone: nothing moves, and the esd is the one a joint fit quotes, keyed by the moment row only.
@@ -265,11 +267,11 @@ describe("the rows Refine moments hands back to the page", () => {
     expect(result.esd.mom_Mn1_0! / alone.esd.mom_Mn1_0!).toBeLessThan(1.15);
 
     // Why the rows must reach the page: on the nuclear-only scale and background the same Refine takes the moment back.
-    const without = withMomentRoundRows(session, momentRoundValues(page.nuclearOnly));
+    const without = withMomentRoundRows(session, reRefinedRows(page.nuclearOnly.powderParams));
     const back = await powderFit(client, { session: without, instrument: DEFAULT_INSTRUMENT, fitRange: FIT_RANGE, result: null }, { maxIterations: 20 });
     expect(back.parameters.mom_Mn1_0!).toBeCloseTo(4.064, 2);
     // A free set with a nuclear row in it asks for nothing: its esds are its own.
-    expect(momentEsdOptions({ ...session, powderParams: session.powderParams.map((p) => (p.id === "scale" ? { ...p, fixed: false } : p)) })).toEqual({});
+    expect(momentsOnlyEsdOptions(session.powderParams.map((p) => (p.id === "scale" ? { ...p, fixed: false } : p)))).toEqual({});
   }, 60_000);
 
   it("the nuclear-only agreement the step compares with is the one from before the rounds, while the page holds their rows", async () => {
@@ -291,7 +293,7 @@ describe("the rows Refine moments hands back to the page", () => {
     expect(Math.abs(page.step.handle.state().selected!.moments[0]!.muB - first)).toBeLessThan(0.1 * page.step.view().fitRounds!.esd.mom_Mn1_0!);
     expect(page.step.handle.state().baselineAgreement).toBe(before);
     // Once the page's rows are no longer the ones the fit handed back (a nuclear refinement, a reset, an undo), the page's own value stands again.
-    page.set(withMomentRoundRows(page.session(), momentRoundValues(page.nuclearOnly)));
+    page.set(withMomentRoundRows(page.session(), reRefinedRows(page.nuclearOnly.powderParams)));
     expect(page.step.handle.state().baselineAgreement).toBeCloseTo(before, 12);
     page.set(withMomentRoundRows(page.session(), { scale: 0.079 }));
     expect(page.step.handle.state().baselineAgreement).toBeCloseTo(live(), 12);
@@ -391,7 +393,7 @@ describe("Cancel, and the cap", () => {
     const rows = [...session.powderParams, ...fitRows(c.build)];
     const steps: string[][] = [];
     const out = (await alternateMoments({
-      rows, momentIds: ["mom_Mn1_0"], betweenIds: Object.keys(momentRoundValues(session)), maxRounds: 2,
+      rows, momentIds: ["mom_Mn1_0"], betweenIds: Object.keys(reRefinedRows(session.powderParams)), maxRounds: 2,
       fit: (r, options) => {
         steps.push(r.filter((p) => !p.fixed).map((p) => p.id));
         return refine(buildMagneticPowderProblem(c.structure, c.build.magnetic, session.pattern, r, [...c.bindings, ...c.build.bindings], session.powderProfile, FIT_RANGE), options);
@@ -470,16 +472,22 @@ describe("k = 0 (independent MnWO4): Refine moments no longer undoes the ranking
     const c = caseOf(MODEL_F_K0, 6);
     const held = await refineMoments(MODEL_F_K0, 0);
     const page = pageOf(c, 0);
-    // What the step passes when the switch is on: freeScale with the rounds.
-    const free = await fitMoments(powderMomentFit(null, page.session(), FIT_RANGE), c.build, undefined, { freeScale: true, rounds: {} });
-    expect(free.rounds!.settled).toBe(true);
-    expect(free.rounds!.count).toBeLessThanOrEqual(3);
-    expect(free.rounds!.count).toBeLessThan(held.rounds.count);
+    const session = page.session();
+    // What the moments fit runs when the switch is on: the scale in the moments steps, the background between them.
+    // The fit takes no such choice from a caller, so this asks the loop under it, on the rows the page's fit passes.
+    const reRefined = Object.keys(reRefinedRows(session.powderParams));
+    const free = (await alternateMoments({
+      rows: [...session.powderParams, ...fitRows(c.build)], momentIds: ["scale", "mom_Mn1_0"], betweenIds: reRefined,
+      fit: (r, options) => refine(buildMagneticPowderProblem(c.structure, c.build.magnetic, session.pattern, r, [...c.bindings, ...c.build.bindings], session.powderProfile, FIT_RANGE), options),
+    }))!;
+    expect(free.settled).toBe(true);
+    expect(free.rounds).toBeLessThanOrEqual(3);
+    expect(free.rounds).toBeLessThan(held.rounds.count);
     expect(Math.abs(page.fitter.moment(free.values) - held.moment) / held.esd[0]!).toBeLessThan(0.1);
-    // The scale it refined with the moments is handed back with the background, and the esd is the same.
-    expect(Object.keys(free.rounds!.held).sort()).toEqual(Object.keys(held.rounds.held).sort());
-    expect(free.rounds!.held.scale! / held.rounds.held.scale!).toBeCloseTo(1, 2);
-    expect(free.rounds!.esd.mom_Mn1_0! / held.esd[0]!).toBeCloseTo(1, 2);
+    // The scale it refined with the moments is among the rows a fit hands back, with the background, and the esd is the same.
+    expect(reRefined.sort()).toEqual(Object.keys(held.rounds.held).sort());
+    expect(free.values.scale! / held.rounds.held.scale!).toBeCloseTo(1, 2);
+    expect(free.result.esd.mom_Mn1_0! / held.esd[0]!).toBeCloseTo(1, 2);
   }, 60_000);
 });
 
