@@ -55,7 +55,9 @@ shortest contact.
 
 ## Example 3 — a magnetic structure from the peaks the nuclear model leaves
 
-*Watch the earlier run replayed: [GIF](media/agent-example3.gif) · [MP4](media/agent-example3.mp4) (38 s; recorded before 2026-11-22, with each group fitted in one call and a last call that freed everything; made with `scripts/example3-demo.ts`, which now replays the steps below).*
+*Watch it replayed: [GIF](media/agent-example3.gif) · [MP4](media/agent-example3.mp4) (38 s).*
+
+*The GIF and the video show an earlier run, recorded before 2026-11-22: each group was fitted in one call, and a last call freed everything. The steps below are the current ones; `scripts/example3-demo.ts` replays them.*
 
 **Prompt**
 

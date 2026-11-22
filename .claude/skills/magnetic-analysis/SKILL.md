@@ -154,7 +154,7 @@ those terms, report it.
 | Ions | `select_magnetic_ions` | `build_magnetic_model` (`ionLabels`) |
 | Groups | `magnetic_state`, `rank_magnetic_groups`, `choose_magnetic_group` | `list_magnetic_subgroups`, `allowed_moments` |
 | Moments | `set_moment_ties`, `refine_moments` | `build_magnetic_model`, `refine_moments` |
-| Magnetic refinement | `continue_magnetic_refinement`, `set_free` (fix the rest), then `refine` | `refine_magnetic_powder` (free: the moments) |
+| Magnetic refinement | `continue_magnetic_refinement`, `set_free` (fix the rest), then `refine` | `refine_moments` |
 
 ## References
 
