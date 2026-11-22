@@ -22,6 +22,9 @@
  * refinement. It cannot choose the rows of either step, the tolerance, the
  * cap, the iterations or `esdWith`: those are decided here.
  *
+ * The page's Refine button with only magnetic rows free is a moments step the
+ * user set up by hand; its esds follow the same rule (`momentsOnlyEsdOptions`).
+ *
  * The loop itself is momentAlternation.ts, an internal file: no application
  * file but this one imports it (momentsFit.test.ts holds that).
  *
@@ -29,7 +32,7 @@
  */
 
 import type { RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import { isMagneticModelParameterKind } from "@/core/refinement/types";
+import { isMagneticModelParameterKind, isMomentParameterKind } from "@/core/refinement/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { alternateMoments, ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE, K0_SCALE_WITH_MOMENTS } from "@/core/magnetic/momentAlternation";
 
@@ -106,6 +109,23 @@ const untied = (p: RefinementParameter): boolean => !p.expression;
  */
 export function reRefinedRows(rows: readonly RefinementParameter[]): Record<string, number> {
   return Object.fromEntries(rows.filter((p) => (p.kind === "scale" || p.kind === "background") && untied(p)).map((p) => [p.id, p.value]));
+}
+
+/**
+ * For one refinement of `rows` as they are flagged (the page's Refine button),
+ * where it is a moments step of the user's own making: magnetic rows only are
+ * free (at least one moment; k's components may be with them). The options
+ * that make its moment esds include the held scale and background rows
+ * (`reRefinedRows`, the engine's `esdWith`): those rows were fitted to the
+ * same pattern, and a moment's esd without their uncertainty is too small
+ * (10 to 29 % on the report's patterns). Nothing for any other free set: its
+ * esds are its own.
+ */
+export function momentsOnlyEsdOptions(rows: readonly RefinementParameter[]): Pick<RefinementOptions, "esdWith"> | Record<string, never> {
+  const free = rows.filter((p) => !p.fixed && untied(p));
+  if (!free.some((p) => isMomentParameterKind(p.kind)) || !free.every((p) => isMagneticModelParameterKind(p.kind))) return {};
+  const esdWith = Object.keys(reRefinedRows(rows));
+  return esdWith.length > 0 ? { esdWith } : {};
 }
 
 /**

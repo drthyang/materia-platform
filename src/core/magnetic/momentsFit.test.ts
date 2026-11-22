@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE, K0_SCALE_WITH_MOMENTS, reRefinedRows, runMomentsFit, type MomentsFitRunner } from "@/core/magnetic/momentsFit";
+import { ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE, K0_SCALE_WITH_MOMENTS, momentsOnlyEsdOptions, reRefinedRows, runMomentsFit, type MomentsFitRunner } from "@/core/magnetic/momentsFit";
 import type { ParameterKind, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 
 /**
@@ -132,6 +132,28 @@ describe("the moments fit: the rows each step refines are the module's, not the 
     const { fit, steps } = recorder();
     const out = await runMomentsFit({ rows: ROWS, magnetic: K_HALF, fit }, { cancelled: () => steps.length >= 2 });
     expect(out).toEqual({ cancelled: true });
+  });
+});
+
+describe("a refinement the user set up with magnetic rows alone free (the Refine button)", () => {
+  const holding = (free: readonly string[]): RefinementParameter[] => ROWS.map((p) => ({ ...p, fixed: !!p.expression || !free.includes(p.id) }));
+
+  it("moments alone, or moments with a k component: the esds are to include the held scale and background rows", () => {
+    expect(momentsOnlyEsdOptions(holding(["mom_a", "mom_b"]))).toEqual({ esdWith: ["scale", "scale_p2", "bkg0", "bkg1"] });
+    const withK = [...holding(["mom_a"]), row("k1", "propagationK", 0.31)];
+    expect(momentsOnlyEsdOptions(withK)).toEqual({ esdWith: ["scale", "scale_p2", "bkg0", "bkg1"] });
+  });
+
+  it("any other free set asks for nothing: a nuclear row free with the moments, no moment free, k alone", () => {
+    expect(momentsOnlyEsdOptions(holding(["mom_a", "scale"]))).toEqual({});
+    expect(momentsOnlyEsdOptions(holding(["mom_a", "width"]))).toEqual({});
+    expect(momentsOnlyEsdOptions(holding(["scale", "bkg0"]))).toEqual({});
+    expect(momentsOnlyEsdOptions(holding([]))).toEqual({});
+    expect(momentsOnlyEsdOptions([...holding([]), row("k1", "propagationK", 0.31)])).toEqual({});
+  });
+
+  it("no scale or background row to include: nothing", () => {
+    expect(momentsOnlyEsdOptions(holding(["mom_a"]).filter((p) => p.kind !== "scale" && p.kind !== "background"))).toEqual({});
   });
 });
 

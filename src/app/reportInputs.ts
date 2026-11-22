@@ -270,7 +270,7 @@ export function magneticReportSection(o: {
       ? `Included in the model and in the calculated pattern; ${o.result ? "the last refinement held the moments, which are" : "not refined in this session: the moments are"} as loaded or as set on the magnetic page${exploredFit}.`
       : nuclearFree
         ? status
-        // That fit's esds carry the held scale's and background's uncertainty where it asked for them (powderPage.ts, momentEsdOptions).
+        // That fit's esds carry the held scale's and background's uncertainty where it asked for them (core/magnetic/momentsFit.ts, momentsOnlyEsdOptions).
         : `Moments refined against ${o.against} with the nuclear model held; the moment esds come from that fit${o.result?.diagnostics?.esdIncludes?.length ? " and include the uncertainty of the scale and the background" : ""}.`;
     const head = `Magnetic structure: k = ${kLabel(k as Vec3)}, ${group.symbol}${group.numbers ? ` (${group.numbers})` : ""}${range ? `, |m| = ${range}` : ""}`;
     const summary = `${head}, ${jointly ? "refined jointly with the atomic structure" : "included in the model (not refined jointly in this session)"}.`;

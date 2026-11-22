@@ -45,7 +45,7 @@ import { powderBindings } from "@/examples/synthetic";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { MagneticFit, ResidualPeak } from "@/app/magneticStep";
 import { noiseOf } from "@/core/magnetic/momentRestarts";
-import { reRefinedRows, runMomentsFit } from "@/core/magnetic/momentsFit";
+import { momentsOnlyEsdOptions, reRefinedRows, runMomentsFit } from "@/core/magnetic/momentsFit";
 import { momentBindingKey, type MagneticModel } from "@/core/magnetic/types";
 import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import type { Vec3 } from "@/core/math/types";
@@ -864,27 +864,15 @@ function nuclearRequest(page: PowderPageModel, parameters: readonly RefinementPa
 }
 
 /**
- * For a refinement that frees magnetic rows only (the moments, and k's
- * components): the held scale and background rows its esds are to include
- * (the engine's `esdWith`). Those rows were fitted to the same pattern, and a
- * moment's esd without their uncertainty is too small (10 to 29 % on the
- * report's patterns). Nothing for any other free set: its esds are its own.
- */
-export function momentEsdOptions(s: Session): Pick<RefinementOptions, "esdWith"> | Record<string, never> {
-  const free = s.powderParams.filter((p) => !p.fixed && !p.expression);
-  if (!free.some((p) => isMomentParameterKind(p.kind)) || !free.every((p) => isMagneticModelParameterKind(p.kind))) return {};
-  const esdWith = Object.keys(reRefinedRows(s.powderParams));
-  return esdWith.length > 0 ? { esdWith } : {};
-}
-
-/**
  * The Refine button's fit of the current free set: with an applied magnetic
  * model, nuclear + magnetic on the shared scale; otherwise the nuclear
- * pattern. Applies nothing: the caller does, or (the Agent's correlation
- * probe) only reads it.
+ * pattern. With magnetic rows alone free it is a moments step, and its esds
+ * include the held scale and background as the moments fit's do
+ * (core/magnetic/momentsFit.ts, momentsOnlyEsdOptions). Applies nothing: the
+ * caller does, or (the Agent's correlation probe) only reads it.
  */
 export function powderFit(client: PowderCompute, page: PowderPageModel, options: Partial<RefinementOptions>, gpu = false, onProgress?: PowderProgress): Promise<RefinementResult> {
-  if (magneticApplied(page.session)) return client.refineMagneticPowderParallel(magneticSpec(page), { ...options, ...momentEsdOptions(page.session) });
+  if (magneticApplied(page.session)) return client.refineMagneticPowderParallel(magneticSpec(page), { ...options, ...momentsOnlyEsdOptions(page.session.powderParams) });
   return client.refinePowderParallel({ ...nuclearRequest(page), options, useGpu: gpu }, onProgress);
 }
 

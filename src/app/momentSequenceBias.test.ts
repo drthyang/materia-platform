@@ -6,9 +6,9 @@ import {
 import { CELL, GAMMA_R0_HALF, j0Mn2, momentSize, reflection, type SpinModel } from "@/testSupport/independentMnwo4";
 import { MagneticStep, fitMoments, fitRows, momentFitReadout, MOMENT_ROUNDS_SUMMARY, type MomentRounds } from "@/app/magneticStep";
 import { magneticStepOn, sessionCurves } from "@/testSupport/magneticHeadless";
-import { momentEsdOptions, powderFit, powderPageCurves, weightedR, withFitResult, withMomentRoundRows } from "@/app/powderPage";
+import { powderFit, powderPageCurves, weightedR, withFitResult, withMomentRoundRows } from "@/app/powderPage";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import { ALTERNATION_MAX_ROUNDS, K0_SCALE_WITH_MOMENTS, reRefinedRows } from "@/core/magnetic/momentsFit";
+import { ALTERNATION_MAX_ROUNDS, K0_SCALE_WITH_MOMENTS, momentsOnlyEsdOptions, reRefinedRows } from "@/core/magnetic/momentsFit";
 // The loop under the moments fit, for the two tests that ask of it what the fit itself does not take: a cap, the other k = 0 choice.
 import { alternateMoments } from "@/core/magnetic/momentAlternation";
 import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
@@ -252,7 +252,7 @@ describe("the rows Refine moments hands back to the page", () => {
     const session = page.session();
     const free = session.powderParams.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
     expect(free).toEqual(["mom_Mn1_0"]);
-    expect(momentEsdOptions(session)).toEqual({ esdWith: Object.keys(held) });
+    expect(momentsOnlyEsdOptions(session.powderParams)).toEqual({ esdWith: Object.keys(held) });
     const client = new ComputeClient();
     const result = await powderFit(client, { session, instrument: DEFAULT_INSTRUMENT, fitRange: FIT_RANGE, result: null }, { maxIterations: 20 });
     // The Refine button's fit of the moments alone: nothing moves, and the esd is the one a joint fit quotes, keyed by the moment row only.
@@ -271,7 +271,7 @@ describe("the rows Refine moments hands back to the page", () => {
     const back = await powderFit(client, { session: without, instrument: DEFAULT_INSTRUMENT, fitRange: FIT_RANGE, result: null }, { maxIterations: 20 });
     expect(back.parameters.mom_Mn1_0!).toBeCloseTo(4.064, 2);
     // A free set with a nuclear row in it asks for nothing: its esds are its own.
-    expect(momentEsdOptions({ ...session, powderParams: session.powderParams.map((p) => (p.id === "scale" ? { ...p, fixed: false } : p)) })).toEqual({});
+    expect(momentsOnlyEsdOptions(session.powderParams.map((p) => (p.id === "scale" ? { ...p, fixed: false } : p)))).toEqual({});
   }, 60_000);
 
   it("the nuclear-only agreement the step compares with is the one from before the rounds, while the page holds their rows", async () => {
