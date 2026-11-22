@@ -153,7 +153,7 @@ those terms, report it.
 | k | `search_propagation_vector`, `set_propagation_vector` | `search_propagation_vector` |
 | Ions | `select_magnetic_ions` | `build_magnetic_model` (`ionLabels`) |
 | Groups | `magnetic_state`, `rank_magnetic_groups`, `choose_magnetic_group` | `list_magnetic_subgroups`, `allowed_moments` |
-| Moments | `set_moment_ties`, `refine_moments` | `build_magnetic_model`, `refine_magnetic_powder` |
+| Moments | `set_moment_ties`, `refine_moments` | `build_magnetic_model`, `refine_moments` |
 | Magnetic refinement | `continue_magnetic_refinement`, `set_free` (fix the rest), then `refine` | `refine_magnetic_powder` (free: the moments) |
 
 ## References

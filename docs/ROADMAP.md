@@ -326,7 +326,7 @@ each M3 candidate, then rank candidates by fit and physical plausibility.
   ([`magneticCompare.test.ts`](../src/core/workflow/magneticCompare.test.ts)).
 - ⬜ The true structure ranks first on a measured golden dataset.
 
-**Tools:** `build_magnetic_model` and `refine_magnetic_powder`; a magnetic
+**Tools:** `build_magnetic_model`, `refine_magnetic_powder` and `refine_moments`; a magnetic
 structure determination skill (M2 → M3 → M4) is planned.
 
 ### M5 — Ship the results 🚧

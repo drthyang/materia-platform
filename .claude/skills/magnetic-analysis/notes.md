@@ -48,9 +48,10 @@ esds carry the two rows' uncertainty.
   esd equal to the scatter over repeated noise.
 - The ranking still fits each group once (it compares groups), so a ranked moment reads
   1–3 % low until `refine_moments`.
-- Over MCP there is no `refine_moments`: alternate `refine_magnetic_powder` by hand, the
-  moments free, then the scale and the background free with the moments held, until the
-  moments move by less than 0.1 esd, and end on the moments.
+- Over MCP `refine_moments` runs the same rounds, from the values in the rows it is given.
+  `refine_magnetic_powder` with only the moment rows free is one moments step (with
+  `restarts`, the moment search to run before it); moments and nuclear rows together it
+  refuses, unless `joint: true`, whose result is labelled a joint fit.
 
 ## Only the magnetic parameters in the magnetic refinement (Stage 4)
 
