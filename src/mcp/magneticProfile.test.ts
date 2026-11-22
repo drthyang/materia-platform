@@ -110,13 +110,14 @@ describe("MCP magnetic tools on the whole powder profile", () => {
   });
 
   describe("refine_magnetic_powder", () => {
+    // The scale, the background and the moments in one fit: the joint fit, asked for by name (`joint: true`).
     const free = (ps: RefinementParameter[]): RefinementParameter[] =>
       ps.map((p) => ({ ...p, fixed: !["scale", "background", "momentMode"].includes(p.kind) || !!p.expression }));
 
     it("returns the components of the pattern it fitted on a cosine background", async () => {
       const profile: PowderProfile = { ...single.profile, backgroundType: "cosine" };
       const out = await refine_magnetic_powder({
-        structure, magnetic: mm.magnetic, pattern, parameters: free(singleParams), bindings: singleBindings, profile, staged: false, maxIterations: 6,
+        structure, magnetic: mm.magnetic, pattern, parameters: free(singleParams), bindings: singleBindings, profile, staged: false, maxIterations: 6, joint: true,
       });
       const fitted = problemFit(profile, out.parameters, singleBindings);
       expectOptionMatters(fitted.yCalc, problemFit(single.profile, out.parameters, singleBindings).yCalc);
@@ -129,7 +130,7 @@ describe("MCP magnetic tools on the whole powder profile", () => {
       const bindings = [...twoPhase.bindings, ...mm.bindings];
       const out = await refine_magnetic_powder({
         structure, magnetic: mm.magnetic, pattern, parameters: free(start(twoPhase.params)), bindings, profile,
-        extraPhases: [mno], staged: false, maxIterations: 6,
+        extraPhases: [mno], staged: false, maxIterations: 6, joint: true,
       });
       const fitted = problemFit(profile, out.parameters, bindings, [mnoPhase]);
       expectOptionMatters(fitted.yCalc, problemFit(twoPhase.profile, out.parameters, bindings, [mnoPhase]).yCalc);

@@ -246,7 +246,8 @@ describe("MCP analysis primitives (no data files needed)", () => {
     const out = await refine_magnetic_powder({
       structure, magnetic: truth.magnetic, pattern,
       parameters: params, bindings: [...nuclear.bindings, ...truth.bindings],
-      profile: nuclear.profile, maxIterations: 25,
+      // The scale and the background refine with the moments here: a joint fit, asked for by name.
+      profile: nuclear.profile, maxIterations: 25, joint: true,
     });
     const wR = 100 * (out.result.agreement.rWeighted ?? 1);
     expect(wR).toBeLessThan(3);
@@ -272,7 +273,8 @@ describe("MCP analysis primitives (no data files needed)", () => {
     const single = await refine_magnetic_powder({
       structure, magnetic: truth.magnetic, pattern,
       parameters: oneFree, bindings: [...nuclear.bindings, ...truth.bindings],
-      profile: nuclear.profile, maxIterations: 25,
+      // The scale and the background refine with the moments here: a joint fit, asked for by name.
+      profile: nuclear.profile, maxIterations: 25, joint: true,
     });
     const recovered = Math.abs(single.result.parameters[truth.parameters[0]!.id] ?? 0);
     expect(recovered).toBeGreaterThan(1.9);

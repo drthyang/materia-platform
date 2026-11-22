@@ -86,6 +86,8 @@ export interface RefinementAssessment {
   readonly findings: readonly AssessmentFinding[];
   /** A single headline for the agent (verdict + the count of what needs attention). */
   readonly summary: string;
+  /** The result's `methodNote`, repeated: how the fit was run, where that has to travel with its numbers. */
+  readonly methodNote?: string;
 }
 
 export interface AssessmentInput {
@@ -810,7 +812,7 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
     (verdict.gof !== undefined ? ` (GoF ${verdict.gof.toFixed(2)}` + (verdict.wRPercent !== undefined ? `, wR ${verdict.wRPercent.toFixed(2)}%)` : ")") : "") +
     (attention === 0 ? " — no issues flagged." : ` — ${attention} item${attention === 1 ? "" : "s"} need attention (${critical} critical, ${warnings} warning).`);
 
-  return { verdict, findings, summary };
+  return { verdict, findings, summary, ...(result.methodNote ? { methodNote: result.methodNote } : {}) };
 }
 
 // ---------------------------------------------------------------------------

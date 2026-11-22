@@ -350,6 +350,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
       maxIterations: z.number().int().min(1).max(200).optional(),
       restarts: z.number().int().min(0).max(40).optional().describe("Moment restarts before the joint solve (default 0). Use it when choosing between magnetic groups or when the moments look odd: one LM run lands in the nearest of several moment minima"),
       seed: z.number().int().optional().describe("Seed for the restart kicks (reproducible runs)"),
+      joint: z.boolean().optional().describe("Run a joint fit although moment rows and nuclear rows are free together. Not MATERIA's method; the result is labelled a joint fit (`note`, `result.methodNote`). Without it such a call is refused"),
     },
     selectsFree: true,
     handler: tools.refine_magnetic_powder,

@@ -374,6 +374,14 @@ export interface RefinementResult {
   readonly diagnostics?: RefinementDiagnostics;
   /** Human-readable notes, warnings, or failure reason. */
   readonly message?: string;
+  /**
+   * A statement about how this fit was run that has to travel with its
+   * numbers. Not set by the engine: a caller sets it for a fit run outside
+   * MATERIA's method on request (a joint nuclear + magnetic fit over MCP), and
+   * whatever is written from the result repeats it (the assessment, an export
+   * bundle's CIF and README).
+   */
+  readonly methodNote?: string;
 }
 
 /**

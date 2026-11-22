@@ -253,6 +253,7 @@ describe("worked examples, replayed through an MCP client", () => {
     // The search alone is one moments step against the nuclear fit's scale and background, which had taken up
     // magnetic intensity: it reads 8.05 %. The moments fit re-refines those two rows and says so.
     expect(best.searchWR).toBeGreaterThan(0.07);
+    expect(best.search.note).toMatch(/^A single moments step with the nuclear model held, not the settled moments fit/);
     expect(best.r.esdIncludes).toEqual(["scale", "bkg0", "bkg1", "bkg2", "bkg3"]);
     expect(best.r.rounds).toBeGreaterThanOrEqual(3);
     expect(best.r.kHeld).toBeUndefined();

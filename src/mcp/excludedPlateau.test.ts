@@ -51,7 +51,8 @@ describe("the MCP tools' wR on a pattern with an excluded plateau", () => {
     h().continueToRefinement(false);
     const s = session();
     const args = { structure: s.structure, pattern: s.pattern, bindings: [...s.powderBindings], profile: s.powderProfile };
-    const out = await refine_magnetic_powder({ ...args, magnetic: s.magnetic!, parameters: [...s.powderParams] });
+    // The page's rows after Continue: the moments free beside the nuclear rows the page left free, so a joint fit by name.
+    const out = await refine_magnetic_powder({ ...args, magnetic: s.magnetic!, parameters: [...s.powderParams], joint: true });
     expect(out.result.status).toBe("converged");
     const wR = out.result.agreement.rWeighted!;
     const c = out.components;

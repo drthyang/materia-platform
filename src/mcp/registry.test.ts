@@ -222,6 +222,7 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
         profile: built.profile,
         maxIterations: 2,
       },
+      // Nuclear rows only are free (the builder's moment rows come fixed): no note on the result.
       keys: ["components", "magnetic", "observationCount", "parallel", "parameters", "result"],
     };
   })(),

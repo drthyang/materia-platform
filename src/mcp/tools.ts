@@ -16,7 +16,7 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { PdfPattern, PdfScatteringType, PowderPattern, SineTransformRecord } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import { isMomentParameterKind, type LinearRestraint, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
+import { isMagneticModelParameterKind, isMomentParameterKind, type LinearRestraint, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import type { FitRange, PowderProfile } from "@/core/workflow/powder";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { parseMagneticCif } from "@/parsers/cif";
@@ -926,8 +926,26 @@ function magneticPowderOutputs(args: MagneticPowderArgs, refined: RefinementPara
   };
 }
 
+/** On a refine_magnetic_powder result whose free rows were moment-side rows only. */
+const SINGLE_MOMENTS_STEP_NOTE = "A single moments step with the nuclear model held, not the settled moments fit: the scale and the background were not re-refined with the moments, and the esds do not include them. For the moments to report, pass these `parameters` to refine_moments.";
+
+/** On a refine_magnetic_powder result run with joint:true and both sides free; also the result's `methodNote`. */
+const JOINT_FIT_NOTE = "Joint nuclear + magnetic fit, run on request (joint: true): moment rows and nuclear rows were refined in one step. This is not MATERIA's method, in which the moments are refined with the nuclear model held (refine_moments). Say so wherever these values are quoted.";
+
+/** Why refine_magnetic_powder will not free both sides without being asked, and what to call instead. */
+function jointFitRefusal(momentSide: readonly RefinementParameter[], nuclearSide: readonly RefinementParameter[]): string {
+  const ids = (rows: readonly RefinementParameter[]): string => `${rows.slice(0, 6).map((p) => p.id).join(", ")}${rows.length > 6 ? `, … (${rows.length})` : ""}`;
+  return `refine_magnetic_powder: not run. This call frees moment-side rows (${ids(momentSide)}) together with nuclear rows (${ids(nuclearSide)}). MATERIA refines the moments with the nuclear model held, never in one step with a nuclear row; the scale and the background count as nuclear. For the moments, call refine_moments: it re-refines the scale and the background in rounds with them. Here, free only nuclear rows (the moments held), or only moment rows (one moments step; with \`restarts\`, the moment search). To run the joint fit all the same, pass joint: true; its result is then labelled a joint fit.`;
+}
+
 /**
- * Co-refine nuclear + magnetic against a powder pattern. Staged by default —
+ * Refine a nuclear + magnetic model against a powder pattern, one side at a
+ * time: the nuclear rows with the moments held, or the moment-side rows (the
+ * moment amplitudes, and k's free components) with the nuclear model held. A
+ * free set with both in it is refused: the moments fit is `refine_moments`.
+ * `joint: true` runs that joint fit all the same and labels its result.
+ *
+ * Staged by default —
  * scale + background converge with moments and profile held, then everything
  * requested is freed — because a flat co-refinement from a poor moment start
  * can collapse the scale against exploding moments (the scale·|m|² valley;
@@ -954,6 +972,8 @@ export async function refine_magnetic_powder(args: {
   maxIterations?: number;
   restarts?: number;
   seed?: number;
+  /** Run a joint fit although moment-side and nuclear rows are free together: off MATERIA's method, and labelled so. */
+  joint?: boolean;
 }): Promise<{
   result: RefinementResult;
   parameters: RefinementParameter[];
@@ -961,10 +981,20 @@ export async function refine_magnetic_powder(args: {
   observationCount: number;
   components: { x: number[]; yObs: number[]; yNuclear: number[]; yMagnetic: number[]; yCalc: number[] };
   parallel: { workers: number } | null;
+  /** What kind of fit this was, where that has to be said: a single moments step, or a joint fit run on request (then also `result.methodNote`). */
+  note?: string;
   multiStart?: { restartsRun: number; bestStartIndex: number; improved: boolean; costByStart: number[]; degeneracies: MomentDegeneracy[] };
 }> {
   const maxIterations = args.maxIterations ?? 25;
   let params = args.parameters.map((p) => ({ ...p }));
+  // The rule (docs/adr/0006): moments refine with the nuclear model held. A free set with both sides in it is
+  // refused unless the caller asks for the joint fit by name, and that fit's result says what it is.
+  const free = params.filter((p) => !p.fixed && !p.expression);
+  const momentSide = free.filter((p) => isMagneticModelParameterKind(p.kind));
+  const nuclearSide = free.filter((p) => !isMagneticModelParameterKind(p.kind));
+  const both = momentSide.length > 0 && nuclearSide.length > 0;
+  if (both && !args.joint) throw new Error(jointFitRefusal(momentSide, nuclearSide));
+  const note = both ? JOINT_FIT_NOTE : momentSide.length > 0 ? SINGLE_MOMENTS_STEP_NOTE : undefined;
   const spec = magneticPowderSpec(args);
   // Node evaluator pool when the runtime supports it (one init serves every
   // pass: replicas evaluate from the full values record). Serial otherwise;
@@ -988,12 +1018,15 @@ export async function refine_magnetic_powder(args: {
           restarts: args.restarts!, minKick: momentKickFloor(params), ...(args.seed !== undefined ? { seed: args.seed } : {}),
         }, { maxIterations })
       : null;
-    const result = search ? search.final : await solver.solve(params, { maxIterations });
+    const solved = search ? search.final : await solver.solve(params, { maxIterations });
+    // A joint fit's label is on the result itself, so what is written from the result later carries it.
+    const result: RefinementResult = both ? { ...solved, methodNote: JOINT_FIT_NOTE } : solved;
     const refined = params.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
     return {
       result,
       ...magneticPowderOutputs(args, refined),
       parallel: pool ? { workers: pool.size } : null,
+      ...(note ? { note } : {}),
       ...(search ? {
         multiStart: {
           restartsRun: search.restartsRun, bestStartIndex: search.bestStartIndex, improved: search.improved,
@@ -2313,6 +2346,8 @@ export function export_bundle(args: {
     ...(a.rWeighted !== undefined ? (args.dataset ? { wr2: a.rWeighted } : { rwp: 100 * a.rWeighted }) : {}),
     ...(a.goodnessOfFit !== undefined ? { gof: a.goodnessOfFit } : {}),
     nParam,
+    // How the fit was run, where the result says so (a joint nuclear + magnetic fit): into the CIF and the README.
+    ...(args.result?.methodNote ? { specialDetails: args.result.methodNote } : {}),
   };
   const entries = refinementBundle(args.target, args.structure, data, {
     params,
