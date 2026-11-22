@@ -80,6 +80,7 @@ import { buildDistortionModes, buildSymmetryModes } from "@/core/crystal/distort
 import { refine, refineParallel } from "@/core/refinement/engine";
 import { boxcarScan, momentMultiStart, poolSolver } from "@/workers/strategy";
 import { momentKickFloor, type MomentDegeneracy } from "@/core/magnetic/canonicalize";
+import { ALTERNATION_MAX_ROUNDS, runMomentsFit, type MomentsFitOutcome } from "@/core/magnetic/momentsFit";
 import {
   boxcarPlanIssue,
   boxcarScannedMax,
@@ -870,6 +871,61 @@ export function build_magnetic_model(args: {
   };
 }
 
+/** What a magnetic powder tool is given: the model, the data and the rows. */
+interface MagneticPowderArgs {
+  structure: StructureModel;
+  magnetic: MagneticModel;
+  pattern: PowderPattern;
+  parameters: RefinementParameter[];
+  bindings: ParameterBinding[];
+  profile: PowderProfile;
+  extraPhases?: StructureModel[];
+  fitRange?: { min: number; max: number };
+}
+
+/**
+ * The problem the app's page fits, as the evaluator spec every runtime builds
+ * the same way: the whole profile (shape, η, Lorentz, the background basis),
+ * the window and every phase.
+ */
+function magneticPowderSpec(args: MagneticPowderArgs): Extract<EvaluatorSpec, { kind: "magneticPowder" }> {
+  const phases = (args.extraPhases ?? []).map((s) => ({ structure: s, id: s.id }));
+  return {
+    kind: "magneticPowder",
+    structure: args.structure,
+    magnetic: args.magnetic,
+    pattern: args.pattern,
+    parameters: args.parameters,
+    bindings: args.bindings,
+    ...(phases.length > 0 ? { extraPhases: phases } : {}),
+    shape: args.profile.shape,
+    ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}),
+    ...(args.profile.lorentz !== undefined ? { lorentz: args.profile.lorentz } : {}),
+    ...(args.profile.backgroundType !== undefined ? { backgroundType: args.profile.backgroundType } : {}),
+    ...(args.fitRange ? { fitRange: args.fitRange } : {}),
+  };
+}
+
+/** What a magnetic powder fit hands back beside its result: the rows at their refined values, the model at its refined moments, the two component curves and the points the fit counted. */
+function magneticPowderOutputs(args: MagneticPowderArgs, refined: RefinementParameter[]): {
+  parameters: RefinementParameter[];
+  magnetic: MagneticModel;
+  observationCount: number;
+  components: { x: number[]; yObs: number[]; yNuclear: number[]; yMagnetic: number[]; yCalc: number[] };
+} {
+  const phases = (args.extraPhases ?? []).map((s) => ({ structure: s, id: s.id }));
+  const refinedMagnetic = applyMagneticMoments(args.magnetic, args.bindings, Object.fromEntries(refined.map((p) => [p.id, p.value])));
+  const c = magneticPowderComponents(args.structure, refinedMagnetic, args.pattern, refined, args.bindings, args.profile, phases);
+  const excluded = excludedPointMask(c.yObs);
+  const inWindow = (x: number): boolean => !args.fitRange || (x >= args.fitRange.min && x <= args.fitRange.max);
+  return {
+    parameters: refined,
+    magnetic: refinedMagnetic,
+    observationCount: excluded.reduce((n, ex, i) => n + (ex || !inWindow(c.x[i]!) ? 0 : 1), 0),
+    components: { x: c.x, yObs: c.yObs, yNuclear: c.yNuclear, yMagnetic: c.yMagnetic, yCalc: c.yCalc },
+  };
+}
+
 /**
  * Co-refine nuclear + magnetic against a powder pattern. Staged by default —
  * scale + background converge with moments and profile held, then everything
@@ -909,23 +965,7 @@ export async function refine_magnetic_powder(args: {
 }> {
   const maxIterations = args.maxIterations ?? 25;
   let params = args.parameters.map((p) => ({ ...p }));
-  const phases = (args.extraPhases ?? []).map((s) => ({ structure: s, id: s.id }));
-  // The problem the app's page fits: the whole profile (shape, η, Lorentz, the
-  // background basis), the window and every phase.
-  const spec: Extract<EvaluatorSpec, { kind: "magneticPowder" }> = {
-    kind: "magneticPowder",
-    structure: args.structure,
-    magnetic: args.magnetic,
-    pattern: args.pattern,
-    parameters: args.parameters,
-    bindings: args.bindings,
-    ...(phases.length > 0 ? { extraPhases: phases } : {}),
-    shape: args.profile.shape,
-    ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}),
-    ...(args.profile.lorentz !== undefined ? { lorentz: args.profile.lorentz } : {}),
-    ...(args.profile.backgroundType !== undefined ? { backgroundType: args.profile.backgroundType } : {}),
-    ...(args.fitRange ? { fitRange: args.fitRange } : {}),
-  };
+  const spec = magneticPowderSpec(args);
   // Node evaluator pool when the runtime supports it (one init serves every
   // pass: replicas evaluate from the full values record). Serial otherwise;
   // trajectories are bit-identical either way.
@@ -950,16 +990,9 @@ export async function refine_magnetic_powder(args: {
       : null;
     const result = search ? search.final : await solver.solve(params, { maxIterations });
     const refined = params.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
-    const refinedMagnetic = applyMagneticMoments(args.magnetic, args.bindings, Object.fromEntries(refined.map((p) => [p.id, p.value])));
-    const c = magneticPowderComponents(args.structure, refinedMagnetic, args.pattern, refined, args.bindings, args.profile, phases);
-    const excluded = excludedPointMask(c.yObs);
-    const inWindow = (x: number): boolean => !args.fitRange || (x >= args.fitRange.min && x <= args.fitRange.max);
     return {
       result,
-      parameters: refined,
-      magnetic: refinedMagnetic,
-      observationCount: excluded.reduce((n, ex, i) => n + (ex || !inWindow(c.x[i]!) ? 0 : 1), 0),
-      components: { x: c.x, yObs: c.yObs, yNuclear: c.yNuclear, yMagnetic: c.yMagnetic, yCalc: c.yCalc },
+      ...magneticPowderOutputs(args, refined),
       parallel: pool ? { workers: pool.size } : null,
       ...(search ? {
         multiStart: {
@@ -967,6 +1000,110 @@ export async function refine_magnetic_powder(args: {
           costByStart: [...search.costByStart], degeneracies: search.degeneracies,
         },
       } : {}),
+    };
+  } finally {
+    await pool?.dispose();
+  }
+}
+
+/** refine_moments with no free moment row: there is nothing for the fit to refine. */
+const REFINE_MOMENTS_NO_MOMENT = "refine_moments: no moment row is free, so there is nothing to refine. The moment rows from build_magnetic_model come fixed. Pass the `parameters` of a refine_magnetic_powder call that had only the moment rows in `free` (with `restarts` it also searches the moments), or rows with fixed:false on the moments to refine. The phase gauge of a two-arm k stays fixed.";
+
+/** Why refine_moments held a k row the caller passed free. */
+const REFINE_MOMENTS_K_HELD = "k was held: refine_moments refines moment amplitudes only, with the propagation vector at the value in the model. The k rows passed free were not refined; their fixed flags are returned unchanged.";
+
+/** A moments fit's outcome in one line: the rounds, the agreement, what the esds include. */
+function momentsFitReading(out: MomentsFitOutcome): string {
+  const wR = out.agreement === null ? "" : `: wR ${(100 * out.agreement).toFixed(2)}%`;
+  if (Object.keys(out.reRefined).length === 0) {
+    return `Moments fitted with the nuclear model held, one moments step${wR}. There is no scale or background row to re-refine, and the esds are of the moments alone.`;
+  }
+  const n = `${out.rounds} round${out.rounds === 1 ? "" : "s"}`;
+  const rounds = out.settled
+    ? `settled in ${n}`
+    : `not settled after ${n} (the most a fit runs is ${ALTERNATION_MAX_ROUNDS}), a moment still moved by ${out.lastShiftOverEsd.toFixed(2)} esd; the last moments step is kept`;
+  const esds = out.esdIncludes.length > 0
+    ? "The esds include the scale and the background."
+    : "The esds are of the moments alone: the data do not separate them from the scale and the background.";
+  return `Moments fitted with the nuclear model held, ${rounds}${wR}. ${esds} \`parameters\` carries the re-refined scale and background.`;
+}
+
+/**
+ * The moments fit over MCP: the page's Refine moments, run by the same module
+ * (core/magnetic/momentsFit.ts). The moments refine with every nuclear row
+ * held, in rounds with the scale and the background, and the fit ends on a
+ * moments step; the module decides which rows each step refines, when the
+ * rounds stop, the iterations and the esds. A caller chooses none of that: its
+ * `fixed` flags count on a moment row only (a held one stays held).
+ *
+ * k is held: a free k component among the rows is held for this fit, and the
+ * result says so (`kHeld`). The fit starts from the values in the rows; it
+ * runs no moment search.
+ */
+export async function refine_moments(args: MagneticPowderArgs): Promise<{
+  /** The last moments step's engine result: its esds are the moments', with `esdIncludes`' uncertainty in them. */
+  result: RefinementResult;
+  /** Every row at its value after the fit (the caller's `fixed` flags unchanged): ready for the next call. */
+  parameters: RefinementParameter[];
+  magnetic: MagneticModel;
+  observationCount: number;
+  components: { x: number[]; yObs: number[]; yNuclear: number[]; yMagnetic: number[]; yCalc: number[] };
+  parallel: { workers: number } | null;
+  /** The refined moment amplitudes, by row id. */
+  moments: Record<string, number>;
+  /** Their esds, by row id. */
+  esd: Record<string, number>;
+  /** The scale and background rows whose uncertainty the esds include; empty when they are the moments' alone. */
+  esdIncludes: string[];
+  /** Why the esds are the moments' alone, where the scale and the background could not be included; null otherwise. */
+  esdAloneReason: string | null;
+  /** Rounds run (each: the scale and the background, then the moments). */
+  rounds: number;
+  /** False when the most rounds a fit runs were reached with a moment still moving. */
+  settled: boolean;
+  /** The largest move of a moment over the last round, in its esd. */
+  lastShiftOverEsd: number;
+  /** The weighted R of the last moments step (a fraction). */
+  wR: number | null;
+  /** The scale and background rows the rounds re-refined, at their values after the fit. */
+  reRefined: Record<string, number>;
+  /** The k rows passed free and held for this fit, with the reason. */
+  kHeld?: { parameterIds: string[]; note: string };
+  /** The outcome in one line. */
+  reading: string;
+}> {
+  const untied = (p: RefinementParameter): boolean => !p.expression;
+  // k is not refined by the moments fit: a free k row is held before the module sees the rows.
+  const kHeldIds = args.parameters.filter((p) => p.kind === "propagationK" && !p.fixed && untied(p)).map((p) => p.id);
+  const rows = args.parameters.map((p) => (kHeldIds.includes(p.id) ? { ...p, fixed: true } : { ...p }));
+  const momentIds = rows.filter((p) => isMomentParameterKind(p.kind) && !p.fixed && untied(p)).map((p) => p.id);
+  if (momentIds.length === 0) throw new Error(REFINE_MOMENTS_NO_MOMENT);
+  const spec = magneticPowderSpec({ ...args, parameters: rows });
+  // Node evaluator pool when the runtime supports it, serial otherwise, as refine_magnetic_powder runs a fit.
+  const pool = await createNodeEvaluatorPool(spec);
+  const solver = poolSolver(pool);
+  try {
+    await solver.init(spec);
+    const out = await runMomentsFit({ rows, magnetic: args.magnetic, fit: (fitRows, options) => solver.solve(fitRows, options) });
+    if (out.cancelled) throw new Error("refine_moments: the fit was stopped");
+    const refined = args.parameters.map((p) => ({ ...p, value: out.values[p.id] ?? p.value }));
+    const esd: Record<string, number> = {};
+    for (const id of momentIds) if (out.esd[id] !== undefined) esd[id] = out.esd[id]!;
+    return {
+      result: out.result,
+      ...magneticPowderOutputs(args, refined),
+      parallel: pool ? { workers: pool.size } : null,
+      moments: Object.fromEntries(momentIds.map((id) => [id, out.values[id]!])),
+      esd,
+      esdIncludes: [...out.esdIncludes],
+      esdAloneReason: out.esdAloneReason,
+      rounds: out.rounds,
+      settled: out.settled,
+      lastShiftOverEsd: out.lastShiftOverEsd,
+      wR: out.agreement,
+      reRefined: { ...out.reRefined },
+      ...(kHeldIds.length > 0 ? { kHeld: { parameterIds: kHeldIds, note: REFINE_MOMENTS_K_HELD } } : {}),
+      reading: momentsFitReading(out),
     };
   } finally {
     await pool?.dispose();

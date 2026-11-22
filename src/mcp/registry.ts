@@ -355,6 +355,19 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
     handler: tools.refine_magnetic_powder,
   },
   {
+    name: "refine_moments",
+    title: "Refine moments (nuclear model held)",
+    description: "The moments fit: refine the moment amplitudes of a magnetic model against a powder pattern with the nuclear model held, as the app's Refine moments does. It runs in rounds: the moments with every nuclear row held, then the scale and the background with the moments held, until no moment moves by 0.1 of its esd (at most 10 rounds), ending on the moments. A moment and a nuclear row never refine in one step. The tool decides which rows each step refines: every moment row passed with fixed:false refines (one passed fixed:true stays held: keep the phase gauge of a two-arm k fixed), every untied scale and background row is re-refined whatever its `fixed` flag, and no other row moves. k is held: a k row passed free is not refined, and `kHeld` says so. The fit starts from the values in `parameters` and runs no moment search; to search first, call refine_magnetic_powder with `restarts` and only the moment rows free, and pass its `parameters` here. Combine the parameters/bindings of the nuclear fit with the moment set from build_magnetic_model. Returns `moments` and their `esd` (with the uncertainty of the scale and the background in them: `esdIncludes`; `esdAloneReason` where they could not be included), `rounds`, `settled`, `lastShiftOverEsd`, `wR`, the re-refined rows (`reRefined`), a one-line `reading`, the refined `parameters` (ready for the next call), the refined magnetic model, and separated nuclear/magnetic component curves.",
+    inputSchema: {
+      structure: anyObj, magnetic: anyObj, pattern: anyObj,
+      parameters: anyArr.describe("Nuclear + moment parameters. `fixed` is read on moment rows only; the tool sets what each step refines"),
+      bindings: anyArr, profile: anyObj.describe("From build_refinement: the peak shape, η, the Lorentz factor and the background basis"),
+      extraPhases: anyArr.optional().describe("Additional (non-magnetic) crystallographic phases, as for refine_powder"),
+      fitRange: z.object({ min: z.number(), max: z.number() }).optional().describe("Window on the pattern's own axis, as for refine_powder"),
+    },
+    handler: tools.refine_moments,
+  },
+  {
     name: "parse_single_crystal_data",
     title: "Parse single-crystal reflections",
     description: "Parse single-crystal integrated intensities — a FullProf .int, a SHELX HKLF 4 .hkl, a .fcf CIF reflection loop, an SNS TOPAZ time-of-flight .hkl (each reflection with its own wavelength, 2θ, path length and run, detected from its columns), or a plain h k l I σ list — into a SingleCrystalDataset. The intensities are taken as corrected F² (Lorentz, polarization and absorption applied in data reduction), as every single-crystal program takes them. ALWAYS pass `name`: .int and .fcf are detected from the text, but HKLF 4 is fixed-column and looks exactly like a free-format list, so only the .hkl filename selects the column-exact reader (whitespace-splitting an HKLF 4 row reads σ as the intensity once F² ≥ 10000.00 fills its field). `format` reports which reader ran. Parse the nuclear and magnetic files, then merge_magnetic_supercell into one dataset for the magnetic refinement. A 0 0 0 row (the forward beam, not a Bragg reflection) is skipped by default — pass skipForwardBeam:false for a fundamental-indexed MAGNETIC file, where 0 0 0 is the satellite at k itself.",

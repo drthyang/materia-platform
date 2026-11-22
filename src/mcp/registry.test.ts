@@ -225,6 +225,19 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
       keys: ["components", "magnetic", "observationCount", "parallel", "parameters", "result"],
     };
   })(),
+  refine_moments: (() => {
+    const build = tools.build_magnetic_model({ structure, ionLabels: ["Po1"], moment: 0.5 });
+    return {
+      args: {
+        structure, magnetic: build.magnetic, pattern,
+        // The builder's moment rows come fixed: the fit refines the ones passed free.
+        parameters: [...built.parameters, ...build.parameters.map((p) => ({ ...p, fixed: !!p.expression }))],
+        bindings: [...built.bindings, ...build.bindings],
+        profile: built.profile,
+      },
+      keys: ["components", "esd", "esdAloneReason", "esdIncludes", "lastShiftOverEsd", "magnetic", "moments", "observationCount", "parallel", "parameters", "reRefined", "reading", "result", "rounds", "settled", "wR"],
+    };
+  })(),
   parse_single_crystal_data: {
     args: { text: "1 0 0 100 2\n1 1 0 50 2\n1 1 1 30 2\n", name: "sc", id: "nuc" },
     keys: ["dataset", "dropped", "format", "forwardBeamSkipped", "kVectors", "kept", "problems"],
