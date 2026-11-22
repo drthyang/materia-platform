@@ -88,7 +88,11 @@ release fixes bugs.
   esds with the scale and the background included, the rounds, whether the
   fit settled, wR and the re-refined rows. It takes no free set and no
   iteration limit, holds k (a k row passed free is held, and the result says
-  so), and starts from the values in the rows it is given.
+  so), and starts from the values in the rows it is given. It frees the
+  moment amplitudes itself, as the page does, so it runs on the rows
+  `build_magnetic_model` returns: the `fixed` flags on moment rows are not
+  read (a tie holds a component), and every flag comes back as passed. For a
+  two-arm k it needs `phaseGaugeParameterId` from `build_magnetic_model`.
   `refine_magnetic_powder` now refuses a call that frees moment rows or a k
   component together with any nuclear row, the scale and the background
   included, and says what to call instead. A caller that freed both before

@@ -30,8 +30,24 @@ The decisions are the owner's (2026-11-21 and 2026-11-22) and are recorded in
   arguments are the model and the data: `structure`, `magnetic`, `pattern`,
   `parameters`, `bindings`, `profile`, `extraPhases`, `fitRange`. It takes no
   free set (`free` is not offered on it), no stage, no restarts and no
-  iteration limit: the module decides. Of the caller's `fixed` flags only
-  those on moment rows count; a moment row passed fixed stays held.
+  iteration limit: the module decides.
+  - **It frees the moment amplitudes itself, by the page's rule.** Every
+    moment row refines except a tied one (a row with an `expression`; ions
+    sharing a site share one row) and the phase gauge of a two-arm k. That
+    rule is now one core function (`momentFitRows` in
+    `core/magnetic/momentModel.ts`), which the page's `fitRows` and the MCP
+    handler both call. No `fixed` flag is read, so the tool runs on the rows
+    `build_magnetic_model` returns, which come fixed, and every flag is
+    returned as it was passed. A component is held by a tie only, as on the
+    page; to refine a chosen subset once there is `refine_magnetic_powder`
+    with only those rows free.
+  - **The phase gauge is named by the caller.** The page reads the gauge's
+    id off its model build. An MCP caller passes the same id on,
+    `phaseGaugeParameterId` from `build_magnetic_model`. A two-arm model
+    without it is refused, as is an id that is not a moment row among the
+    rows, or an id passed for a model with a one-arm k. Whether a model has a
+    gauge is asked of the builder's own condition (`momentModelPropagation`),
+    not restated. The label is not read, and the model's type is unchanged.
   - It returns `moments` and their `esd`, `esdIncludes` (the scale and
     background rows whose uncertainty the esds carry) and `esdAloneReason`
     (the engine's reason where it could not include them, else null),
@@ -47,7 +63,8 @@ The decisions are the owner's (2026-11-21 and 2026-11-22) and are recorded in
   - **No moment search.** The fit starts from the values in the rows. The
     description says so and points to the search that exists:
     `refine_magnetic_powder` with `restarts` and only the moment rows free.
-  - With no moment row free it does not run, and says what to pass.
+  - With no moment amplitude among the rows (none, or only tied rows and the
+    gauge) it does not run, and says what to pass.
 - **`refine_magnetic_powder` refines one side at a time.** A moment-side row
   is a moment amplitude or a free k component; every other row is nuclear, the
   scale and the background included.
@@ -82,7 +99,8 @@ The decisions are the owner's (2026-11-21 and 2026-11-22) and are recorded in
 **The MCP route against the page, on a known truth**
 (`src/mcp/refineMoments.test.ts`; synthetic MnWO₄ from
 `testSupport/independentMnwo4.ts`, which shares no code with `src/core`; true
-moment 4.2 µB). With the rows in the page's order, `refine_moments` and the
+moment 4.2 µB). On the first call after `build_magnetic_model`, its moment
+rows still fixed, with the rows in the page's order, `refine_moments` and the
 page's Refine moments agree to the last bit; the test's bound is 1 part in
 10⁹, and it prints the difference:
 
@@ -101,10 +119,21 @@ moment differs by 8 × 10⁻¹⁶ and the esd by 3 × 10⁻¹² (relative); 0.25
 from the truth and 0.023 esd from the joint fit. The test's bounds for this
 case are the page's own: 3 esd and 0.05 esd.
 
-**k held.** A helix at k = (0 0 0.2317) with its three k rows passed free:
-they are held, `kHeld` names them, k does not move in the rows or the model,
-their flags come back as passed, and the moments equal those of the same fit
-without k rows (relative difference 0).
+**A two-arm k against the page.** Synthetic Mn₃Ga with k = (0 0 ¼) put on
+it, the two-arm case of the first part's dump: with the gauge's id passed,
+the gauge keeps its value and has no esd, and the moment, its esd and wR are
+the page's (relative difference 0; 1 round, wR 45.98 %: this k is not the
+pattern's, so the comparison is of the two routes, not of a structure).
+Without the id the call is refused.
+
+**k held.** A helix at k = (0 0 0.2317), two-arm, with its three k rows
+passed free and its gauge named: the k rows are held, `kHeld` names them, k
+does not move in the rows or the model, every flag comes back as passed, and
+the moments equal those of the same fit without k rows (relative difference
+0). The helix's two amplitudes come out at 1.9967(25) and 2.0034(27) µB for a
+true 2. The three amplitudes that start at exactly 0 stay there: the
+intensity is quadratic in an amplitude, so one at 0 has no gradient, on the
+page as here.
 
 **The rule on `refine_magnetic_powder`** (same test file): the refusal's
 whole message; `joint: true` running the joint fit, whose moment equals the
@@ -113,9 +142,12 @@ assessment, in the CIF and in both READMEs, and none of these on a result
 without the label; the single-moments-step note with and without restarts,
 and that step reading 4.06 µB for 4.2; nuclear rows alone as before.
 
-**The module decides the rows**: with every nuclear row marked free the fit is
-the same, bit for bit; a moment row passed fixed keeps its value and has no
-esd; the tool's transport schema has no `free`.
+**The tool decides the rows**: with every nuclear row marked free the fit is
+the same, bit for bit; with the moment rows flagged fixed, free or mixed the
+fit is the same, bit for bit, and each flag is returned as passed; a tied
+moment row follows its tie and has no esd; the three refusals about the
+phase gauge and the one for rows without a moment amplitude, each with its
+whole message; the tool's transport schema has no `free`.
 
 **Worked Example 3, before and after** (simulated Mn₃Ga 30 K, k = 0; recorded
 with `scripts/example3-demo.ts` before and after the change):
@@ -177,9 +209,9 @@ for `refine_magnetic_powder` frees nuclear rows only and needed no change.
 - The Copilot reads the skills: `magnetic-analysis/notes.md` grew by 96 bytes
   and its `SKILL.md` shrank by 36 (two table rows); `my-rietveld-workflow/mcp-tools.md`
   grew by 18. The changed lines are about MCP.
-- An MCP client's tool list grew from 78,121 to 82,643 bytes of names, titles,
-  descriptions and input schemas (41 to 42 tools): `refine_moments` 3,478,
-  `refine_magnetic_powder` +878, `build_magnetic_model` +166.
+- An MCP client's tool list grew from 78,121 to 83,264 bytes of names, titles,
+  descriptions and input schemas (41 to 42 tools): `refine_moments` 4,015,
+  `refine_magnetic_powder` +878, `build_magnetic_model` +250.
 - No live model run was made. Worth running again later, over MCP: Worked
   Example 3 by a model (the run recorded on 2026-10-05 used the calls that are
   now refused), and any MCP-driven magnetic scenario of the validation. In the
@@ -193,15 +225,14 @@ for `refine_magnetic_powder` frees nuclear rows only and needed no change.
   ffmpeg and a look at the animation's layout for 21 steps.
 - **Example 3 was not re-run by a model.** Its magnetic steps are the method's
   sequence replayed through the server, and the page says so.
-- **`refine_moments` freeing the moment rows itself.** `build_magnetic_model`
-  returns its moment rows fixed, and `refine_moments` as built here refines
-  the moment rows passed free: a caller gets those from a
-  `refine_magnetic_powder` call with only the moment rows in `free` (the
-  search the description points to). The owner has decided that the tool is
-  to free the moment amplitudes itself, as the page's button does. That is
-  not built yet: how the tool knows the phase-gauge row of a two-arm k, which
-  the page reads off the model build and an MCP caller does not pass, is
-  waiting for the owner's choice.
+- **The phase gauge's id is taken on trust.** The tool checks that the id
+  names a moment row and that the model has a gauge. It does not check that
+  the row is the one the builder named: that would restate the builder's
+  rule.
+- **Ties over MCP.** A tie is the only way to hold a component in the
+  moments fit. `build_magnetic_model` offers the same-site tie only; the
+  equal-|M| tie and the flipped units the page offers have no MCP argument, so
+  another tie means passing a row with an `expression`.
 - **How Example 3's true group converges.** Its moments fit settles in the
   tenth round, the most a fit runs, with a last shift of 0.098 esd against the
   limit of 0.1. The shift per round is to be measured and laid out so that the
@@ -219,12 +250,14 @@ for `refine_magnetic_powder` frees nuclear rows only and needed no change.
 At the branch's head, before this report's own commit (which changes no code):
 
 - `npm run build` and `npm run lint`: clean.
-- `npm test`: 3737 passed, 341 skipped, none failed.
-- `npm test` with the owner's local data: 3775 passed, 306 skipped, 1 failed.
-  Test by test the list is `main`'s plus 15 new tests (14 in
+- `npm test`: 3741 passed, 341 skipped, none failed.
+- `npm test` with the owner's local data: 3779 passed, 306 skipped, 1 failed.
+  Test by test the list is `main`'s plus 19 new tests (18 in
   `mcp/refineMoments.test.ts`, and the registry's contract test for
   `refine_moments`). The one failure is `localHexMagneticGolden`, which fails
   on `main` since #178 with the same message and is not touched here.
-- The first part's dump, re-run: identical to `main`'s at the last code commit
-  of this branch; at the head, the one line described above.
+- The first part's dump, re-run at the head: identical to `main`'s but for the
+  one line described above (the skill text's length). The page's `fitRows`
+  now calls the shared row rule, and no refinement's rows, options or results
+  changed.
 - The model-text snapshots: unchanged, nothing re-recorded.
