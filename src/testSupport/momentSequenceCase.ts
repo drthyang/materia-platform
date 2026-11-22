@@ -22,6 +22,7 @@ import { buildFor, candidatesOf, fitRows, momentParameters, powderTwins, rankCan
 import type { Session } from "@/app/powderSession";
 import { powderMomentFit } from "@/app/powderPage";
 import { noiseOf } from "@/core/magnetic/momentRestarts";
+import { runMomentsFit } from "@/core/magnetic/momentsFit";
 import type { MagneticModelBuild } from "@/core/magnetic/momentModel";
 import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
@@ -302,16 +303,12 @@ export function nuclearOnlyRows(c: Case, points: readonly { x: number; yObs: num
   return withValues(c.nuclearTruth, new Fitter(c, points).nuclearOnly(c.nuclearTruth, first).values);
 }
 
-/** The stopping rule proposed for the alternation: every free moment row moved by less than this fraction of its esd in the last round. */
-export const ALTERNATION_TOLERANCE = 0.1;
-export const ALTERNATION_MAX_ROUNDS = 8;
-
 /**
- * A moments fit that alternates, as the design proposes: the moments (nuclear
- * rows held), then the scale and the background (moments held), then the
- * moments again, until the moments move by less than ALTERNATION_TOLERANCE of
- * their esd; the last step is a moments step. The test's own statement of the
- * design, for comparing a ranking under it with today's single pass.
+ * The app's moments fit (core/magnetic/momentsFit.ts, runMomentsFit: rounds
+ * of the moments and of the scale and the background, ending on the moments)
+ * for every fit it is asked, the ranking's too, in this thread: for comparing
+ * a ranking under the rounds with today's single pass. `counts` takes each
+ * fit's rounds.
  */
 export function alternatingFit(c: Case, points: readonly { x: number; yObs: number; sigma: number }[], nuclear: Rows, counts?: { rounds: number[] }): MagneticFit {
   const pattern = patternOf(points);
@@ -319,28 +316,15 @@ export function alternatingFit(c: Case, points: readonly { x: number; yObs: numb
     agreementLabel: "wR",
     refine: async (magnetic, momentParams, momentBindings) => {
       const bindings = [...c.bindings, ...momentBindings];
-      const run = (rows: Rows, free: (p: RefinementParameter) => boolean): RefinementResult =>
-        refine(buildMagneticPowderProblem(c.structure, magnetic, pattern, freeing(rows, free), bindings, PROFILE, FIT_RANGE), { maxIterations: 20 });
-      const momentIds = new Set(momentParams.filter((p) => !p.fixed).map((p) => p.id));
-      const momentFree = (p: RefinementParameter): boolean => momentIds.has(p.id);
-      let rows: RefinementParameter[] = [...nuclear, ...momentParams];
-      let res = run(rows, momentFree);
-      let rounds = 0;
-      for (; rounds < ALTERNATION_MAX_ROUNDS; rounds++) {
-        const before = res;
-        rows = withValues(rows, res.parameters);
-        rows = withValues(rows, run(rows, (p) => (NUCLEAR_SETS.scaleBackground as readonly ParameterKind[]).includes(p.kind)).parameters);
-        res = run(rows, momentFree);
-        const shift = Math.max(...[...momentIds].map((id) => Math.abs(res.parameters[id]! - before.parameters[id]!) / (before.esd[id] || Infinity)));
-        if (shift < ALTERNATION_TOLERANCE) {
-          rounds++;
-          break;
-        }
-      }
-      counts?.rounds.push(rounds);
+      const out = await runMomentsFit({
+        rows: [...nuclear, ...momentParams], magnetic,
+        fit: (rows, options) => refine(buildMagneticPowderProblem(c.structure, magnetic, pattern, rows, bindings, PROFILE, FIT_RANGE), options),
+      });
+      if (out.cancelled) throw new Error("the rounds were cancelled");
+      counts?.rounds.push(out.rounds);
       const values: Record<string, number> = {};
-      for (const p of momentParams) values[p.id] = res.parameters[p.id] ?? p.value;
-      return { values, agreement: res.agreement.rWeighted ?? null, ...noiseOf(res) };
+      for (const p of momentParams) values[p.id] = out.values[p.id] ?? p.value;
+      return { values, agreement: out.agreement, ...noiseOf(out.result) };
     },
   };
 }
