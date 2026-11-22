@@ -13,7 +13,8 @@ import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { powderCurves } from "@/core/workflow/powder";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { MagneticStep, type AppliedModelView, type StepInputs } from "@/app/magneticStep";
-import { magneticApplied, magneticModelSummary, momentRoundValues, powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR, withMagneticModelRows, withMagneticPreview, withMomentRoundRows, type FitWindow, type PowderCompute } from "@/app/powderPage";
+import { reRefinedRows } from "@/core/magnetic/momentsFit";
+import { magneticApplied, magneticModelSummary, powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR, withMagneticModelRows, withMagneticPreview, withMomentRoundRows, type FitWindow, type PowderCompute } from "@/app/powderPage";
 
 /** The curves of a session, the magnetic model's contribution included. */
 export function sessionCurves(s: Session): ReturnType<typeof powderCurves> {
@@ -71,7 +72,7 @@ export function magneticStepOn(
       // A view-only TOF page, which the compute client does not refine, fits in this thread.
       fit: powderMomentFit(viewOnly ? null : opts.client ?? null, s, window),
       baselineAgreement: s.pattern.points.length > 0 ? weightedR(s, powderPageCurves(s).nuclear, window) : null,
-      nuclearValues: momentRoundValues(s),
+      nuclearValues: reRefinedRows(s.powderParams),
       // The rows a fit's rounds refined go onto the page, as the workbench puts them.
       onMomentFit: (held, fitted) => {
         const next = withMomentRoundRows(page().session, held, fitted);

@@ -154,7 +154,7 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     h().setK(TWO_ARM);
     h().choose(h().state().candidates.find((c) => c.momentParameters > 0)!.id);
     await h().refineMoments();
-    // Refine moments runs as rounds (momentAlternation.ts): a moments step, then per round the scale and the
+    // Refine moments runs as rounds (core/magnetic/momentsFit.ts): a moments step, then per round the scale and the
     // background with the moments held and a moments step again. It starts and ends on a moments step.
     expect(fits.length).toBeGreaterThanOrEqual(3);
     expect(fits.length % 2).toBe(1);
