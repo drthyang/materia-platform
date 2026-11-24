@@ -967,6 +967,7 @@ posterior samples, the single-crystal supercell result or view choices. See
 | **CIF** | yes | yes | yes | The refined structure with esds and agreement factors |
 | **mCIF** | with moments | — | — | The magnetic structure in its magnetic space group |
 | **CSV** | yes | — | yes | The observed, calculated and difference curves |
+| **For a MOTIF figure…** | yes | yes | yes | One standard file for a figure in MOTIF: the mode CIF with a subgroup child active, else the mCIF with moments on, else the CIF (first phase; the **?** says which and what is left out) |
 | **.int** | — | yes | — | The reflections in FullProf format, as a `_nuc` and `_mag` pair when both are loaded |
 | **GSAS-II bundle (.zip)** | yes | — | — | CIF, `.instprm`, data, a script that builds the GSAS-II project, and a README |
 | **FullProf bundle (.zip)** | yes | — | — | `.pcr`, data and a README |

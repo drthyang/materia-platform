@@ -10,6 +10,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { color, fz, mono, radius, shadow, space } from "@/app/theme";
 import type { HistoryBinding } from "@/app/historyBinding";
 import { HistoryIcon, HistoryPanel, StepArrow, StepText } from "@/app/ui/HistoryPanel";
+import { InfoBadge } from "@/app/ui/InfoBadge";
 
 /** Display face for the MATERIA wordmark — geometric, loaded in index.html. */
 const display = '"Space Grotesk", "IBM Plex Sans", system-ui, sans-serif';
@@ -40,6 +41,8 @@ export interface ExportAction {
   readonly onClick: () => void;
   /** Tooltip: what the file contains. */
   readonly hint?: string;
+  /** A "?" after the label with this line (read when the menu opens, so it follows the page's state). */
+  readonly help?: () => string;
 }
 
 interface Props {
@@ -607,7 +610,9 @@ function ExportMenu({ exports }: { exports: readonly ExportAction[] }): JSX.Elem
       {open && (
         <div style={menu}>
           {exports.map((e) => (
-            <MenuItem key={e.label} onClick={() => { setOpen(false); e.onClick(); }} {...(e.hint ? { title: e.hint } : {})}>{e.label}</MenuItem>
+            <MenuItem key={e.label} onClick={() => { setOpen(false); e.onClick(); }} {...(e.hint ? { title: e.hint } : {})}>
+              {e.help ? <>{e.label}<span style={{ marginLeft: 6 }} onClick={(ev) => ev.stopPropagation()}><InfoBadge text={e.help()} align="right" width={280} /></span></> : e.label}
+            </MenuItem>
           ))}
         </div>
       )}

@@ -33,6 +33,7 @@
 
 import type { MutableRefObject } from "react";
 import type { Workspace } from "@/core/project/types";
+import type { MotifChoice } from "@/app/forMotif";
 
 /**
  * Export actions an engine publishes for the shell's header buttons. The
@@ -60,6 +61,12 @@ export interface WorkbenchExports {
   gsas2Bundle?: () => void;
   /** A PDF fit as a PDFgui / diffpy-CMI bundle (.zip): the .stru, CIF, data, a PDFfit2 script and the PDFgui project builder. */
   pdfguiBundle?: () => void;
+  /**
+   * Export ▾ → "For a MOTIF figure…": the one standard file that fits the
+   * page's state (forMotif.ts), written with the page's existing exporters,
+   * and the choice itself for the entry's "?" line.
+   */
+  forMotif?: { readonly write: () => void; readonly choice: () => MotifChoice };
   /**
    * The engine's technique block of the project file — everything needed to
    * reopen this page as it is now. The shell wraps it with the phases and

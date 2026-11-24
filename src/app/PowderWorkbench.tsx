@@ -40,6 +40,8 @@ import { SiteTotals } from "@/app/ui/SiteTotals";
 import { powderPatternCsv } from "@/core/export/exporters";
 import { powderWorkspaceFrom, type PowderViewState } from "@/app/projectIo";
 import { structureToCif, magneticStructureToMcif, type CifRefinementMeta } from "@/core/export/cif";
+import { motifChoice } from "@/app/forMotif";
+import { momentModelPropagation } from "@/core/magnetic/momentModel";
 import { reportHtml, type ReportInput } from "@/core/export/report";
 import { powderReportInput, reportFileName, type MagneticExploration } from "@/app/reportInputs";
 import { powderJudgment } from "@/app/reportJudgment";
@@ -1015,6 +1017,22 @@ export function PowderWorkbench({
   function exportMcif(): void {
     exportPhaseCif(refinedStructure, true);
   }
+  // Export ▾ → For a MOTIF figure…: the mCIF with moments on, else the CIF (primary phase; forMotif.ts).
+  function motifState(): ReturnType<typeof motifChoice> {
+    const mag = liveMagnetic;
+    const magnetic = !!mag && mag.moments.length > 0;
+    const k = mag?.propagation[0] ?? [0, 0, 0];
+    return motifChoice({
+      magnetic,
+      modeChild: false,
+      phases: 1 + session.extraPhases.length,
+      incommensurate: magnetic && momentModelPropagation(refinedStructure, k).kind === "incommensurate",
+    });
+  }
+  function exportForMotif(): void {
+    if (motifState().kind === "mcif") exportMcif();
+    else exportCif();
+  }
 
   // The 3D card's own download: whichever phase the viewer is showing, so a
   // multi-phase session can export the secondary phase the header never offers.
@@ -1155,6 +1173,7 @@ export function PowderWorkbench({
       cif: exportCif,
       ...(session.magnetic && session.magnetic.moments.length > 0 ? { mcif: exportMcif } : {}),
       csv: exportCsv,
+      forMotif: { write: exportForMotif, choice: motifState },
       projectWorkspace: () => powderWorkspaceFrom(session, powderResult, instrument, instrumentLoaded, { fitRange, displayUnit, manualPeakD }),
       fullprofBundle: () => exportBundle("fullprof"),
       gsas2Bundle: () => exportBundle("gsas2"),

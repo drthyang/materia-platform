@@ -61,6 +61,8 @@ import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { downloadBlob, downloadText } from "@/app/download";
 import { zipStore } from "@/core/export/zip";
 import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
+import { motifChoice, type MotifChoice } from "@/app/forMotif";
+import { momentModelPropagation } from "@/core/magnetic/momentModel";
 import { reportHtml, type ReportInput } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
 import { esdsWithTies } from "@/core/refinement/constraints";
@@ -767,6 +769,25 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     // a multi-phase fit does not cross-apply another phase's cell.
     phases.forEach((phase, i) => exportPhaseCifRef.current(view.refinedPhases[i]!, phase.id, phaseMagnetic(phase.structure)));
   };
+  // Export ▾ → For a MOTIF figure…: the mode CIF with a subgroup child in force,
+  // else the first phase's mCIF with a spin model on, else its CIF (forMotif.ts).
+  const motifChoiceRef = useRef<() => MotifChoice>(() => motifChoice({ magnetic: false, modeChild: false }));
+  motifChoiceRef.current = (): MotifChoice => {
+    const magnetic = phaseMagnetic(phases[0]!.structure);
+    const on = !!magnetic && magnetic.moments.length > 0;
+    return motifChoice({
+      magnetic: on,
+      modeChild: modeCifOf(modelRef.current) !== null,
+      phases: phases.length,
+      incommensurate: on && momentModelPropagation(view.refinedPhases[0]!, magnetic.propagation[0] ?? [0, 0, 0]).kind === "incommensurate",
+    });
+  };
+  const exportForMotifRef = useRef<() => void>(noop);
+  exportForMotifRef.current = (): void => {
+    const kind = motifChoiceRef.current().kind;
+    if (kind === "modeCif") exportModeCif();
+    else exportPhaseCifRef.current(view.refinedPhases[0]!, phases[0]!.id, kind === "mcif" ? phaseMagnetic(phases[0]!.structure) : null);
+  };
   const exportReportRef = useRef<() => void>(noop);
   exportReportRef.current = (): void => {
     downloadText(`${pattern.id}_report.html`, reportHtml(reportInputRef.current()), "text/html");
@@ -795,6 +816,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       cif: () => exportCifRef.current(),
       report: () => exportReportRef.current(),
       pdfguiBundle: () => exportPdfguiRef.current(),
+      forMotif: { write: () => exportForMotifRef.current(), choice: () => motifChoiceRef.current() },
       projectWorkspace: () => projectWorkspaceRef.current(),
     };
     return () => { exportsRef.current = null; };

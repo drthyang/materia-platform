@@ -14,6 +14,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, useCallback } from "react";
 import type { HistoryBinding } from "@/app/historyBinding";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
+import { motifChoice } from "@/app/forMotif";
 import type { SingleCrystalWorkspace } from "@/core/project/types";
 import { modulatedInputsFrom } from "@/app/projectIo";
 import { useOnChange } from "@/app/useOnChange";
@@ -587,6 +588,8 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
       report: exportReport,
       cif: exportCif,
       scInt: exportInt,
+      // Export ▾ → For a MOTIF figure…: this page writes the CIF only (no mCIF exporter here; forMotif.ts).
+      forMotif: { write: exportCif, choice: () => motifChoice({ magnetic: false, modeChild: false, momentsNotExported: !!magnetic && magnetic.moments.length > 0 }) },
       projectWorkspace: () => workspaceOf(model, {
         magneticDataset: magneticDataset ?? null,
         modulated: { kText, ionState, moment: modMoment, seed: modSeed, restarts: modRestarts },

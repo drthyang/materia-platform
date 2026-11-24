@@ -59,7 +59,8 @@ import { newSession, loadedSession, bundledSession, emptySession, structureCarri
 import {
   changed, emptyPage, snapshotOf, specInstrumentOf, withInstrument, withInstrumentConstants, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
 } from "@/app/powderPage";
-import type { WorkbenchExports } from "@/app/workbenchEngine";
+import type { EngineExportsRef, WorkbenchExports } from "@/app/workbenchEngine";
+import { FOR_MOTIF_LABEL } from "@/app/forMotif";
 import { AgentLink } from "@/agent/link";
 import type { AgentHost } from "@/agent/executor";
 import { useAgent } from "@/agent/useAgent";
@@ -1196,12 +1197,19 @@ export function App(): JSX.Element {
   // document summarising the study — then the technique's own files. Labels
   // the shell can know (they depend only on session state it owns); behavior
   // lives in the engines.
+  // One entry, "For a MOTIF figure…", on every page: the one standard file that fits the page (forMotif.ts).
+  const forMotifAction = (ref: EngineExportsRef): ExportAction => ({
+    label: FOR_MOTIF_LABEL,
+    help: () => ref.current?.forMotif?.choice().help ?? "",
+    onClick: () => ref.current?.forMotif?.write(),
+  });
   const reportHint = "Self-contained HTML report: data and model, the fit figure and agreement factors, the refined atomic and magnetic structures with esds, every parameter, and the refinement's diagnostics";
   const headerExports: ExportAction[] = pdfDataset
     ? [
         { label: "Report", hint: reportHint, onClick: () => pdfExports.current?.report?.() },
         { label: "CIF", onClick: () => pdfExports.current?.cif?.() },
         { label: "CSV", onClick: () => pdfExports.current?.csv?.() },
+        forMotifAction(pdfExports),
         {
           label: "PDFgui / diffpy-CMI bundle (.zip)",
           hint: "The fit for PDFfit2, the engine of PDFgui and diffpy-CMI: the structure (.stru and CIF), the data, a script that refines the same parameters there and compares the results, the PDFgui project builder, and a README with the conventions",
@@ -1213,6 +1221,7 @@ export function App(): JSX.Element {
         { label: "Report", hint: reportHint, onClick: () => scExports.current?.report?.() },
         { label: "CIF", onClick: () => scExports.current?.cif?.() },
         { label: ".int", onClick: () => scExports.current?.scInt?.() },
+        forMotifAction(scExports),
       ]
     : [
         { label: "Report", hint: reportHint, onClick: () => powderExports.current?.report?.() },
@@ -1221,6 +1230,7 @@ export function App(): JSX.Element {
           ? [{ label: "mCIF", hint: "Magnetic structure in its magnetic space group — the magnetic cell for k ≠ 0, with centering / anti-translations — plus the moment loop", onClick: () => powderExports.current?.mcif?.() }]
           : []),
         { label: "CSV", onClick: () => powderExports.current?.csv?.() },
+        forMotifAction(powderExports),
         { label: "GSAS-II bundle (.zip)", onClick: () => powderExports.current?.gsas2Bundle?.() },
         { label: "FullProf bundle (.zip)", onClick: () => powderExports.current?.fullprofBundle?.() },
       ];
