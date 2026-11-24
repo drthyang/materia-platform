@@ -117,7 +117,6 @@ release fixes bugs.
   and an anisotropic site's tensor is rotated into each orbit row. The app's
   own view was right; the k ≠ 0 supercell files are unchanged
   ([report](docs/reports/2026-11-24-mcif-split-orbits.md)).
-
 - **A GSAS-II `.instprm` with several banks** gave the values of its last
   bank; it now opens on the first, as GSAS-II, or on the data's.
 - **A GSAS-II `.instprm` with several `key:value` pairs on a line** (joined
