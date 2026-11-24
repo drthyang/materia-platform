@@ -79,8 +79,9 @@ data block, which is what MOTIF reads.
    than the structure has. In 23 of the 99 Mn₃Ga groups one Ga or two Mn
    atoms of the 8 were missing (one group: both); the moments of the atoms that are there agree.
    MOTIF reads the file correctly. The commensurate k ≠ 0 path writes the
-   complete asymmetric unit of the magnetic cell and is not affected. This
-   change does not fix it; it waits on the owner.
+   complete asymmetric unit of the magnetic cell and is not affected. Fixed
+   separately in [#182](https://github.com/drthyang/materia-platform/pull/182)
+   ([report](./2026-11-24-mcif-split-orbits.md)); this change is built on it.
 2. **Mn₃Ga's Ga at (0.3333, 0.6667)** in the bundled CIF is 1/3 rounded. Two
    expansions that reach the same atom through different operations then
    differ by 10⁻⁴ in a coordinate, 5.4·10⁻⁴ Å. With Ga set to exactly
@@ -93,7 +94,9 @@ data block, which is what MOTIF reads.
    sine amplitudes as comments only. MOTIF refuses a file with modulation tags,
    but this one has none, so it draws the cosine amplitudes as a static
    structure without a word. The entry's **?** says the modulation is left
-   out.
+   out. MATERIA now also writes k in the standard `_parent_propagation_vector`
+   loop ([report](./2026-11-24-mcif-incommensurate-k.md)); a warning on such
+   files in MOTIF is a task for MOTIF itself.
 
 ## What changes for users
 
@@ -107,8 +110,7 @@ Nothing: no exporter changed, no pinned result or golden file moved.
 
 ## Not done
 
-- The writer's gap in finding 1, and how an incommensurate mCIF should be
-  marked (finding 3): questions for the owner.
+- MOTIF warning on an incommensurate file (finding 3): a task for MOTIF.
 - The single-crystal page writes no mCIF, so with a magnetic model on the
   entry writes the CIF and says the moments are left out.
 - The live "Open in MOTIF" button, when MOTIF is published.
