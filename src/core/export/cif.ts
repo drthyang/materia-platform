@@ -29,7 +29,7 @@ import { uEquivalent } from "@/core/crystal/adp";
 import { inverse, transpose } from "@/core/math/mat3";
 import { normalize } from "@/core/math/vec3";
 import type { Mat3, Vec3 } from "@/core/math/types";
-import { expandMagneticSupercell, momentAnchorPosition, type SupercellAtom } from "@/core/crystal/cellExpansion";
+import { expandMagneticSupercell, magneticOrbitRepresentatives, momentAnchorPosition, type SupercellAtom } from "@/core/crystal/cellExpansion";
 import { magneticCellGroup, type MagneticCellGroup } from "@/core/magnetic/supercellGroup";
 import { identifyMagneticGroupAnySetting, type TransformedIdentification } from "@/core/magnetic/bnsOg";
 import { magneticTypeOf } from "@/core/magnetic/magneticCell";
@@ -411,11 +411,22 @@ function magneticSymopBlock(structure: StructureModel, magnetic: MagneticModel, 
  * `_oN`, at the orbit position) and point its moment row at that label — the
  * same convention GSAS-II uses for orbit-split magnetic sites (e.g. the
  * Mn1_0/Mn1_1 of the Mn₃Ga golden data).
+ *
+ * The same holds for a split orbit that carries NO moment — a non-magnetic atom
+ * (Ga in Mn₃Ga) or a magnetic orbit whose moment the group forbids. The file's
+ * operations are the magnetic group's, so a reader expanding it (MOTIF,
+ * FullProf, VESTA, ISOCIF, this app's parser) rebuilds only the orbits that
+ * have a row: every orbit of every site gets one, at the orbit position the
+ * viewer uses ({@link magneticOrbitRepresentatives}), labelled `_oN` like the
+ * moment-carrying ones. A moment-free orbit has no `_atom_site_moment` row
+ * (the magCIF convention: an atom absent from the moment loop carries no moment).
  */
 function withOrbitSites(
   structure: StructureModel,
   magnetic: MagneticModel,
 ): { structure: StructureModel; magnetic: MagneticModel } {
+  const nuclearOps = structure.spaceGroup.operations;
+  const magneticOps = magnetic.operations ?? structure.spaceGroup.operations;
   const extra: AtomSite[] = [];
   const moments = magnetic.moments.map((m) => {
     if (!m.orbitIndex || m.orbitIndex <= 1) return m;
@@ -424,16 +435,19 @@ function withOrbitSites(
     const label = `${m.siteLabel}_o${m.orbitIndex}`;
     // Re-derived from the site as refined, so the exported orbit row sits where
     // the viewer draws it rather than where the model was first built.
-    const position = momentAnchorPosition(
-      structure.spaceGroup.operations,
-      magnetic.operations ?? structure.spaceGroup.operations,
-      base.position,
-      m.orbitIndex,
-      m.position,
-    );
+    const position = momentAnchorPosition(nuclearOps, magneticOps, base.position, m.orbitIndex, m.position);
     if (!extra.some((s) => s.label === label)) extra.push({ ...base, label, position });
     return { ...m, siteLabel: label };
   });
+  // Then the split orbits with no moment entry, site by site, after the rows
+  // above (so a file that already listed every orbit is written unchanged).
+  for (const base of structure.sites) {
+    magneticOrbitRepresentatives(nuclearOps, magneticOps, base.position).forEach((position, i) => {
+      if (i === 0) return; // orbit 1 is the asymmetric-unit row itself
+      const label = `${base.label}_o${i + 1}`;
+      if (!extra.some((s) => s.label === label)) extra.push({ ...base, label, position });
+    });
+  }
   if (extra.length === 0) return { structure, magnetic };
   return {
     structure: { ...structure, sites: [...structure.sites, ...extra] },
