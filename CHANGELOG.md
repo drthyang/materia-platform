@@ -105,6 +105,13 @@ release fixes bugs.
   nothing changes. Worked Example 3 follows the method
   ([report](docs/reports/2026-11-22-moments-fit-mcp.md),
   [decision](docs/adr/0006-moments-refine-with-the-nuclear-model-held.md)).
+- **An incommensurate mCIF states k in the standard tag.** The parent-cell
+  file now carries the parent space group and k in the
+  `_parent_propagation_vector` loop the supercell files use, with decimal
+  components that read back as the same number; before, k was only in a
+  comment. It is still not a (3+1)D superspace description; the k = 0 and
+  supercell files are unchanged
+  ([report](docs/reports/2026-11-24-mcif-incommensurate-k.md)).
 
 ### Fixed
 

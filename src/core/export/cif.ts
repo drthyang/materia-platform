@@ -377,9 +377,10 @@ function magneticGroupNames(id: TransformedIdentification): string[] {
  * Magnetic (BNS) symmetry-operation loop, when the space group carries them.
  * `name`: name the group from the operations when no label is given (k = 0:
  * the operations are a magnetic space group of the parent cell; at an
- * incommensurate k they are not, so it is left unnamed).
+ * incommensurate k they are not, so it is left unnamed). `parentName`: write
+ * the parent group's H-M name here (off when a provenance block already does).
  */
-function magneticSymopBlock(structure: StructureModel, magnetic: MagneticModel, label: string | undefined, name: boolean): string {
+function magneticSymopBlock(structure: StructureModel, magnetic: MagneticModel, label: string | undefined, name: boolean, parentName = true): string {
   // The magnetic operations are the model's own subgroup ops when it carries
   // them (an in-app model built by buildMagneticModel refines in a subgroup of
   // the parent nuclear group — writing the parent ops would claim the wrong
@@ -394,7 +395,7 @@ function magneticSymopBlock(structure: StructureModel, magnetic: MagneticModel, 
   const id = !label && name && ops.length > 0 ? identifyMagneticGroupAnySetting(ops) : null;
   if (label) head.push(`_space_group_magn.name_BNS  "${label}"`);
   else if (id) head.push(...magneticGroupNames(id));
-  if (structure.spaceGroup.hermannMauguin && !label) head.push(`_parent_space_group.name_H-M_alt  "${structure.spaceGroup.hermannMauguin}"`);
+  if (structure.spaceGroup.hermannMauguin && !label && parentName) head.push(`_parent_space_group.name_H-M_alt  "${structure.spaceGroup.hermannMauguin}"`);
   if (ops.length === 0) return head.join("\n");
   const opLoop = loop(
     ["_space_group_symop_magn_operation.id", "_space_group_symop_magn_operation.xyz"],
@@ -505,6 +506,41 @@ function supercellProvenance(structure: StructureModel, k: Vec3, n: readonly [nu
   const kLoop = loop(
     ["_parent_propagation_vector.id", "_parent_propagation_vector.kxkykz"],
     [["k1", `[${fraction(k[0])} ${fraction(k[1])} ${fraction(k[2])}]`]],
+  );
+  return [...lines, kLoop].join("\n");
+}
+
+/**
+ * One component of an irrational k, written so that reading it back gives the
+ * same double: JavaScript's shortest round-trip decimal (at most 17 significant
+ * digits), in fixed notation (no exponent) for a CIF reader.
+ */
+function kComponent(v: number): string {
+  if (Number.isInteger(v)) return String(v === 0 ? 0 : v);
+  const s = String(v);
+  if (!/e/i.test(s)) return s;
+  // |v| < 1e-6: fixed notation with the digits of the 17-significant-digit form.
+  return v.toFixed(Math.min(100, 16 - Math.floor(Math.log10(Math.abs(v)))));
+}
+
+/**
+ * Provenance for an incommensurate structure written in its parent cell: the
+ * parent space group and k in the same `_parent_propagation_vector` loop the
+ * supercell files use (decimal components that round-trip the double). No
+ * child transform: the cell written is the parent cell. This is not a (3+1)D
+ * magnetic-superspace description.
+ */
+function incommensurateProvenance(structure: StructureModel, k: Vec3): string {
+  const lines: string[] = [];
+  if (structure.spaceGroup.hermannMauguin) {
+    lines.push(`_parent_space_group.name_H-M_alt  "${structure.spaceGroup.hermannMauguin}"`);
+  }
+  if (structure.spaceGroup.number !== undefined) {
+    lines.push(`_parent_space_group.IT_number     ${structure.spaceGroup.number}`);
+  }
+  const kLoop = loop(
+    ["_parent_propagation_vector.id", "_parent_propagation_vector.kxkykz"],
+    [["k1", `[${kComponent(k[0])} ${kComponent(k[1])} ${kComponent(k[2])}]`]],
   );
   return [...lines, kLoop].join("\n");
 }
@@ -627,7 +663,9 @@ function mcifSupercell(
  * asymmetric unit only — so the exported cell, symmetry and moment directions
  * match the app's 3D view instead of an unmodulated 1×1×1 parent cell or a P1
  * atom list. For k = 0 the parent cell is written directly in the chosen
- * magnetic subgroup.
+ * magnetic subgroup. For an incommensurate k the parent cell is written with
+ * the parent group and k in the `_parent_propagation_vector` loop (decimal
+ * components that round-trip), not as a (3+1)D superspace description.
  */
 export function magneticStructureToMcif(
   structure: StructureModel,
@@ -643,17 +681,20 @@ export function magneticStructureToMcif(
 
   const aug = withOrbitSites(structure, magnetic);
   const cls = classifyPropagation(k, { centrings: centringTranslations(structure.spaceGroup.operations) });
+  const incommensurate = cls.kind === "incommensurate";
   const parts = [
     HEADER,
     `# propagation vector k = (${k[0]}, ${k[1]}, ${k[2]}) — ${describePropagation(cls)}`,
-    ...(cls.kind === "incommensurate"
+    ...(incommensurate
       ? ["# Incommensurate k: no finite magnetic supercell exists, so the parent cell is written with",
          "# the Fourier modulation amplitudes; a (3+1)D magnetic-superspace description is not emitted."]
       : []),
     `data_${block}`,
     `_pd_phase_name  '${structure.name}'`,
+    incommensurate ? incommensurateProvenance(structure, k) : "",
     cellBlock(structure, esd),
-    magneticSymopBlock(structure, magnetic, opts.magneticLabel, cls.kind === "zero"),
+    // The incommensurate provenance above already names the parent group.
+    magneticSymopBlock(structure, magnetic, opts.magneticLabel, cls.kind === "zero", !incommensurate),
     refinementBlock(opts.refinement),
     atomSiteBlocks(aug.structure, esd),
     momentLoop(structure, aug.magnetic),
