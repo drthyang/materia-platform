@@ -10,6 +10,8 @@ import { fractionalToCartesian } from "@/core/crystal/unitCell";
 import { magneticSubgroupLattice, latticeRepresentatives, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
+import { rotateUAniso } from "@/core/crystal/adp";
+import { applyOperation } from "@/core/crystal/symmetry";
 import { exampleStructure } from "@/examples/mn3ga";
 import { mnwo4Structure } from "@/examples/mnwo4";
 
@@ -160,5 +162,44 @@ describe("k = 0 mCIF lists every orbit of the magnetic group (split orbits with 
     expect(text).toMatch(/^ {2}Ga1_o2 Ga /m);
     const momentLoop = text.slice(text.indexOf("_atom_site_moment.label"));
     expect(momentLoop).not.toContain("Ga1");
+  });
+});
+
+/**
+ * Every site made anisotropic with a generic tensor obeying its site symmetry
+ * (the average of R·U·Rᵀ over the parent operations that fix the site), so a
+ * split-orbit row reached through a rotation shows whether its tensor rotated.
+ * Components are multiples of 0.00012, so the average over a stabilizer of
+ * order ≤ 12 is exact at the five decimals the file prints: a hexagonal
+ * rotation mixes U11, U22 and U12 and would otherwise amplify print rounding.
+ */
+function anisotropic(structure: StructureModel): StructureModel {
+  const U0 = [0.012, 0.018, 0.024, 0.0036, -0.0024, 0.0048] as const;
+  return {
+    ...structure,
+    sites: structure.sites.map((site) => {
+      const fixing = structure.spaceGroup.operations.filter((o) => applyOperation(o, site.position).every((x, i) => {
+        const d = x - site.position[i]!;
+        return Math.abs(d - Math.round(d)) < 1e-9;
+      }));
+      const sum = [0, 0, 0, 0, 0, 0];
+      for (const o of fixing) rotateUAniso(U0, o.rotation).forEach((u, i) => { sum[i]! += u; });
+      const u = sum.map((x) => x / fixing.length) as unknown as [number, number, number, number, number, number];
+      return { ...site, adp: { kind: "anisotropic" as const, uAniso: u } };
+    }),
+  };
+}
+
+describe("k = 0 mCIF: a split-orbit row carries its ADP as seen by its orbit (U′ = R·U·Rᵀ)", () => {
+  it("MnWO₄ with anisotropic ADPs: every k = 0 group rebuilds every tensor from the file", () => {
+    const rows = sweep(anisotropic(mnwo4Structure()), ["Mn1"]);
+    const failing = rows.filter((r) => r.failures.length > 0).map((r) => `${r.name}: ${r.failures.join("; ")}`);
+    expect(failing).toEqual([]);
+  });
+
+  it("Mn₃Ga with anisotropic ADPs: every k = 0 group rebuilds every tensor from the file", () => {
+    const rows = sweep(anisotropic(mn3gaExact()), ["Mn1"]);
+    const failing = rows.filter((r) => r.failures.length > 0).map((r) => `${r.name}: ${r.failures.join("; ")}`);
+    expect(failing).toEqual([]);
   });
 });

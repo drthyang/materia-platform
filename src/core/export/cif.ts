@@ -25,7 +25,7 @@ import type { AtomSite, StructureModel, SymmetryOperation, UnitCell } from "@/co
 import type { MagneticModel, MagneticMoment } from "@/core/magnetic/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
-import { uEquivalent } from "@/core/crystal/adp";
+import { adpForOperation, uEquivalent } from "@/core/crystal/adp";
 import { inverse, transpose } from "@/core/math/mat3";
 import { normalize } from "@/core/math/vec3";
 import type { Mat3, Vec3 } from "@/core/math/types";
@@ -34,7 +34,7 @@ import { magneticCellGroup, type MagneticCellGroup } from "@/core/magnetic/super
 import { identifyMagneticGroupAnySetting, type TransformedIdentification } from "@/core/magnetic/bnsOg";
 import { magneticTypeOf } from "@/core/magnetic/magneticCell";
 import { classifyPropagation, describePropagation } from "@/core/magnetic/propagation";
-import { centringTranslations } from "@/core/crystal/symmetry";
+import { applyOperation, centringTranslations } from "@/core/crystal/symmetry";
 import { cellVolumeEsd } from "@/core/crystal/cellEsd";
 
 const EIGHT_PI2 = 8 * Math.PI * Math.PI;
@@ -404,6 +404,22 @@ function magneticSymopBlock(structure: StructureModel, magnetic: MagneticModel, 
 }
 
 /**
+ * An orbit row: the site at another member of its parent orbit, with its ADP as
+ * seen by the parent operation that carries the site there (U′ = R·U·Rᵀ, the
+ * same tensor the app's own expansion gives that atom). Copied unrotated, an
+ * anisotropic tensor would be wrong at every orbit reached through a rotation.
+ * A position no parent operation reaches (a moment anchor stored off the orbit)
+ * keeps the site's tensor as it is.
+ */
+function orbitRow(base: AtomSite, label: string, position: Vec3, nuclearOps: readonly SymmetryOperation[]): AtomSite {
+  const op = nuclearOps.find((o) => applyOperation(o, base.position).every((x, i) => {
+    const d = x - position[i]!;
+    return Math.abs(d - Math.round(d)) < 1e-6;
+  }));
+  return { ...base, label, position, ...(op ? { adp: adpForOperation(base.adp, op.rotation) } : {}) };
+}
+
+/**
  * Split-orbit moments (`orbitIndex` ≥ 2) anchor at an orbit-representative
  * position, not the asymmetric-unit site — written as-is, the moment loop would
  * repeat one site label with different implied positions and no reader could
@@ -436,7 +452,7 @@ function withOrbitSites(
     // Re-derived from the site as refined, so the exported orbit row sits where
     // the viewer draws it rather than where the model was first built.
     const position = momentAnchorPosition(nuclearOps, magneticOps, base.position, m.orbitIndex, m.position);
-    if (!extra.some((s) => s.label === label)) extra.push({ ...base, label, position });
+    if (!extra.some((s) => s.label === label)) extra.push(orbitRow(base, label, position, nuclearOps));
     return { ...m, siteLabel: label };
   });
   // Then the split orbits with no moment entry, site by site, after the rows
@@ -445,7 +461,7 @@ function withOrbitSites(
     magneticOrbitRepresentatives(nuclearOps, magneticOps, base.position).forEach((position, i) => {
       if (i === 0) return; // orbit 1 is the asymmetric-unit row itself
       const label = `${base.label}_o${i + 1}`;
-      if (!extra.some((s) => s.label === label)) extra.push({ ...base, label, position });
+      if (!extra.some((s) => s.label === label)) extra.push(orbitRow(base, label, position, nuclearOps));
     });
   }
   if (extra.length === 0) return { structure, magnetic };
