@@ -108,6 +108,15 @@ release fixes bugs.
 
 ### Fixed
 
+- **A k = 0 mCIF left atoms out when the magnetic group splits an orbit.** A
+  split orbit with no moment (a non-magnetic atom, or a magnetic orbit whose
+  moment the group forbids) had no atom-site row, so a program that rebuilds
+  the cell from the file's operations (MOTIF, FullProf, VESTA, ISOCIF)
+  showed fewer atoms; 23 of the 99 Mn₃Ga groups lost one Ga or two Mn. Every
+  split orbit is now written (`Ga1_o2`, no moment row when it has no moment),
+  and an anisotropic site's tensor is rotated into each orbit row. The app's
+  own view was right; the k ≠ 0 supercell files are unchanged
+  ([report](docs/reports/2026-11-24-mcif-split-orbits.md)).
 - **A GSAS-II `.instprm` with several banks** gave the values of its last
   bank; it now opens on the first, as GSAS-II, or on the data's.
 - **A GSAS-II `.instprm` with several `key:value` pairs on a line** (joined
