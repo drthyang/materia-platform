@@ -328,10 +328,51 @@ export function lowersTo(group: string, cell: string): Check {
  * the baseline first, are fair questions in Ask mode).
  */
 export function askedBeforeLowering(events: readonly EvalEvent[]): boolean {
-  if (events.some((e) => e.kind === "call" && e.name === "lower_symmetry" && !e.isError && !!json(e.text)?.lowered)) return false;
+  return !lowered(events) && endedOnQuestion(events);
+}
+
+/**
+ * The Agent's turn ended on a question after a lowering: the fit window, or
+ * what to refine next (THY-73, 2026-11-08: run 1 lowered, then asked about
+ * the fit window, and the run ended there). The user's answer lets it go on.
+ */
+export function askedAfterLowering(events: readonly EvalEvent[]): boolean {
+  return lowered(events) && endedOnQuestion(events);
+}
+
+/** A lower_symmetry call that left a subgroup on the page. */
+function lowered(events: readonly EvalEvent[]): boolean {
+  return events.some((e) => e.kind === "call" && e.name === "lower_symmetry" && !e.isError && !!json(e.text)?.lowered);
+}
+
+/** The last call or reply of the run so far is a question: an ask_user, or a reply that asks. */
+function endedOnQuestion(events: readonly EvalEvent[]): boolean {
   const last = [...events].reverse().find((e) => e.kind === "call" || (e.kind === "reply" && e.text.trim() !== ""));
   if (!last) return false;
   return last.kind === "call" ? last.name === "ask_user" && !last.isError : last.text.includes("?");
+}
+
+/** A k-point's coordinate as a reply may write it: "1/2", "½" or "0.5". */
+const FRACTION: Readonly<Record<string, string>> = { "1/2": "1/2|½|0?\\.5", "1/3": "1/3|⅓", "2/3": "2/3|⅔", "1/4": "1/4|¼|0?\\.25", "3/4": "3/4|¾|0?\\.75" };
+
+/**
+ * A reply names the k-point and irrep that reach the subgroup as the engine
+ * labels them (lower_symmetry's mode rows: "Δ (0, 0, 1/2) irrep 2 of 4"): the
+ * line's name, its coordinates (a line point needs them: Δ is a line, not a
+ * point) and the irrep's number. THY-85: line points' names were new in the
+ * engine, and no live model had seen one.
+ */
+export function namesKIrrep(line: string, k: readonly [string, string, string], irrep: number): Check {
+  const coordinate = (c: string): string => `(?:${FRACTION[c] ?? c.replace(/[.]/g, "\\.")})`;
+  const label = `${line} (${k.join(", ")}) irrep ${irrep}`;
+  const named = new RegExp(`${line}[^.\\n(]{0,20}\\(\\s*${k.map(coordinate).join("\\s*,\\s*")}\\s*\\)[^\\n]{0,30}?\\birrep\\s*${irrep}(?![\\d⊕]|\\s*⊕)`, "u");
+  return {
+    name: `names the k-point and irrep as the engine labels them: ${label}`,
+    grade: (run) => {
+      const hit = replies(run).flatMap((r) => sentences(r)).find((s) => named.test(s));
+      return hit ? ok(`"${hit.slice(0, 120)}"`) : fail(`no reply names ${label}`);
+    },
+  };
 }
 
 /** The row picked from the Subgroups view's list: list_subgroups before the first lowering. */

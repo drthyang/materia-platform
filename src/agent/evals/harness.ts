@@ -96,6 +96,12 @@ export interface Check {
   readonly grade: (run: EvalRun) => Verdict;
 }
 
+/** A stand-in user's answer, sent when `when` finds the Agent's turn ended on a question it answers. */
+export interface FollowUp {
+  readonly text: string;
+  readonly when: (events: readonly EvalEvent[]) => boolean;
+}
+
 export interface EvalScenario {
   readonly id: string;
   readonly title: string;
@@ -118,9 +124,11 @@ export interface EvalScenario {
   /**
    * What the user says next when the Agent's last turn ended on a question
    * their request already answers (`when` reads the run so far): sent once,
-   * after the messages, so a fair question does not end the run.
+   * after the messages, so a fair question does not end the run. Several are
+   * tried in order, each sent at most once (a question before lowering, then
+   * one after it).
    */
-  readonly followUp?: { readonly text: string; readonly when: (events: readonly EvalEvent[]) => boolean };
+  readonly followUp?: FollowUp | readonly FollowUp[];
   readonly autonomy: AgentAutonomy;
   /**
    * What the stand-in user approves: every change (default) or none. A change
@@ -240,9 +248,9 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
       return [m[1]!, filled.includes("{{") ? null : filled];
     }));
   };
-  const followUp = scenario.followUp;
+  const followUps: readonly FollowUp[] = scenario.followUp === undefined ? [] : "text" in scenario.followUp ? [scenario.followUp] : scenario.followUp;
   for (const text of scenario.messages) await say(text);
-  if (followUp && followUp.when(events)) await say(followUp.text);
+  for (const followUp of followUps) if (followUp.when(events)) await say(followUp.text);
   const run: EvalRun = { events, port, records, asked, notices, usage, reports, turns, seconds: (Date.now() - started) / 1000, policy: chat.policyFor({ ...model, autonomy: scenario.autonomy }) };
   const grades = scenario.checks.map((c) => ({ check: c.name, ...c.grade(run) }));
   return { scenario: scenario.id, run, grades, passed: grades.every((g) => g.pass) };

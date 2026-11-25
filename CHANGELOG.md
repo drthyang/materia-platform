@@ -93,6 +93,11 @@ release fixes bugs.
   range. The final instrument pass, the fit-cause advice and the report
   follow, and the two skills say it. A session whose instrument is a
   calibration alone reads as before. New eval scenario `file-profile-held`.
+- **Eval scenario `pdf-line-k-subgroup`**: the Agent names the line point and
+  irrep that reach a subgroup (Δ (0, 0, 1/2) irrep 2 for P-4c2 in 1×1×2 on
+  the GaTa₄Se₈ demo), lowers to it and refines; a question after a lowering
+  now gets the stand-in user's answer too. Developer tooling only
+  ([report](docs/reports/2026-11-25-eval-line-k-names.md)).
 - **MCP: `bank`.** `parse_instrument` and `parse_powder_data` take an
   optional `bank` and name the bank read and the banks in the file; the
   default is unchanged.

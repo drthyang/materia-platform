@@ -309,3 +309,22 @@ describe("symmetryLast", () => {
     ]) expect(symmetryLast.grade(run(said)), said).toMatchObject({ pass: false });
   });
 });
+
+describe("namesKIrrep", () => {
+  it("takes the engine's label for a line point, however its coordinate is written, and nothing else (THY-85)", async () => {
+    const { namesKIrrep } = await import("@/agent/evals/checks");
+    const run = (reply: string): EvalRun => ({ events: [{ kind: "reply", text: reply }] }) as unknown as EvalRun;
+    const check = namesKIrrep("Δ", ["0", "0", "1/2"], 2);
+    expect(check.name).toBe("names the k-point and irrep as the engine labels them: Δ (0, 0, 1/2) irrep 2");
+    expect(check.grade(run("P-4c2 is reached by Δ (0, 0, 1/2) irrep 2 of 4.")).pass).toBe(true);
+    expect(check.grade(run("The list gives Δ(0,0,½) irrep 2 (a,0,0,a,0,0) for it.")).pass).toBe(true);
+    expect(check.grade(run("The k-point is Δ at (0, 0, 0.5), and the irrep is irrep 2.")).pass).toBe(true);
+    // Another irrep, a sum of irreps, the coordinates without the line, or the line without its coordinates: not the label.
+    expect(check.grade(run("It is Δ (0, 0, 1/2) irrep 1 of 4.")).pass).toBe(false);
+    expect(check.grade(run("It is Δ (0, 0, 1/2) irreps 2⊕4.")).pass).toBe(false);
+    expect(check.grade(run("It is k = (0, 0, 1/2), irrep 2.")).pass).toBe(false);
+    expect(check.grade(run("It is the Δ line, irrep 2.")).pass).toBe(false);
+    expect(check.grade(run("It is the X point, (0, 0, 1), irrep 2.")).pass).toBe(false);
+    expect(check.grade(run("It is Δ (0, 0, 1/4) irrep 2.")).pass).toBe(false);
+  });
+});

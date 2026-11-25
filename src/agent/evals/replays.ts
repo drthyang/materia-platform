@@ -323,6 +323,22 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["lists the subgroups before lowering", "lowers the symmetry to P -4 21 m #113, in its own cell, 1×1×2", "refines the lowered model", "asks for no CIF of the subgroup"],
   },
+  "pdf-line-k-subgroup": {
+    good: [
+      { text: "Your method first, then the Subgroups view's list for P-4c2 in the 1×1×2 cell.", calls: [PDF, { name: "list_subgroups", input: { name: "P-4c2", cell: "1×1×2" } }] },
+      { text: "One row: P-4c2 #116 in 1×1×2, two classes, reached by Δ (0, 0, 1/2) irrep 2 alone, a point on the Δ line from Γ to X. Lowering to its default.", calls: [{ name: "lower_symmetry", input: { name: "P-4c2", cell: "1×1×2" } }] },
+      { text: "The order parameter's modes are free from a small kick. The cell held, they refine with the scale.", calls: [{ name: "set_free", input: { fix: ["cell_*"] } }, { name: "refine" }] },
+      { text: "F-43m is lowered to P-4c2 #116 in its own 1×1×2 cell. The k-point is Δ (0, 0, 1/2), on the line from Γ to X, and the irrep is Δ (0, 0, 1/2) irrep 2 of 4; its modes are refined with the scale: Rw {{Rw}}." },
+    ],
+    // A model that had only seen the X and W points names the zone-boundary point for the doubled c.
+    bad: [
+      { text: "Your method first, then the Subgroups view's list for P-4c2 in the 1×1×2 cell.", calls: [PDF, { name: "list_subgroups", input: { name: "P-4c2", cell: "1×1×2" } }] },
+      { text: "Lowering to the row's default.", calls: [{ name: "lower_symmetry", input: { name: "P-4c2", cell: "1×1×2" } }] },
+      { text: "The modes refine with the scale, the cell held.", calls: [{ name: "set_free", input: { fix: ["cell_*"] } }, { name: "refine" }] },
+      { text: "F-43m is lowered to P-4c2 #116 in its own 1×1×2 cell, reached by the X point, k = (0, 0, 1), irrep 2; its modes are refined with the scale: Rw {{Rw}}." },
+    ],
+    catches: ["names the k-point and irrep as the engine labels them: Δ (0, 0, 1/2) irrep 2"],
+  },
   "sc-data-first": {
     good: [
       { text: "The method, then the data.", calls: [SC, { name: "get_state" }, { name: "reflection_statistics" }] },
