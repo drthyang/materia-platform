@@ -115,6 +115,11 @@ release fixes bugs.
 
 ### Fixed
 
+- **The live evals' refusal check no longer fails a staging rule** restated
+  and followed ("the width must not refine with the positions, so I'll hold
+  the width and free …"); real refusals and gate citations still fail.
+  Developer tooling only ([report](docs/reports/2026-11-25-grader-staging-rule.md)).
+
 - **A live Agent eval run stops at its time limit** even while a fit holds
   the CPU: each run is its own process, killed at the run's limit
   (`MATERIA_AGENT_EVAL_TIMEOUT_MIN`) or at a new overall cap
