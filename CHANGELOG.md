@@ -115,6 +115,14 @@ release fixes bugs.
 
 ### Fixed
 
+- **A live Agent eval run stops at its time limit** even while a fit holds
+  the CPU: each run is its own process, killed at the run's limit
+  (`MATERIA_AGENT_EVAL_TIMEOUT_MIN`) or at a new overall cap
+  (`MATERIA_AGENT_EVAL_CAP_MIN`, default 30 min). A stopped run is a failure,
+  "timeout", with its conversation so far; the runs left are listed as not
+  run, and the `_OUT` report is still written. Developer tooling only
+  ([report](docs/reports/2026-11-25-eval-timeout.md)).
+
 - **An mCIF of a k with one incommensurate component is written in the
   parent cell.** MnWO₄'s k = (−0.214, ½, 0.457) was written as a supercell
   (b doubled for the ½, a group named "P_bc", the modulation at one point and

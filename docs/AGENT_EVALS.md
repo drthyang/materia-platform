@@ -33,8 +33,9 @@ where one fit takes seconds).
   `openai-compatible`, with a server at `_SERVER`, the last with its key in
   `_API_KEY`), `_CONTEXT` (the context for a server that does not say its own,
   or for Ollama to load a model with), `_ONLY` (scenario ids, comma-separated),
-  `_REPEAT` (runs per scenario), `_TIMEOUT_MIN` (minutes per run, default 20)
-  and `_OUT` (a JSON report) adjust it. A scenario whose data are not on the
+  `_REPEAT` (runs per scenario), `_TIMEOUT_MIN` (minutes per run, default 20),
+  `_CAP_MIN` (minutes for the whole live run, default 30) and `_OUT` (a JSON
+  report) adjust it. A scenario whose data are not on the
   machine (the user's own, git-ignored; `MATERIA_DATA_DIR` points a worktree
   at a checkout's `data/`) is skipped and said so. A local model needs no key:
 
@@ -42,6 +43,31 @@ where one fit takes seconds).
   MATERIA_AGENT_EVAL=1 MATERIA_AGENT_EVAL_TRANSPORT=ollama MATERIA_AGENT_EVAL_MODEL=gemma4:26b \
     MATERIA_AGENT_EVAL_OUT=/tmp/materia-eval-out/ollama-gemma4-26b.json npm run eval:agent -- --reporter=verbose
   ```
+
+- **Time limits that hold.** A run's page work can hold its thread for many
+  minutes (a moment fit with many free complex components sat ~40 min in one
+  live run, THY-71), and no timer in that process fires while it does. So
+  each live run is a child process ([`isolated.ts`](../src/agent/evals/isolated.ts),
+  running [`isolatedRun.test.ts`](../src/agent/evals/isolatedRun.test.ts)),
+  and the test process kills it, with everything it started, at the first of
+  two limits: the run's own (`_TIMEOUT_MIN`, counted from when the child
+  starts the scenario, which it must do within 2 min) and the overall cap (`_CAP_MIN`, wall-clock from the
+  first run). A run so stopped fails with one grade, `timeout` ("stopped at
+  the run's limit of 20 min, during refine_moments({})"), and keeps its
+  conversation up to then: the child writes its progress to a file as it
+  goes. Once the cap is spent, the runs not started are skipped and listed
+  as not run. The summary says so in a line starting `!!!`, and the `_OUT`
+  report is written after every run and at the end: each run carries
+  `outcome` (`finished`, `timeout`, or `error` when its process failed),
+  a stopped one also `limit` (`run` or `cap`) and `during`; the report
+  carries `limits`, `capReached` and `notRun`, and each summary row counts
+  `timeout`, `error` and `notRun`. The scenario's page and model are those
+  the test process would run: the same code, through Vitest, so the numbers
+  are the same. The CI test
+  ([`isolated.test.ts`](../src/agent/evals/isolated.test.ts)) stops a page
+  whose Refine spins on the CPU ([`stuckScenarios.ts`](../src/agent/evals/stuckScenarios.ts))
+  with the scripted model, at a 5 s limit and at a 1.5 s cap, and brings a
+  finished run back identical to the in-process one.
 
 - **Again, for free**: the `_OUT` report keeps each run whole — every tool's
   answer, the Agent's records, each report's text and what its number audit
@@ -53,7 +79,8 @@ where one fit takes seconds).
   ```
 
   It prints each run's verdicts beside the ones it had; `_OUT` writes the
-  re-scored report. A check that reads the page's final state (the window
+  re-scored report. A run that did not finish (`timeout`, `error`) is listed
+  as it was, not scored again. A check that reads the page's final state (the window
   set, the reflections left out) keeps the verdict the run had. CI replays
   every scripted run through that save and re-score.
 

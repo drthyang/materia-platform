@@ -12,15 +12,18 @@ import { regrade, savedRun, type EvalResult, type SavedRun } from "@/agent/evals
  *
  * Each run's verdicts are printed beside the ones it had; _OUT writes the
  * re-scored report. A check that reads the page's final state keeps the
- * verdict the run had (regrade() in harness.ts).
+ * verdict the run had (regrade() in harness.ts). A run the live eval stopped
+ * at a time limit (outcome "timeout") or lost to its process ("error") did
+ * not finish: it is listed as it was, not scored again.
  */
 
 const env = process.env;
 const path = env.MATERIA_AGENT_EVAL_REGRADE;
 
 describe.skipIf(!path)("Agent evals, re-scored from a saved run", () => {
-  const report = path ? (JSON.parse(readFileSync(path, "utf8")) as { model?: string; runs: SavedRun[] }) : { runs: [] };
+  const report = path ? (JSON.parse(readFileSync(path, "utf8")) as { model?: string; runs: (SavedRun & { outcome?: string })[] }) : { runs: [] };
   const results: { before: SavedRun; after: EvalResult }[] = [];
+  const unfinished = report.runs.filter((r) => r.outcome !== undefined && r.outcome !== "finished");
 
   afterAll(() => {
     const changed = results.filter((r) => r.before.passed !== r.after.passed);
@@ -28,14 +31,16 @@ describe.skipIf(!path)("Agent evals, re-scored from a saved run", () => {
       const flips = after.grades.filter((g) => before.grades.find((b) => b.check === g.check)?.pass !== g.pass);
       return `  ${after.passed ? "✓" : "✗"} ${i + 1}. ${after.scenario}: ${before.passed ? "passed" : "failed"} → ${after.passed ? "passes" : "fails"}${flips.map((g) => `\n      ${g.pass ? "now passes" : "now fails"}: ${g.check} — ${g.detail}`).join("")}`;
     });
-    console.log(`\nRe-scored ${results.length} runs of ${report.model ?? "a model"}: ${results.filter((r) => r.after.passed).length} pass (${results.filter((r) => r.before.passed).length} did); ${changed.length} changed\n${lines.join("\n")}`);
+    const stopped = unfinished.map((r) => `  ✗ ${r.scenario}: ${r.outcome}, not scored again — ${r.grades[0]?.detail ?? ""}`);
+    console.log(`\nRe-scored ${results.length} runs of ${report.model ?? "a model"}: ${results.filter((r) => r.after.passed).length} pass (${results.filter((r) => r.before.passed).length} did); ${changed.length} changed\n${lines.join("\n")}${stopped.length ? `\nUnfinished (${stopped.length}):\n${stopped.join("\n")}` : ""}`);
     if (env.MATERIA_AGENT_EVAL_OUT) {
       mkdirSync(dirname(env.MATERIA_AGENT_EVAL_OUT), { recursive: true });
-      writeFileSync(env.MATERIA_AGENT_EVAL_OUT, JSON.stringify({ ...report, regradedAt: new Date().toISOString(), runs: results.map((r) => savedRun(r.after)) }, null, 2));
+      writeFileSync(env.MATERIA_AGENT_EVAL_OUT, JSON.stringify({ ...report, regradedAt: new Date().toISOString(), runs: [...results.map((r) => savedRun(r.after)), ...unfinished] }, null, 2));
     }
   });
 
   for (const [i, saved] of report.runs.entries()) {
+    if (unfinished.includes(saved)) continue;
     it(`${i + 1}. ${saved.scenario}`, () => {
       const after = regrade(saved, scenario(saved.scenario));
       results.push({ before: saved, after });

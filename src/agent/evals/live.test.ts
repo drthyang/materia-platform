@@ -2,7 +2,8 @@ import { describe, it, expect, afterAll } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { SCENARIOS } from "@/agent/evals/scenarios";
-import { runScenario, savedRun, tierFlags, transcript, type EvalModel, type EvalResult } from "@/agent/evals/harness";
+import { type EvalModel } from "@/agent/evals/harness";
+import { LiveRuns, isolatedTranscript } from "@/agent/evals/isolated";
 import type { ChatEffort, ChatTransport } from "@/agent/chat";
 
 /**
@@ -17,10 +18,18 @@ import type { ChatEffort, ChatTransport } from "@/agent/chat";
  * _SERVER, the last with its key in _API_KEY), _CONTEXT (the context for a
  * server that does not say its own, or for Ollama to load a model with),
  * _ONLY (scenario ids, comma-separated), _REPEAT (runs per scenario, default
- * 1), _TIMEOUT_MIN (minutes per run, default 20) and _OUT (a JSON report)
- * adjust it. Each scenario's checks are soft assertions: the run reports every
- * failure, with the transcript. A scenario whose data are not on this machine
- * (the user's own, git-ignored) is skipped and said so.
+ * 1), _TIMEOUT_MIN (minutes per run, default 20), _CAP_MIN (minutes for the
+ * whole live run, default 30) and _OUT (a JSON report) adjust it. Each
+ * scenario's checks are soft assertions: the run reports every failure, with
+ * the transcript. A scenario whose data are not on this machine (the user's
+ * own, git-ignored) is skipped and said so.
+ *
+ * The limits hold even when a run's page work holds its thread (a moment fit
+ * with many free components): each run is a child process (isolated.ts) that
+ * is killed at the run's limit or at the overall cap. A run so stopped fails
+ * with outcome "timeout" and its conversation up to then; once the cap is
+ * spent the runs left are not run, and listed so. The summary and the _OUT
+ * report are written all the same (the report after every run, too).
  *
  * The local tier (docs/AGENT_EVALS.md) reads more than the checks from each
  * run: whether it hit the turn cap, was stopped for going in circles, met a
@@ -51,60 +60,59 @@ const repeat = Math.max(1, Number(env.MATERIA_AGENT_EVAL_REPEAT ?? 1) || 1);
 const asked = SCENARIOS.filter((s) => !only || only.includes(s.id));
 const chosen = asked.filter((s) => s.available?.() ?? true);
 const minutes = Math.max(1, Number(env.MATERIA_AGENT_EVAL_TIMEOUT_MIN ?? 20) || 20);
+const capMinutes = Math.max(1, Number(env.MATERIA_AGENT_EVAL_CAP_MIN ?? 30) || 30);
 
 describe.skipIf(!live)(`Agent evals, live (${model.model})`, () => {
-  const results: EvalResult[] = [];
+  const live = new LiveRuns(model, { runMs: minutes * 60_000, capMs: capMinutes * 60_000 });
+  const skipped = asked.filter((s) => !chosen.includes(s));
+
+  /** The _OUT report: written after every run, so a run killed from outside keeps what finished. */
+  const writeOut = (): void => {
+    if (!env.MATERIA_AGENT_EVAL_OUT) return;
+    mkdirSync(dirname(env.MATERIA_AGENT_EVAL_OUT), { recursive: true });
+    writeFileSync(env.MATERIA_AGENT_EVAL_OUT, JSON.stringify({
+      model: model.model,
+      transport,
+      effort: model.effort,
+      at: new Date().toISOString(),
+      limits: { runMinutes: minutes, capMinutes },
+      capReached: live.capReached,
+      summary: live.rows(chosen.map((s) => s.id)),
+      skipped: skipped.map((s) => s.id),
+      notRun: live.notRun,
+      usage: live.usage(),
+      runs: live.saved(),
+    }, null, 2));
+  };
 
   afterAll(() => {
-    const rows = chosen.map((s) => {
-      const runs = results.filter((r) => r.scenario === s.id);
-      const flags = runs.map((r) => tierFlags(r.run));
-      return {
-        id: s.id,
-        passed: runs.filter((r) => r.passed).length,
-        runs: runs.length,
-        seconds: Math.round(runs.reduce((t, r) => t + r.run.seconds, 0)),
-        turnCap: flags.filter((f) => f.turnCap).length,
-        loopStopped: flags.filter((f) => f.loopStopped).length,
-        chatError: flags.filter((f) => f.chatError).length,
-        truncated: flags.filter((f) => f.truncated).length,
-        maxSameCall: Math.max(0, ...flags.map((f) => f.maxSameCall)),
-      };
-    });
-    const skipped = asked.filter((s) => !chosen.includes(s));
+    const rows = live.rows(chosen.map((s) => s.id));
     const total = rows.reduce((n, r) => n + r.passed, 0);
-    const usage = results.reduce((u, r) => ({
-      input: u.input + r.run.usage.input,
-      output: u.output + r.run.usage.output,
-      cacheRead: u.cacheRead + r.run.usage.cacheRead,
-      cacheWrite: u.cacheWrite + r.run.usage.cacheWrite,
-    }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-    const flagged = (r: (typeof rows)[number]): string => [r.turnCap ? `turn cap ×${r.turnCap}` : "", r.loopStopped ? `loop stopped ×${r.loopStopped}` : "", r.chatError ? `chat error ×${r.chatError}` : "", r.truncated ? `cut ×${r.truncated}` : "", r.maxSameCall > 2 ? `same call ×${r.maxSameCall}` : ""].filter(Boolean).join(", ");
+    const usage = live.usage();
+    const flagged = (r: (typeof rows)[number]): string => [r.timeout ? `timeout ×${r.timeout}` : "", r.error ? `process failed ×${r.error}` : "", r.notRun ? `not run ×${r.notRun}` : "", r.turnCap ? `turn cap ×${r.turnCap}` : "", r.loopStopped ? `loop stopped ×${r.loopStopped}` : "", r.chatError ? `chat error ×${r.chatError}` : "", r.truncated ? `cut ×${r.truncated}` : "", r.maxSameCall > 2 ? `same call ×${r.maxSameCall}` : ""].filter(Boolean).join(", ");
     const seconds = rows.reduce((t, r) => t + r.seconds, 0);
-    console.log(`\nAgent evals (${model.model}, ${transport}): ${total}/${results.length} runs passed in ${seconds} s\n${rows.map((r) => `  ${r.passed === r.runs ? "✓" : "✗"} ${r.id}: ${r.passed}/${r.runs} (${r.seconds} s${flagged(r) ? `; ${flagged(r)}` : ""})`).join("\n")}${skipped.length ? `\nSkipped (data not on this machine): ${skipped.map((s) => s.id).join(", ")}` : ""}\nTokens: input ${usage.input}, output ${usage.output}, cache read ${usage.cacheRead}, cache write ${usage.cacheWrite}`);
-    if (env.MATERIA_AGENT_EVAL_OUT) {
-      mkdirSync(dirname(env.MATERIA_AGENT_EVAL_OUT), { recursive: true });
-      writeFileSync(env.MATERIA_AGENT_EVAL_OUT, JSON.stringify({
-        model: model.model,
-        transport,
-        effort: model.effort,
-        at: new Date().toISOString(),
-        summary: rows,
-        skipped: skipped.map((s) => s.id),
-        usage,
-        runs: results.map((r) => ({ ...savedRun(r), flags: tierFlags(r.run), transcript: transcript(r.run, 2000) })),
-      }, null, 2));
-    }
+    const cap = live.capReached ? `\n!!! The overall cap of ${capMinutes} min was reached: the run going then was stopped${live.notRun.length ? `, and ${live.notRun.length} not run: ${live.notRun.join(", ")}` : ""}.` : "";
+    console.log(`\nAgent evals (${model.model}, ${transport}): ${total}/${live.runs.length} runs passed in ${seconds} s${cap}\n${rows.map((r) => `  ${r.passed === r.runs + r.notRun ? "✓" : "✗"} ${r.id}: ${r.passed}/${r.runs + r.notRun} (${r.seconds} s${flagged(r) ? `; ${flagged(r)}` : ""})`).join("\n")}${skipped.length ? `\nSkipped (data not on this machine): ${skipped.map((s) => s.id).join(", ")}` : ""}\nTokens: input ${usage.input}, output ${usage.output}, cache read ${usage.cacheRead}, cache write ${usage.cacheWrite}`);
+    writeOut();
   });
 
   for (const s of chosen) {
     for (let i = 0; i < repeat; i++) {
-      it(`${s.id}${repeat > 1 ? ` #${i + 1}` : ""}: ${s.title}`, async () => {
-        const result = await runScenario(s, model);
-        results.push(result);
-        const text = transcript(result.run);
-        for (const g of result.grades) expect.soft(g.pass, `${g.check}: ${g.detail}\n---\n${text}`).toBe(true);
-      }, minutes * 60_000);
+      const label = `${s.id}${repeat > 1 ? ` #${i + 1}` : ""}`;
+      it(`${label}: ${s.title}`, async (ctx) => {
+        const done = await live.next(label, s.id);
+        if (!done) {
+          console.error(`!!! ${label}: not run, the overall cap of ${capMinutes} min is spent`);
+          writeOut();
+          ctx.skip();
+          return;
+        }
+        writeOut();
+        if (done.run.outcome !== "finished") console.error(`!!! ${label}: ${done.run.record.grades[0]!.check}: ${done.run.record.grades[0]!.detail}`);
+        const text = isolatedTranscript(done.run);
+        for (const g of done.run.record.grades) expect.soft(g.pass, `${g.check}: ${g.detail}\n---\n${text}`).toBe(true);
+        // The run's own limit and the cap stop it (isolated.ts); this is only Vitest's backstop.
+      }, (Math.min(minutes, capMinutes) + 5) * 60_000);
     }
   }
 });
