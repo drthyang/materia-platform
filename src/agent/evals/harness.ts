@@ -141,10 +141,20 @@ export interface EvalResult {
   readonly passed: boolean;
 }
 
+/** Where a run stands while it goes (runScenario's onProgress). */
+export interface RunProgress {
+  readonly technique?: AgentPort["technique"];
+  readonly events: readonly EvalEvent[];
+  readonly notices: readonly string[];
+  readonly usage: EvalUsage;
+  /** What the run is doing now: a tool call, the page's set-up; null between them. */
+  readonly during: string | null;
+}
+
 /** The model's side of a run: everything but the autonomy, which the scenario sets. */
 export type EvalModel = Omit<ChatConfig, "autonomy">;
 
-export const calls = (run: EvalRun): EvalCall[] => run.events.filter((e): e is EvalCall => e.kind === "call");
+export const calls = (run: Pick<EvalRun, "events">): EvalCall[] => run.events.filter((e): e is EvalCall => e.kind === "call");
 export const replies = (run: EvalRun): string[] => run.events.filter((e) => e.kind === "reply").map((e) => (e as { text: string }).text).filter((t) => t.trim() !== "");
 export const isChange = (name: string): boolean => liveTool(name)?.effect === "change";
 
@@ -166,18 +176,26 @@ export function freeAtCall(name: string, input: unknown, parameters: readonly Re
   return parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
 }
 
-/** Run one scenario and grade it. Never throws for the model's behaviour; a chat error becomes a notice. */
-export async function runScenario(scenario: EvalScenario, model: EvalModel, signal: AbortSignal = new AbortController().signal, onUsage?: (usage: EvalUsage) => void): Promise<EvalResult> {
+/**
+ * Run one scenario and grade it. Never throws for the model's behaviour; a chat error becomes a notice.
+ * `onProgress` hears where the run stands as it goes (each call, reply and notice, and the call it is
+ * in): a live run in a child process writes it down, so a run killed at its time limit keeps its
+ * conversation so far (isolated.ts). It only reads the run.
+ */
+export async function runScenario(scenario: EvalScenario, model: EvalModel, signal: AbortSignal = new AbortController().signal, onUsage?: (usage: EvalUsage) => void, onProgress?: (progress: RunProgress) => void): Promise<EvalResult> {
+  onProgress?.({ events: [], notices: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, during: "making the page" });
   const port = scenario.page();
   // The History as the app keeps it: the report lists the steps the analysis took.
   const history = headlessHistory(port);
   const { host, records } = fakeHost(port, history.history, (kind, agent) => history.record(kind, agent ? "agent" : undefined), history.goTo);
-  if (scenario.before) await scenario.before(port, (kind, label) => history.record(kind, undefined, label));
   const asked: ActivityEntry[] = [];
   const events: EvalEvent[] = [];
   const notices: string[] = [];
   const reports: EvalReport[] = [];
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const progress = (during: string | null): void => onProgress?.({ technique: port.technique, events, notices, usage, during });
+  progress(scenario.before ? "the user's steps before the conversation" : null);
+  if (scenario.before) await scenario.before(port, (kind, label) => history.record(kind, undefined, label));
   const turns: { prompt: number; output: number }[] = [];
   const started = Date.now();
   const executor = new AgentExecutor(host, {
@@ -193,11 +211,13 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
   const runner: ToolRunner = {
     run: async (name, input, signal) => {
       settle();
+      progress(`${name}(${JSON.stringify(input ?? {})})`);
       const free = freeAtCall(name, input, port.state().parameters);
       const out = await executor.run(name, input, signal);
       // The page records a refinement's step when it ends, as the Agent's.
       if (name === "refine" && out.refined) history.record("refine", "agent", "Refine");
       events.push({ kind: "call", name, input: (input ?? {}) as Record<string, unknown>, isError: out.isError, text: out.text, ...(free ? { free } : {}) });
+      progress(null);
       return out;
     },
     newConversation: () => executor.newConversation(),
@@ -229,18 +249,23 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
 
   async function say(text: string): Promise<void> {
     events.push({ kind: "user", text });
+    progress(null);
     try {
       await chat.send(text, { ...model, autonomy: scenario.autonomy }, {
         onAssistantStart: () => {
           settle();
           reply = { kind: "reply", text: "" };
           events.push(reply);
+          progress(null);
         },
         onText: (delta) => {
           if (reply) reply.text += delta;
         },
         onThinking: () => undefined,
-        onNotice: (notice) => notices.push(notice),
+        onNotice: (notice) => {
+          notices.push(notice);
+          progress(null);
+        },
         onUsage: (u) => {
           usage.input += u.input_tokens ?? 0;
           usage.output += u.output_tokens ?? 0;
@@ -257,6 +282,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
       notices.push(`chat error: ${e instanceof Error ? e.message : String(e)}`);
     }
     settle();
+    progress(null);
   }
 }
 
@@ -366,7 +392,7 @@ export function regrade(saved: SavedRun, scenario: EvalScenario): EvalResult {
 }
 
 /** A run as text, for a report or a failing test's message. */
-export function transcript(run: EvalRun, max = 400): string {
+export function transcript(run: Pick<EvalRun, "events" | "notices">, max = 400): string {
   const cut = (t: string): string => (t.length > max ? `${t.slice(0, max)}…` : t);
   return run.events.map((e) =>
     e.kind === "user" ? `USER: ${e.text}`
@@ -389,7 +415,7 @@ export interface TierFlags {
   readonly maxSameCall: number;
 }
 
-export function tierFlags(run: EvalRun): TierFlags {
+export function tierFlags(run: Pick<EvalRun, "events" | "notices">): TierFlags {
   const counts = new Map<string, number>();
   for (const c of calls(run)) {
     const key = `${c.name} ${JSON.stringify(c.input)}`;
