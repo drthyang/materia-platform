@@ -31,15 +31,15 @@ describe("the live eval's time limits", () => {
     const stand = await scriptedModel(STUCK);
     try {
       const t0 = Date.now();
-      const run = await runIsolated({ scenario: "stuck-refine", set: "stuck", model: stand.model, runMs: 2_000 });
+      const run = await runIsolated({ scenario: "stuck-refine", set: "stuck", model: stand.model, runMs: 5_000 });
       const stopped = run.record as StoppedRun;
       const why = isolatedTranscript(run);
       expect(run.outcome, why).toBe("timeout");
       expect(stopped).toMatchObject({ passed: false, outcome: "timeout", limit: "run", technique: "powder", during: "refine({})" });
-      expect(stopped.grades).toEqual([{ check: "timeout", pass: false, detail: "stopped at the run's limit of 2 s, during refine({})" }]);
+      expect(stopped.grades).toEqual([{ check: "timeout", pass: false, detail: "stopped at the run's limit of 5 s, during refine({})" }]);
       // Stopped at the limit, not when the page's loop gave up (ten minutes).
-      expect(stopped.seconds).toBeGreaterThanOrEqual(2);
-      expect(stopped.seconds).toBeLessThan(10);
+      expect(stopped.seconds).toBeGreaterThanOrEqual(5);
+      expect(stopped.seconds).toBeLessThan(15);
       expect(Date.now() - t0).toBeLessThan(120_000);
       // The conversation up to the stuck call: the message, the first reply, the method's and get_state's answers, the second reply.
       expect(stopped.events.map((e) => e.kind)).toEqual(["user", "reply", "call", "call", "reply"]);

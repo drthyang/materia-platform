@@ -22,9 +22,10 @@ describe.skipIf(!raw)("an eval run in a process of its own (isolated.ts)", () =>
   it("runs the scenario", async () => {
     const spec = JSON.parse(raw!) as ChildSpec;
     const write = (lines: readonly ProgressLine[]): void => appendFileSync(spec.progress, lines.map((l) => `${JSON.stringify(l)}\n`).join(""));
-    write([{ kind: "start" }]);
     const found = (await SETS[spec.set]()).find((s) => s.id === spec.scenario);
     if (!found) throw new Error(`no scenario ${spec.scenario} in ${spec.set}`);
+    // The run's own limit counts from here, as Vitest's per-test timeout did (the modules loaded, the run not begun).
+    write([{ kind: "start" }]);
     const sent = { events: 0, notices: 0, technique: false };
     const result = await runScenario(found, spec.model, undefined, undefined, (p) => write(progressLines(p, sent)));
     writeWhole(spec.result, JSON.stringify(savedRun(result)));

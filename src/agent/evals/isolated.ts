@@ -11,7 +11,8 @@
  * limit is reached.
  *
  * Two limits: the run's own (counted from the moment the child starts the
- * scenario, as Vitest's per-test timeout counted it) and the overall cap of
+ * scenario, as Vitest's per-test timeout counted it; the child has two
+ * minutes to get there) and the overall cap of
  * the live run (wall-clock, an absolute end time shared by every run). A run
  * stopped by either is recorded as a failure, outcome "timeout", with its
  * conversation up to that point and the call it was in: the child writes its
@@ -90,12 +91,14 @@ export interface IsolatedOptions {
   readonly scenario: string;
   readonly set?: ScenarioSet;
   readonly model: EvalModel;
-  /** The run's own limit, from the moment the child starts the scenario (before that, from the spawn). */
+  /** The run's own limit, from the moment the child starts the scenario (it has STARTUP_MS to get there). */
   readonly runMs: number;
   /** The overall cap: the time (Date.now()) every run must end by. */
   readonly capEndsAt?: number;
 }
 
+/** How long a child may take to start its scenario (Vitest's start-up, the modules loaded) before it is stopped; the cap bounds it too. */
+const STARTUP_MS = 2 * 60_000;
 const ZERO: EvalUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const TAIL = 4000;
 
@@ -205,7 +208,7 @@ export async function runIsolated(opts: IsolatedOptions): Promise<IsolatedRun> {
         killTree(child);
         return;
       }
-      const runEnds = (box.started ?? spawned) + opts.runMs;
+      const runEnds = box.started === null ? spawned + STARTUP_MS : box.started + opts.runMs;
       if (now >= Math.min(runEnds, capEndsAt)) {
         box.stopped ??= { at: now, limit: runEnds <= capEndsAt ? "run" : "cap" };
         killTree(child);
@@ -224,8 +227,10 @@ export async function runIsolated(opts: IsolatedOptions): Promise<IsolatedRun> {
     const so = existsSync(spec.progress) ? readProgress(readFileSync(spec.progress, "utf8")) : readProgress("");
     const from = box.started ?? spawned;
     const doing = so.during ?? (so.started ? "between tool calls" : "starting the run's process");
+    const limitText = stopped?.limit === "cap" ? `the overall cap (${span(capEndsAt - spawned)} left when the run began)`
+      : box.started === null ? `${span(STARTUP_MS)}: its process did not start the run` : `the run's limit of ${span(opts.runMs)}`;
     const grade = stopped
-      ? { check: "timeout", pass: false as const, detail: `stopped at ${stopped.limit === "run" ? `the run's limit of ${span(opts.runMs)}` : `the overall cap (${span(capEndsAt - spawned)} left when the run began)`}, during ${doing}` }
+      ? { check: "timeout", pass: false as const, detail: `stopped at ${limitText}, during ${doing}` }
       : { check: "error", pass: false as const, detail: `the run's process ended (exit ${exit.code ?? exit.signal ?? "unknown"}) before the run finished, during ${doing}:\n${tail.trim()}` };
     const record: StoppedRun = {
       scenario: opts.scenario,
