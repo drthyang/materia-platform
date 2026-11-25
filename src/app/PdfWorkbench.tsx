@@ -997,7 +997,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
             <div style={cardHeadLead}>
               <span style={{ ...uppercaseLabel, ...cardHeadLabel }} title={cardTitle}>{cardTitle}</span>
               {(viewTab === "fit" || viewTab === "posterior") && (
-                <span style={{ display: "flex", gap: 14, flex: "none", whiteSpace: "nowrap", fontFamily: mono, fontSize: 12.5 }}>
+                <span style={{ display: "flex", gap: 14, flex: "none", whiteSpace: "nowrap", fontFamily: mono, fontSize: 12.5, lineHeight: 1 }}>
                   <span style={{ color: color.secondary }} title="Rw over G(r) inside the fit window (uniform weights). G(r) point errors are correlated, so treat as a relative indicator.">
                     Rw <b style={{ color: rwInk(rw) }}>{Number.isFinite(rw) ? pct(rw) : "—"}</b>
                   </span>
