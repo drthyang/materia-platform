@@ -966,16 +966,13 @@ html:has(.wb-run-bar) .wb-shell::after {
     padding: 8px 12px !important;
   }
 }
-/* Up to 1280px back / forward move from the header into the History popover
- * (⌘Z / ⇧⌘Z still work), History shows as its icon and the menu buttons
- * tighten, so the brand, the chips and the menus still share one row. */
+/* Up to 1280px History shows as its icon and the menu buttons tighten, so
+ * the brand, the chips and the menus still share one row. Back / forward stay
+ * in the header: measured, the row holds them down to 1101px (29px to spare
+ * at a 1136px shell), and the two-row band below has room for them too. */
 @container shell (max-width: 1280px) {
-  .wb-history-nav,
   .wb-step-slot {
     display: none !important;
-  }
-  .wb-history-nav-inline {
-    display: inline-flex !important;
   }
   .wb-history-label {
     display: none !important;
@@ -1032,6 +1029,14 @@ html:has(.wb-run-bar) .wb-shell::after {
   }
   .wb-history-keys {
     display: none;
+  }
+  /* The menus fill this row: back / forward move into the History popover
+     (⌘Z / ⇧⌘Z still work). */
+  .wb-history-nav {
+    display: none !important;
+  }
+  .wb-history-nav-inline {
+    display: inline-flex !important;
   }
   .wb-header-action {
     padding: 6px 10px !important;
@@ -1123,6 +1128,20 @@ html:has(.wb-run-bar) .wb-shell::after {
 }
 .wb-step-current {
   animation: wb-step-current 0.18s ease both;
+  white-space: normal !important;
+}
+/* In the header the label takes two lines before it is cut (the bar is tall
+ * enough for two at this size): on one line "Loaded corundum.int" was cut at
+ * 1600px. Its whole text is in the chip's tooltip. The History list's rows
+ * keep one line. */
+.wb-step-current .wb-step-label {
+  white-space: normal !important;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
 }
 @media (prefers-reduced-motion: reduce) {
   .wb-step-current {
@@ -1210,6 +1229,16 @@ html:has(.wb-run-bar) .wb-shell::after {
   }
   label:has(> input[type="file"]) {
     display: inline-flex;
+  }
+  /* Back / forward sit inside one bordered pair: 42px each plus its 1px
+     border is the menus' 44px, so the pair does not stand 2px taller. */
+  .wb-history-nav > button {
+    min-height: 42px;
+  }
+  /* A summary card with nothing to load keeps the load button's height. */
+  .wb-load-spacer {
+    display: inline-flex;
+    min-height: 44px;
   }
   /* The header's chip groups and GPU chip share one row height: the clickable
      chips at 44px, and the selected chip (a label, not a button) and the GPU

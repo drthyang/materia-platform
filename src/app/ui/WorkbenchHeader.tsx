@@ -386,7 +386,7 @@ function CurrentStep({ binding }: { binding: HistoryBinding }): JSX.Element | nu
   return (
     <div className="wb-step-slot">
       {/* Keyed on the step, so each new current step slides in. */}
-      <span key={step.id} className="wb-step-current" style={currentChip} role="status">
+      <span key={step.id} className="wb-step-current" style={currentChip} role="status" title={[step.name, step.label].filter(Boolean).join(" ")}>
         <StepText step={step} current />
       </span>
     </div>
