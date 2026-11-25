@@ -641,10 +641,12 @@ html:has(.wb-run-bar) .wb-shell::after {
   }
 }
 
-/* Single-crystal page: quality/results (left) | parameters (right). */
+/* Single-crystal page: quality/results (left, two thirds) | parameters
+ * (right, one third): the 2 : 1 split of the powder and PDF working rows, so
+ * its edges line up with the three summary cards above. */
 .wb-sc {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--wb-gap);
   align-items: stretch;
   /* Deliberately NOT `flex: 1` like the powder/PDF working rows: this page's
@@ -655,12 +657,18 @@ html:has(.wb-run-bar) .wb-shell::after {
 /* A card below the two columns (the supercell magnetic panel) spans both, so
  * the row ends on the page's right edge instead of leaving the right column
  * ragged (alignment rule). */
+.wb-sc > :first-child {
+  grid-column: span 2;
+}
 .wb-sc-wide {
   grid-column: 1 / -1;
 }
 @container shell (max-width: 1120px) {
   .wb-sc {
     grid-template-columns: 1fr;
+  }
+  .wb-sc > :first-child {
+    grid-column: auto;
   }
 }
 

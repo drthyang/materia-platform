@@ -878,10 +878,26 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       title: pattern.name,
       meta:
         `${probeLabel}${pattern.radiationAssumed ? " (assumed)" : ""} · r ${rFirst.toFixed(2)}–${rLast.toFixed(2)} Å · ${pattern.points.length} pts` +
-        (pattern.qmax !== undefined ? ` · Qmax ${pattern.qmax.toFixed(1)} Å⁻¹` : "") +
         (pattern.sourceKind === "sq" ? " · from S(Q)" : pattern.sourceKind === "fq" ? " · from F(Q)" : "") +
         (pattern.reciprocal?.sigma ? " ± σ" : "") +
         (pattern.composition ? ` · ${pattern.composition}` : ""),
+    },
+    {
+      // The Q-space resolution of the measurement: Qmax from the data file, and
+      // the Qdamp / Qbroad envelope (their rows, which refine, stay in the
+      // Instrument group of the parameter table). Nothing to load: a third card
+      // so the row lines up with the working row's 2 : 1 columns.
+      label: "Instrument",
+      help: "The Q-space resolution: Qmax, where the transform was cut (from the data file), and the Qdamp and Qbroad envelope, which refine in the Instrument group of the parameters. Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.",
+      chip: "",
+      title: pattern.qmax !== undefined ? `Qmax ${pattern.qmax.toFixed(1)} Å⁻¹` : "Qmax not given",
+      meta: [["qdamp", "Qdamp"], ["qbroad", "Qbroad"]]
+        .map(([kind, name]) => {
+          const p = params.find((q) => q.kind === kind);
+          return p ? `${name} ${String(+p.value.toFixed(5))}` : null;
+        })
+        .filter((x) => x !== null)
+        .join(" · "),
     },
   ];
 
