@@ -104,7 +104,7 @@ function StepRow({ step, current, branches, onGoTo, onRename }: {
     if (name !== null) onRename(step.id, name);
   };
   return (
-    <li style={{ ...row, ...(current ? rowCurrent : {}) }}>
+    <li className="wb-history-row" style={{ ...row, ...(current ? rowCurrent : {}) }}>
       <button
         type="button"
         style={rowButton}

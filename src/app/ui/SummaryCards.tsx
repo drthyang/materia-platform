@@ -141,6 +141,7 @@ function LoadButton({ label, accept, onFile }: { label: string; accept: string; 
   const [hover, setHover] = useState(false);
   return (
     <label
+      className="wb-load"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{ ...loadButtonBox, cursor: "pointer", background: hover ? "#f5f0e7" : "transparent" }}
