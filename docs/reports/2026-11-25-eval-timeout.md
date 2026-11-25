@@ -96,10 +96,10 @@ each scenario's fresh page through the Copilot's `get_state` and
 `assess_refinement`; and the misfit and impurity pages' `find_unexplained_peaks`.
 Two things are wall-clock, not page numbers, and are left out: the run's time
 (`seconds`) and the time each Agent record was written (`at`). On `main`
-(0578a85) run twice: identical. On the branch (at 5f05569): identical, byte for byte (166 entries, 4.5 MB, SHA-256 `23ebcbd4…`).
+(0578a85) run twice: identical. On the branch, after the first commit and at the head: identical, byte for byte (166 entries, 4.5 MB, SHA-256 `23ebcbd4…`).
 
 The same good replays run through the child process (`LiveRuns`) on the
-branch, compared with `main`'s in-process ones: all 39 identical (the 40th scenario's data are not on this machine).
+branch, compared with `main`'s in-process ones, at the head: all 39 identical (the 40th scenario's data are not on this machine).
 
 ## What changes for users
 
