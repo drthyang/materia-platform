@@ -633,7 +633,7 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
         ))}
       </div>
       {wide ? (
-        <div style={{ flex: "1 1 auto", minHeight: 0, display: "grid", gridTemplateColumns: view === "tree" ? "minmax(0, 1.4fr) minmax(0, 1fr)" : "minmax(0, 1fr) minmax(0, 1.05fr)", gap: 12 }}>
+        <div style={{ flex: "1 1 auto", minHeight: 0, display: "grid", gridTemplateColumns: SPLIT, gap: 12 }}>
           <div className="wb-grow-box" style={{ ...cardBox, overflowY: "auto", minHeight: 160 }}>{listBody}</div>
           <div ref={detailBox} className="wb-grow-box" style={{ ...cardBox, overflowY: "auto", padding: "12px 16px 0", minHeight: 160 }}>
             {detail ?? <p style={{ margin: 0, color: color.secondary, fontSize: fz.small }}>Pick a subgroup: its cell, how you get there, then Activate.</p>}
@@ -660,6 +660,13 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
     </div>
   );
 }
+
+/**
+ * The list | detail split, one for both views: Tree and List had their own
+ * (1.4 : 1 and 1 : 1.05), so the detail pane jumped sideways on every switch.
+ * The tree's indented rows set the share; a List row is shorter and fits it.
+ */
+const SPLIT = "minmax(0, 1.25fr) minmax(0, 1fr)";
 
 const moreBtn: CSSProperties = { border: "none", background: "none", color: color.primary, fontSize: fz.micro, cursor: "pointer", padding: "2px 0", fontFamily: "inherit" };
 
