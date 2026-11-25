@@ -94,9 +94,11 @@ form than the review's line:
     `workbench.css`): the demo box takes its content's height instead of
     filling the column (about 650px on the iPad, the demos floating in its
     middle). Landscape screens keep the filled box.
-13. **Phone tree rows** (`ui/SubgroupsPanel.tsx`): after the cell, the
-    "n dom" and "n below" facts give way with an ellipsis, so they no longer
-    run under the irrep badge, which the row then clipped.
+13. **Phone tree rows** (`ui/SubgroupsPanel.tsx`): the cell gives way first
+    (it shrinks a thousand times faster), then the "n dom" and "n below"
+    facts with an ellipsis, so the row no longer pushes its irrep badge out
+    of its end. With the GaTa₄Se₈ tree opened three levels, rows that clipped
+    their badge: 3 at 360px and 2 at 390px on `main`, none after.
 
 ## Evidence
 
