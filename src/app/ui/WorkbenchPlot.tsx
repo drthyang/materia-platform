@@ -312,10 +312,33 @@ export function WorkbenchPlot({
   }, []);
   const boxW = box.w;
   const VB_H = box.h;
-  const { capY: CAP_Y, diffA: DIFF_A, diffY: DIFF_Y, tickMaxBot: TICK_MAX_BOT, tickTop: TICK_TOP, base: BASE, mainH: MAINH, xLabelY: X_LABEL_Y, axisTitleY: AXIS_TITLE_Y } = plotLayout(VB_H, (phases?.length ?? 0) > 0);
+  const { capY: CAP_Y, diffA: DIFF_A, diffY: DIFF_Y, tickMaxBot: TICK_MAX_BOT, tickTop: TICK_TOP, base: BASE, mainH: MAINH_FULL, xLabelY: X_LABEL_Y, axisTitleY: AXIS_TITLE_Y } = plotLayout(VB_H, (phases?.length ?? 0) > 0);
   const ts = plotTypeScale();
   const fsTick = 10 * ts; // axis tick labels
   const fsLabel = 11 * ts; // axis titles, legend, spotlight label
+
+  // The legend's entries (laid out in the render): the series, the found-peak
+  // key, the overlays, then one tick entry per phase row.
+  const hasSigma = !!obsSigma && obsSigma.length === xs.length;
+  const legendEntries: { color: string; label: string; shape: LegendShape }[] = [
+    { color: color.obs, label: "obs", shape: "dot" },
+    ...(hasSigma ? [{ color: color.obs, label: obsSigmaLabel, shape: "band" as const }] : []),
+    { color: color.calc, label: "calc", shape: "line" },
+    { color: color.diff, label: "diff", shape: "line" },
+    { color: color.bkg, label: "bkg", shape: "dashline" },
+    // The ▽ "found" key leads the dynamic entries when found peaks exist.
+    ...(foundPeaks && foundPeaks.length > 0 ? [{ color: foundStyle?.color ?? color.obs, label: foundStyle?.label ?? "found", shape: "triangle" as const }] : []),
+    ...(overlays ?? []).map((o, i) => ({ color: OVERLAY_COLORS[i % OVERLAY_COLORS.length]!, label: o.label, shape: "dash" as const })),
+    // Overlays replace the generic "hkl" key only; explicit Bragg rows (the
+    // magnetic page draws its candidate over the pattern AND needs its tick
+    // rows named) stay in the legend. No Bragg rows on a signed-y (PDF) plot —
+    // the generic "hkl" key only applies where reflection ticks can render.
+    ...(phases && phases.length > 0
+      ? phases.map((p) => ({ color: p.color, label: p.label, shape: "tick" as const }))
+      : signedY || (overlays && overlays.length > 0)
+        ? []
+        : [{ color: color.hkl, label: "hkl", shape: "tick" as const }]),
+  ];
 
   // y range of the observed data (±σ) over [lo, hi], padded as the axis shows it.
   const yObs = curves.yObs;
@@ -353,6 +376,14 @@ export function WorkbenchPlot({
   // margin is computed from the hook's view below, and fed back next render.
   const [frame, setFrame] = useState({ x0: X0_MIN, x1: boxW - RIGHT_PAD });
   const yScaleRef = useRef<{ yLo: number; ySpan: number }>({ yLo: 0, ySpan: 1 });
+  // The data region starts under the legend (and the found-peak row), so the
+  // top y label and the tallest peak no longer sit in the legend's row: on the
+  // magnetic page's narrower plot the legend ran into the top y label. The
+  // rows are counted on the last render's frame, as the margin is.
+  const legendRows = 1 + (layoutLegend(legendEntries, frame.x0 + 6, frame.x1, fsLabel, ts).at(-1)?.row ?? 0);
+  const legendBottom = LEGEND_Y + (legendRows - 1) * LEGEND_ROW * ts + 0.5 * fsLabel
+    + (foundPeaks && foundPeaks.length > 0 ? FOUND_TOP - LEGEND_Y + FOUND_H : 0) + 4;
+  const MAINH = Math.max(40, MAINH_FULL - Math.max(0, legendBottom - (BASE - MAINH_FULL)));
   const ix = usePlotInteraction({
     svgRef,
     domain,
@@ -802,27 +833,8 @@ export function WorkbenchPlot({
 
   // Legend layout (see the render): measured from the label widths, wrapping
   // onto extra rows on a narrow plot. The found-peak markers sit below it.
-  const hasSigma = !!obsSigma && obsSigma.length === xs.length;
   const legend = layoutLegend(
-    [
-      { color: color.obs, label: "obs", shape: "dot" },
-      ...(hasSigma ? [{ color: color.obs, label: obsSigmaLabel, shape: "band" as const }] : []),
-      { color: color.calc, label: "calc", shape: "line" },
-      { color: color.diff, label: "diff", shape: "line" },
-      { color: color.bkg, label: "bkg", shape: "dashline" },
-      // The ▽ "found" key leads the dynamic entries when found peaks exist.
-      ...(foundPeaks && foundPeaks.length > 0 ? [{ color: foundStyle?.color ?? color.obs, label: foundStyle?.label ?? "found", shape: "triangle" as const }] : []),
-      ...(overlays ?? []).map((o, i) => ({ color: OVERLAY_COLORS[i % OVERLAY_COLORS.length]!, label: o.label, shape: "dash" as const })),
-      // Overlays replace the generic "hkl" key only; explicit Bragg rows (the
-      // magnetic page draws its candidate over the pattern AND needs its tick
-      // rows named) stay in the legend. No Bragg rows on a signed-y (PDF) plot —
-      // the generic "hkl" key only applies where reflection ticks can render.
-      ...(phases && phases.length > 0
-        ? phases.map((p) => ({ color: p.color, label: p.label, shape: "tick" as const }))
-        : signedY || (overlays && overlays.length > 0)
-          ? []
-          : [{ color: color.hkl, label: "hkl", shape: "tick" as const }]),
-    ],
+    legendEntries,
     X0 + 6,
     X1,
     fsLabel,

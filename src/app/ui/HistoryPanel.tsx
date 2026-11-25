@@ -104,7 +104,7 @@ function StepRow({ step, current, branches, onGoTo, onRename }: {
     if (name !== null) onRename(step.id, name);
   };
   return (
-    <li style={{ ...row, ...(current ? rowCurrent : {}) }}>
+    <li className="wb-history-row" style={{ ...row, ...(current ? rowCurrent : {}) }}>
       <button
         type="button"
         style={rowButton}
@@ -137,7 +137,7 @@ export function StepText({ step, current = false, children }: {
   return (
     <>
       <span style={{ ...glyph, color: current ? color.primary : color.faint }} aria-hidden>{KIND_GLYPH[step.kind]}</span>
-      <span style={labelText}>
+      <span className="wb-step-label" style={labelText}>
         {step.name && <b style={{ marginRight: 5 }}>{step.name}</b>}
         <span style={{ color: step.name ? color.secondary : color.ink }}>{step.label}</span>
         {children}

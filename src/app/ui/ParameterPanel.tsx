@@ -217,7 +217,7 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
                 else groupRefs.current.delete(g.name);
               }}
             >
-              <div style={{ ...groupHeader, ...(marked === g.name ? markedHeader : {}) }} onClick={() => setOpen((o) => ({ ...o, [g.name]: !o[g.name] }))}>
+              <div className="wb-param-group" style={{ ...groupHeader, ...(marked === g.name ? markedHeader : {}) }} onClick={() => setOpen((o) => ({ ...o, [g.name]: !o[g.name] }))}>
                 <span style={{ color: color.primary, fontSize: 10 }}>{open[g.name] ? "▾" : "▸"}</span>
                 <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>{g.name}</span>
                 {groupInfo?.[g.name] && (

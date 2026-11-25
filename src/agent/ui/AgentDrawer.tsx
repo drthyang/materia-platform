@@ -144,12 +144,16 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
       ) : (
         <div style={head}>
           <div style={headRow}>
-            <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-              <SparkIcon />
-              <b className="wb-agent-title">MATERIA Copilot</b>
+            {/* The name gives way before the icons: it shrinks to an ellipsis
+                (Beta wraps under it first), never running under the gear. */}
+            <span style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "2px 8px", minWidth: 0, flex: "1 1 auto" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, maxWidth: "100%" }}>
+                <SparkIcon />
+                <b className="wb-agent-title">MATERIA Copilot</b>
+              </span>
               <span className="wb-agent-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
             </span>
-            <span style={{ display: "flex", gap: 4 }}>
+            <span style={{ display: "flex", gap: 4, flex: "none" }}>
               {agent.report && <IconButton title="Open the analysis report" onClick={agent.openReport}><ReportIcon /></IconButton>}
               <IconButton title="Settings" active={showSettings} onClick={() => setShowSettings((v) => !v)}>⚙</IconButton>
               <IconButton title="Close the Copilot" onClick={onClose}>✕</IconButton>

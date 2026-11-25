@@ -128,6 +128,19 @@ release fixes bugs.
   run, and the `_OUT` report is still written. Developer tooling only
   ([report](docs/reports/2026-11-25-eval-timeout.md)).
 
+- **Layout pass 2** (THY-69): the PDF page has an Instrument card (Qmax,
+  Qdamp, Qbroad) and the single-crystal page a Data settings card (source,
+  mode, λ, extinction, WGHT, moved unchanged), so every page's top row lines
+  up with its 2 : 1 working row; the Subgroups detail pane no longer jumps
+  between Tree and List; back / forward stay in the header down to 701px and
+  the current-step label takes two lines; pattern plots start their data
+  under the legend; on a tablet, list rows are 44px and card heads one line;
+  the Copilot's name no longer runs under its gear; segment labels never
+  wrap inside their buttons; on a phone the source cards are one sideways
+  row, the view tabs sit at one height and tree rows keep their irrep badge;
+  the landing's demo box fits its content on an upright tablet
+  ([report](docs/reports/2026-11-25-layout-pass-2.md)).
+
 - **An mCIF of a k with one incommensurate component is written in the
   parent cell.** MnWO₄'s k = (−0.214, ½, 0.457) was written as a supercell
   (b doubled for the ½, a group named "P_bc", the modulation at one point and

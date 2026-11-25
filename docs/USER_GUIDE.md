@@ -248,8 +248,8 @@ column.
 - The circular arrows beside **History ▾** step back and forward. So do ⌘Z /
   Ctrl+Z and ⇧⌘Z / Ctrl+Shift+Z, except inside a text field. The current step
   shows to the left of the arrows, as the list words it, where the header has
-  room. Below 1180 px wide the arrows move into the History list, and on a
-  tablet in landscape the menu shows as a clock icon.
+  room, on up to two lines. On a phone the arrows move into the History
+  list, and up to 1280 px wide the menu shows as a clock icon.
 - ✎ names a step, such as "before ADPs".
 - The history is saved with the project. Between saves it is kept in the
   browser. After a reload, the start page offers to restore the last session.
@@ -540,7 +540,8 @@ Models and caveats are in [PDF_MPDF_ROADMAP.md](./PDF_MPDF_ROADMAP.md). The
 workbench fits reduced data; it does not reduce raw intensities.
 
 1. Click **Load CIF…**, then **Load data…** with a `.gr`, `.sq`, `.fq` or `.fgr`
-   file. Check the probe and Qmax on the **Data · PDF G(r)** card.
+   file. Check the probe on the **Data · PDF G(r)** card and Qmax on the
+   **Instrument** card.
 2. Set the fit window with the blue handles. The default window skips the
    lowest r and stops at 30 Å at most. **Reset range** restores it.
 3. Click **Refine**. Only **PDF scale** and the cell start free.

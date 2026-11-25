@@ -1,6 +1,8 @@
 /**
- * Row A: three summary cards (Structure / Data / Instrument), each with a load
- * button, an OK status chip, a title line, and a mono meta line.
+ * Row A: three summary cards (Structure / Data / Instrument, or the page's own
+ * third card), each with a load button, an OK status chip, a title line, and a
+ * mono meta line. A card with nothing to load (the PDF page's Instrument, the
+ * single-crystal Data settings) has no button, and may hold only controls.
  */
 
 import { useState, type CSSProperties, type ReactNode } from "react";
@@ -11,12 +13,14 @@ export interface SummaryCardData {
   readonly label: string;
   /** Optional help text shown in a hover tooltip on a "?" badge by the title. */
   readonly help?: string;
-  readonly loadLabel: string;
-  readonly accept: string;
-  readonly onFile: (file: File) => void;
+  /** The load button; a card without one (nothing to load) leaves all three out. */
+  readonly loadLabel?: string;
+  readonly accept?: string;
+  readonly onFile?: (file: File) => void;
   readonly chip: string;
   /** Status chip tone: "ok" (green, default) or "warn" (red, e.g. synthetic data). */
   readonly chipTone?: "ok" | "warn";
+  /** The title line; empty for a card that holds only controls. */
   readonly title: string;
   readonly meta: string;
   /** One badge per crystallographic phase (multi-phase); removable ones show an ×. */
@@ -39,7 +43,9 @@ export interface SummaryCardData {
 
 export function SummaryCards({ cards }: { cards: readonly SummaryCardData[] }): JSX.Element {
   return (
-    <div className="wb-autofit">
+    // On a phone the cards are one row that scrolls sideways (.wb-sources in
+    // workbench.css), so the plot is not three cards further down the page.
+    <div className="wb-autofit wb-sources">
       {cards.map((c) => (
         <SummaryCard key={c.label} data={c} />
       ))}
@@ -61,7 +67,11 @@ function SummaryCard({ data }: { data: SummaryCardData }): JSX.Element {
         {data.help && <InfoBadge text={data.help} />}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
           {data.headerControl}
-          <LoadButton label={data.loadLabel} accept={data.accept} onFile={data.onFile} />
+          {data.onFile && data.loadLabel
+            ? <LoadButton label={data.loadLabel} accept={data.accept ?? ""} onFile={data.onFile} />
+            // Nothing to load: an empty box of the button's height, so this
+            // card's title sits on the same line as its neighbours'.
+            : <span aria-hidden className="wb-load-spacer" style={{ ...loadButtonBox, visibility: "hidden" }}>&nbsp;</span>}
         </div>
       </div>
       {showChipRow && (
@@ -98,7 +108,7 @@ function SummaryCard({ data }: { data: SummaryCardData }): JSX.Element {
           )}
         </div>
       )}
-      <div style={{ fontSize: fz.large, fontWeight: data.muted ? 500 : 640, color: data.muted ? color.secondary : color.ink, lineHeight: 1.3, letterSpacing: data.muted ? 0 : "-0.005em" }}>{data.title}</div>
+      {data.title && <div style={{ fontSize: fz.large, fontWeight: data.muted ? 500 : 640, color: data.muted ? color.secondary : color.ink, lineHeight: 1.3, letterSpacing: data.muted ? 0 : "-0.005em" }}>{data.title}</div>}
       {data.meta && <div style={{ fontSize: fz.small, color: data.muted ? color.faint : color.secondary, fontFamily: mono }}>{data.meta}</div>}
       {data.note}
       {data.control && <div style={{ marginTop: 2 }}>{data.control}</div>}
@@ -121,21 +131,22 @@ const phaseChip: CSSProperties = {
   color: color.ink,
 };
 
+const loadButtonBox: CSSProperties = {
+  border: `1px solid ${color.control}`,
+  borderRadius: radius.small,
+  padding: "2px 10px",
+  fontSize: fz.micro,
+  color: color.ink,
+};
+
 function LoadButton({ label, accept, onFile }: { label: string; accept: string; onFile: (f: File) => void }): JSX.Element {
   const [hover, setHover] = useState(false);
   return (
     <label
+      className="wb-load"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={{
-        border: `1px solid ${color.control}`,
-        borderRadius: radius.small,
-        padding: "2px 10px",
-        fontSize: fz.micro,
-        color: color.ink,
-        cursor: "pointer",
-        background: hover ? "#f5f0e7" : "transparent",
-      }}
+      style={{ ...loadButtonBox, cursor: "pointer", background: hover ? "#f5f0e7" : "transparent" }}
     >
       {label}
       <input

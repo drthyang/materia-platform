@@ -19,7 +19,10 @@ export function SegmentedToggle<T extends string>({ options, value, onChange }: 
   onChange: (id: T) => void;
 }): JSX.Element {
   return (
-    <div className="wb-seg" style={{ display: "inline-flex", gap: 2, background: color.chipBg, border: `1px solid ${color.border}`, borderRadius: 8, padding: 2 }}>
+    // A segment never wraps its own label ("low → high r" broke in two in the
+    // Boxcar plan with the Copilot open at 1280px); where the track is short
+    // of room, whole segments go to a second line.
+    <div className="wb-seg" style={{ display: "inline-flex", flexWrap: "wrap", maxWidth: "100%", gap: 2, background: color.chipBg, border: `1px solid ${color.border}`, borderRadius: 8, padding: 2 }}>
       {options.map((o) => (
         <button
           key={o.id}
@@ -33,6 +36,7 @@ export function SegmentedToggle<T extends string>({ options, value, onChange }: 
             fontWeight: 600,
             cursor: "pointer",
             fontFamily: mono,
+            whiteSpace: "nowrap",
             background: o.id === value ? color.primary : "transparent",
             color: o.id === value ? "#fff" : color.secondary,
           }}

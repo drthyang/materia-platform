@@ -656,8 +656,18 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
       title: dataset.name,
       // A non-centrosymmetric group's merge as SHELXL reports it: the Friedel mates apart, the absences out.
       meta: `${probeLabel}${wl} · ${st.observations} obs → ${st.friedelApart ? `${st.friedelApart.unique} unique (Friedel apart)` : `${st.unique} unique`} · ${(st.friedelApart ?? st).redundancy > 1 + 1e-9 ? `R_int ${pct((st.friedelApart ?? st).rInt)}` : "each reflection once"}${dataset.origin === "refinement-listing" ? " · a refinement's listing" : ""}`,
+    },
+    {
+      // The measurement's settings, out of the Data card so the row stays one
+      // card high and the Fo²/Fc² plot and the 3D model start above the fold
+      // at 1280 px; the third card also lines the row up with the 2 : 1
+      // working row below. The controls are the Data card's, unchanged.
+      label: "Data settings",
+      chip: "",
+      title: "",
+      meta: "",
       control: (
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px 12px", flexWrap: "wrap" }}>
           <ProbeToggle probe={probe} onChange={(p) => changeRadiation({ probe: p })} />
           {probe !== "neutron-tof" && (
             <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }} title="The wavelength of the measurement: a SHELX or .fcf file carries none, and 1.54 Å is assumed. Mo Kα 0.71073 Å, Cu Kα 1.54184 Å, Ag Kα 0.56087 Å. It enters the extinction correction, not |F|².">
