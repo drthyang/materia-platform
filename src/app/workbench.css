@@ -488,6 +488,15 @@ html:has(.wb-run-bar) .wb-shell::after {
   overflow-y: auto;
 }
 
+/* The landing's demo box fills the working row's place on a landscape screen;
+ * held upright (a tablet, a phone) that place is tall and narrow, and the box
+ * takes its content's height instead, the page's background below it. */
+@media (orientation: portrait) and (max-width: 1100px) {
+  .wb-empty {
+    flex: 0 0 auto !important;
+  }
+}
+
 /* Auto-reflowing tile row (summary cards, quality tiles): never crowds. */
 .wb-autofit {
   display: grid;

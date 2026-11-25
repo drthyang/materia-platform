@@ -2287,7 +2287,10 @@ export function EmptyWorkbench({ demos, onLoadDemo, onOpenProject }: { demos: re
     // Fills the space a working row would occupy and centres its content in it,
     // so the first screen looks composed at any window height instead of a
     // short card marooned above a field of empty background.
-    <div style={{ ...themeCard, flex: "1 0 auto", padding: `clamp(28px, 6vh, 72px) ${space.inset}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", gap: 12 }}>
+    // On a tablet or phone held upright it takes its content's height instead
+    // (.wb-empty in workbench.css): filled, an iPad's box was ~650px tall
+    // with the demos floating in its middle.
+    <div className="wb-empty" style={{ ...themeCard, flex: "1 0 auto", padding: `clamp(28px, 6vh, 72px) ${space.inset}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", gap: 12 }}>
       <div style={{ fontSize: fz.title, fontWeight: 650, color: theme.ink, letterSpacing: "-0.01em" }}>Start with a demo</div>
       <p style={{ margin: 0, maxWidth: 460, fontSize: fz.small, lineHeight: 1.55, color: theme.secondary }}>
         Each opens a converged refinement — or load your own CIF and data above; the
