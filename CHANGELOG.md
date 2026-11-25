@@ -115,6 +115,15 @@ release fixes bugs.
 
 ### Fixed
 
+- **An mCIF of a k with one incommensurate component is written in the
+  parent cell.** MnWO₄'s k = (−0.214, ½, 0.457) was written as a supercell
+  (b doubled for the ½, a group named "P_bc", the modulation at one point and
+  k rounded to 4 decimals). Any k with an incommensurate component now gets
+  the incommensurate file: the parent cell, the cosine amplitudes, k in
+  `_parent_propagation_vector` at full precision, the sine amplitudes as a
+  comment. Every other mCIF is byte-identical
+  ([report](docs/reports/2026-11-24-mcif-mixed-k.md)).
+
 - **A k = 0 mCIF left atoms out when the magnetic group splits an orbit.** A
   split orbit with no moment (a non-magnetic atom, or a magnetic orbit whose
   moment the group forbids) had no atom-site row, so a program that rebuilds

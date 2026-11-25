@@ -382,6 +382,11 @@ approximate, however plausible its output looks.
   normalized crystal axes. The older magCIF spellings Jana2006 writes
   (`_space_group_symop.magn_operation_xyz`, `_atom_site_moment_label`) read
   like the DDLm ones.
+  A magnetic CIF of an incommensurate structure (any component of k
+  incommensurate) is written in the parent cell with k in
+  `_parent_propagation_vector` and the sine amplitudes only as comments, and
+  MATERIA's own reader does not read k back (it loads such a file as k = 0),
+  until incommensurate structures are supported.
 - The powder intensity of a magnetic line is the powder average: |F_M⊥|²
   summed over every member of its family (both ±k satellites and every
   equivalent reflection, each projected perpendicular to its own Q). The

@@ -663,7 +663,8 @@ function mcifSupercell(
  * asymmetric unit only — so the exported cell, symmetry and moment directions
  * match the app's 3D view instead of an unmodulated 1×1×1 parent cell or a P1
  * atom list. For k = 0 the parent cell is written directly in the chosen
- * magnetic subgroup. For an incommensurate k the parent cell is written with
+ * magnetic subgroup. For an incommensurate k (any component incommensurate,
+ * e.g. (−0.214, ½, 0.457): no finite supercell exists) the parent cell is written with
  * the parent group and k in the `_parent_propagation_vector` loop (decimal
  * components that round-trip), not as a (3+1)D superspace description.
  */
@@ -676,12 +677,16 @@ export function magneticStructureToMcif(
   const block = sanitizeBlock(opts.blockName ?? structure.name);
   const k = magnetic.propagation[0] ?? [0, 0, 0];
 
-  const sup = expandMagneticSupercell(structure, magnetic);
+  const cls = classifyPropagation(k, { centrings: centringTranslations(structure.spaceGroup.operations) });
+  const incommensurate = cls.kind === "incommensurate";
+  // An incommensurate k — in ANY component, e.g. MnWO₄'s (−0.214, ½, 0.457) —
+  // has no finite magnetic cell, so it never takes the supercell path:
+  // `expandMagneticSupercell` sizes the box per component and would otherwise
+  // double b for the ½ and freeze the modulation at one point.
+  const sup = incommensurate ? null : expandMagneticSupercell(structure, magnetic);
   if (sup) return mcifSupercell(structure, magnetic, sup, k, block, opts);
 
   const aug = withOrbitSites(structure, magnetic);
-  const cls = classifyPropagation(k, { centrings: centringTranslations(structure.spaceGroup.operations) });
-  const incommensurate = cls.kind === "incommensurate";
   const parts = [
     HEADER,
     `# propagation vector k = (${k[0]}, ${k[1]}, ${k[2]}) — ${describePropagation(cls)}`,
