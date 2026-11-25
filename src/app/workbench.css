@@ -296,6 +296,11 @@ html {
   text-transform: uppercase;
   color: #2b2722;
   white-space: nowrap;
+  /* In a narrow head the name ends in an ellipsis rather than run under the
+     settings and close buttons beside it. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .wb-agent-dot {
   position: absolute;
@@ -1656,6 +1661,7 @@ html:has(.wb-run-bar) .wb-shell::after {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex: none;
 }
 @container agent (max-width: 559px) {
   .wb-agent-sheethead-icons {
