@@ -520,6 +520,29 @@ html:has(.wb-run-bar) .wb-shell::after {
   }
 }
 
+/* Phones: the summary cards (Structure, Data, Instrument) are one row that
+ * scrolls sideways, each card most of the column wide so the next one peeks
+ * in, instead of three stacked cards (~450px) above the plot. Every card and
+ * control is the same; a card the Copilot names scrolls into view as before. */
+@container shell (max-width: 559px) {
+  .wb-sources {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 86%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 0;
+    scrollbar-width: none;
+  }
+  .wb-sources::-webkit-scrollbar {
+    display: none;
+  }
+  .wb-sources > * {
+    scroll-snap-align: start;
+  }
+}
+
 /* Working area: quality rail (1/6) | main refinement (2/3) | parameters (1/6). */
 .wb-work3 {
   display: grid;

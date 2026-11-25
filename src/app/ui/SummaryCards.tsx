@@ -43,7 +43,9 @@ export interface SummaryCardData {
 
 export function SummaryCards({ cards }: { cards: readonly SummaryCardData[] }): JSX.Element {
   return (
-    <div className="wb-autofit">
+    // On a phone the cards are one row that scrolls sideways (.wb-sources in
+    // workbench.css), so the plot is not three cards further down the page.
+    <div className="wb-autofit wb-sources">
       {cards.map((c) => (
         <SummaryCard key={c.label} data={c} />
       ))}
