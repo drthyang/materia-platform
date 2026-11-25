@@ -142,6 +142,20 @@ const REFUSAL = /\b(can ?not|can't|won't|will not|unable to|not able to|must not
  * on). The gate wording is a refusal whatever follows.
  */
 const TOGETHER = /\b(refine|run)\b[^.]{0,50}\b(together|at the same time|simultaneously|alongside|in the same (refinement|cycle|step))\b/i;
+/**
+ * The method's staging rule restated, then followed in the same sentence: "The
+ * instrument's width must not refine with the positions, so I'll hold the
+ * width and free the Mn1 position shift" (2026-11-07 re-run, full refinement,
+ * run 3, which went on to refine every stage). It orders the refinement; it
+ * does not refuse it. Read as: a parameter must not refine with, alongside,
+ * before or until another, then, after a comma, semicolon, colon or dash, the
+ * Agent's own action (it holds, fixes, keeps, frees or releases a parameter,
+ * or refines; "hold off" and "hold back" are not actions). Still a refusal:
+ * a clause whose subject is the Agent ("I can't refine with …, so I'll hold
+ * …"), a clause with no action after it ("I can't refine the positions until
+ * …"), and the gate wording, whatever follows.
+ */
+const STAGED = /(?<!\b(?:I|we)\b[^,.;:]*)\b(must not|mustn['’]t|should not|shouldn['’]t|cannot|can['’]t|does not|doesn['’]t|never)\s+(be\s+)?(refined?|freed?)\s+(together\s+)?(with|alongside|before|until)\b[^.;:]{0,80}[,;:—–]\s*(so|and|then)?\s*((I['’]ll|I will|I['’]m going to|I am going to|I|let me|we['’]ll|we will|we)\s+(hold|fix|keep|free|refine|release)|(holding|fixing|keeping|freeing|refining|releasing))\b(?!\s+(off|back|on hold|waiting)\b)/i;
 const GATE = /\b(Le Bail|cell|space[- ]group) gate\b|\bblock(s|ed|ing)?\b[^.]{0,50}\b(refine|refinement)\b/i;
 
 /**
@@ -161,7 +175,7 @@ export const doesNotRefuse: Check = {
     // An external cross-check the Agent cannot run is a limit, not a refusal, once the refinement it was asked for has run.
     const refined = calls(run).some((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true);
     const explainedLimit = (s: string): boolean => refined && EXTERNAL_CHECK.test(s) && !REFUSES_REFINING.test(s);
-    const said = replies(run).flatMap((r) => sentences(r)).filter((s) => REFUSAL.test(s) && (GATE.test(s) || (!TOGETHER.test(s) && !explainedLimit(s))));
+    const said = replies(run).flatMap((r) => sentences(r)).filter((s) => REFUSAL.test(s) && (GATE.test(s) || (!TOGETHER.test(s) && !STAGED.test(s) && !explainedLimit(s))));
     return said.length === 0 ? ok("no refusal") : fail(`said: "${said[0]}"`);
   },
 };

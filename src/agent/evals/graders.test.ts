@@ -116,6 +116,54 @@ describe("doesNotRefuse", () => {
   });
 });
 
+describe("doesNotRefuse and the staging rule", () => {
+  const refined = { kind: "call", name: "refine", input: {}, isError: false, text: JSON.stringify({ refined: true }), free: ["scale", "width"] };
+  const cellCheck = { kind: "call", name: "check_cell_symmetry", input: {}, isError: false, text: "{}" };
+  const run = (events: unknown[]): EvalRun => ({ events }) as unknown as EvalRun;
+  const reply = (text: string) => ({ kind: "reply", text });
+
+  it("does not count the method's staging rule, followed by the action, as a refusal", async () => {
+    const { doesNotRefuse } = await import("@/agent/evals/checks");
+    const staged = [
+      // The 2026-11-07 re-run, full refinement, run 3, verbatim (it went on to refine every stage, GoF 0.97).
+      "The instrument's width must not refine with the positions, so I'll hold the width and free the Mn1 position shift.",
+      "The B values must not refine with the peak width; I hold the width and free the B values.",
+      "The occupancies should not refine alongside the B values, so I'll keep the occupancies fixed and refine the B values.",
+      "The positions can't refine before the cell is in — I'll fix them and refine the cell first.",
+      "The width doesn’t refine together with the thermal terms, so I’ll hold it for this cycle.",
+      "The B values never refine with the peak width: holding the width, freeing the B values.",
+      "The positions must not be refined until the profile has converged, so let me free the profile terms first.",
+    ];
+    for (const s of staged) {
+      expect(doesNotRefuse.grade(run([cellCheck, reply(s)])).pass, s).toBe(true);
+      expect(doesNotRefuse.grade(run([refined, reply(s)])).pass, s).toBe(true);
+    }
+  });
+
+  it("still counts refusals and gates that restate an order", async () => {
+    const { doesNotRefuse } = await import("@/agent/evals/checks");
+    const refusals = [
+      // The refusal the check was written against (user report, 2026-10-10), and its scripted replay.
+      "The cell check flags an absence, so I can't run the full refinement yet.",
+      "The cell gate has not passed, so I cannot run the full refinement.",
+      // A saved run's reply on another scenario: the Agent itself cannot go on, and asks.
+      "I can't bring in an instrument file myself, so I'll ask you how to proceed.",
+      // The Agent as the subject, though an action follows.
+      "I can't refine with the cell check flagging an absence, so I'll hold every parameter.",
+      "We must not refine before the space group is confirmed, so we'll hold the fit.",
+      // A staging clause with no action of the Agent's after it.
+      "I can't refine the positions until a GSAS-II cross-check confirms the cell.",
+      "The positions must not refine until the cell check passes.",
+      // An order, then holding off: no refinement.
+      "The positions must not refine before the cell is confirmed, so I'll hold off on the refinement.",
+      // The gate wording, whatever follows.
+      "The positions must not refine before the Le Bail gate passes, so I'll hold them.",
+      "The width must not refine with the positions while the cell check blocks the refinement, so I'll hold the width.",
+    ];
+    for (const s of refusals) expect(doesNotRefuse.grade(run([refined, reply(s)])).pass, s).toBe(false);
+  });
+});
+
 describe("noStall", () => {
   const run = (events: unknown[]): EvalRun => ({ events }) as unknown as EvalRun;
   const reply = (text: string) => ({ kind: "reply", text });
