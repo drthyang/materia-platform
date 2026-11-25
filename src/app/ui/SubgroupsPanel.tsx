@@ -190,6 +190,8 @@ const line: CSSProperties = { margin: 0, fontSize: fz.micro, color: color.second
 const cardBox: CSSProperties = { border: `1px solid ${color.border}`, borderRadius: 10, background: color.surface, minHeight: 0, minWidth: 0 };
 const nameStyle: CSSProperties = { fontFamily: mono, fontSize: fz.micro, color: color.ink, whiteSpace: "nowrap" };
 const factStyle: CSSProperties = { fontFamily: mono, fontSize: fz.micro, color: color.secondary, whiteSpace: "nowrap" };
+/** A row fact that gives way (after the cell) with an ellipsis rather than push the irrep badge out of the row. */
+const shrinkFact: CSSProperties = { flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" };
 const blocked: CSSProperties = { opacity: 0.5, cursor: "not-allowed" };
 /** Below this width the panel is one column and a row's detail opens as a full-screen sheet. */
 const TWO_COLUMNS = 720;
@@ -305,8 +307,10 @@ function RowLine({ g, variant, selected, active, onPick, lead, trail, dim }: { g
       {lead}
       <span style={{ ...nameStyle, fontWeight: selected ? 600 : 400 }}>{compactName(g.group.name)}</span>
       {/* The cell gives way first in a row too narrow for all its facts (a 402 px phone cut the tree's "n below" instead). */}
-      <span style={{ ...factStyle, flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }} title={g.group.cell}>· {g.group.cell}</span>
-      <span style={factStyle}>· {g.group.domains} dom</span>
+      <span style={{ ...factStyle, flex: "0 100 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }} title={g.group.cell}>· {g.group.cell}</span>
+      {/* Then the other facts, cut with an ellipsis: on a phone a deep tree
+          row ran its text under the irrep badge, which the row then clipped. */}
+      <span style={{ ...factStyle, ...shrinkFact }}>· {g.group.domains} dom</span>
       {active ? <span style={{ ...factStyle, color: color.primary }}>· active</span> : null}
       {trail}
       <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, flex: "0 0 auto" }}>
@@ -783,7 +787,7 @@ function TreeBody(p: {
           · also under {others[0] === "p" ? shortName(p.parent) : shortName(p.rowByKey.get(others[0]!)?.name ?? "?")}{others.length > 1 ? ` +${others.length - 1}` : ""}
         </span>
       ) : null;
-      const count = below.length && !open ? <span style={{ ...factStyle, color: color.faint, fontSize: 11, flex: "0 0 auto" }}>· {below.length} below</span> : null;
+      const count = below.length && !open ? <span style={{ ...factStyle, color: color.faint, fontSize: 11, ...shrinkFact }}>· {below.length} below</span> : null;
       if (row && group) {
         out.push(
           <div key={path} data-tree={key}>
