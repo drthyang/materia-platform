@@ -259,6 +259,8 @@ const NARROW = 560;
 /** The readings are sentences: the page's text face, not the table's mono. */
 const SANS = "'IBM Plex Sans', system-ui, sans-serif";
 const SHOWN = 6;
+/** Extra peaks that match no can line, listed before "more" (the strongest first, as the view lists them). */
+const OTHERS_SHOWN = 5;
 
 function Dot({ c }: { c: string }): JSX.Element {
   return <span aria-hidden style={{ display: "inline-block", width: 8, height: 8, borderRadius: 999, background: c, marginRight: 6 }} />;
@@ -296,6 +298,7 @@ export function CanLinesSection({
   }, [phaseTicks]);
   const onePhase = phaseTicks.length <= 1;
   const [showUnder, setShowUnder] = useState(false);
+  const [allOthers, setAllOthers] = useState(false);
   // The sample reflections the can's lines sit under: counted for the collapsed line, listed behind "show".
   const under = useMemo(() => (can.ctx ? canOverlaps(can.ctx, can.phases, reflections) : null), [can.ctx, can.phases, reflections]);
   if (!can.available) return null;
@@ -328,11 +331,16 @@ export function CanLinesSection({
           <p data-testid="can-lines-result" style={{ margin: 0, fontSize: fz.small, color: color.ink, lineHeight: 1.5 }}>
             {matched.length === 0
               ? "No extra peak lines up with a V or Al can line."
-              : <>{matched.length} extra peak{matched.length === 1 ? " lines" : "s line"} up with can lines: {list(matched, true)}</>}
+              : <>{matched.length === 1 ? "1 extra peak lines up with a can line" : `${matched.length} extra peaks line up with can lines`}: {list(matched, true)}</>}
           </p>
           {others.length > 0 ? (
             <p data-testid="can-lines-others" style={{ margin: 0, fontSize: fz.small, color: color.secondary, lineHeight: 1.5 }}>
-              {others.length} {matched.length > 0 ? "other " : ""}extra peak{others.length === 1 ? " matches" : "s match"} no can line: {list(others, false)}
+              {others.length} {matched.length > 0 ? "other " : ""}extra peak{others.length === 1 ? " matches" : "s match"} no can line: {list(allOthers ? others : others.slice(0, OTHERS_SHOWN), false)}
+              {others.length > OTHERS_SHOWN ? (
+                <button type="button" style={{ ...linkButton, fontSize: "inherit" }} onClick={() => setAllOthers((v) => !v)}>
+                  {allOthers ? "fewer" : `+ ${others.length - OTHERS_SHOWN} more`}
+                </button>
+              ) : null}
             </p>
           ) : null}
         </>
