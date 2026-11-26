@@ -22,8 +22,10 @@ import type { ParameterBinding } from "@/core/refinement/types";
 import { parseProject, serializeProject, ProjectFileError } from "@/core/project/io";
 import { applyParameters } from "@/core/workflow/apply";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
-import { pageView, pdfPage, withReset, workspaceOf } from "@/app/pdfPage";
-import { reopenOwnModeBasis, reopenedWorkspace } from "@/app/pdfModeBasis";
+import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
+import { pageView, pdfPage, withParameter, withPositionMode, withReset, workspaceOf } from "@/app/pdfPage";
+import { ATOMIC_REOPEN_NOTE, reopenOwnModeBasis, reopenedWorkspace } from "@/app/pdfModeBasis";
+import { syntheticPattern } from "@/testSupport/sameCellModeCount";
 import { projectFileFor } from "@/app/projectIo";
 
 const fixture = (name: string): string => readFileSync(`src/app/fixtures/ownModeBasis/${name}.materia.json`, "utf8");
@@ -140,7 +142,7 @@ describe("what is not converted", () => {
   });
 });
 
-describe("refused, never rebound", () => {
+describe("where this build's modes cannot carry it: atomic positions when exact, else refused", () => {
   const refusal = (ws: PdfWorkspace, structure: StructureModel): string => {
     try {
       reopenedWorkspace([structure], ws);
@@ -150,20 +152,69 @@ describe("refused, never rebound", () => {
     }
     throw new Error("not refused");
   };
-  it("a tie on a mode row", () => {
+  const REFUSAL = (why: string): string =>
+    `its positions refine as symmetry-mode amplitudes on an earlier mode basis, and ${why}, so they cannot be carried to this version's basis exactly. Open it in the version that saved it, set Positions to Atomic, save, and open that file`;
+  /** Opened with atomic positions: the notice, the mode, the atoms as the file's own rows put them (values and initial values). */
+  const expectAtomic = (structure: StructureModel, ws: PdfWorkspace): ReturnType<typeof pdfPage> => {
+    const r = reopenedWorkspace([structure], ws);
+    expect(r.note).toBe(ATOMIC_REOPEN_NOTE);
+    expect(r.note).toBe("Opened with atomic positions: its mode amplitudes were on an earlier basis that cannot be carried exactly; the positions are as saved, its mode ties and free/fixed choices were not kept.");
+    const m = pdfPage(structure, ws.pattern, { restore: r.workspace as PdfWorkspace });
+    expect(m.positionMode).toBe("atomic");
+    expect(pageView(m).modeSet).toBeNull();
+    expect(m.params.some((p) => /^mode_/.test(p.id) || (p.expression ?? "").includes("mode_"))).toBe(false);
+    const g = gap(structure, pageView(m).refinedPhases[0]!, saved(structure, ws));
+    expect(g.angstrom).toBeLessThan(1e-12);
+    expect(g.fractional).toBeLessThan(1e-12);
+    expect(gap(structure, pageView(withReset(m)).refinedPhases[0]!, saved(structure, ws, "initialValue")).angstrom).toBeLessThan(1e-12);
+    expect(m.result).toBeNull();
+    // The page reaches the same state from the unconverted workspace.
+    expect(pdfPage(structure, ws.pattern, { restore: ws }).params).toEqual(m.params);
+    return m;
+  };
+
+  it("a tie on a mode row: atomic positions, the tie and free/fixed not kept", () => {
     const { structure, ws } = open("sns-pnma-own-modes");
     const tied: PdfWorkspace = { ...ws, refinement: { ...ws.refinement, parameters: ws.refinement.parameters.map((p) => (p.id === "mode_2" ? { ...p, expression: "= mode_1", group: "user-tie" } : p)) } };
-    expect(refusal(tied, structure)).toBe("its positions refine as symmetry-mode amplitudes on an earlier mode basis, and a tie involves its mode rows (mode_2), so they cannot be carried to this version's basis exactly. Open it in the version that saved it, set Positions to Atomic, save, and open that file");
-    expect(() => pdfPage(structure, ws.pattern, { restore: tied })).toThrow(/cannot be reopened/);
+    const m = expectAtomic(structure, tied);
+    // The atomic rows take the spec's free/fixed (positions fixed).
+    expect(m.params.filter((p) => p.kind === "positionShift").every((p) => p.fixed)).toBe(true);
   });
-  it("mode vectors on sites the structure does not have", () => {
-    const { structure, ws } = open("fesi-p213-own-modes");
-    const other: PdfWorkspace = { ...ws, refinement: { ...ws.refinement, bindings: ws.refinement.bindings.map((b) => (b.kind === "positionShift" && b.targetKey === "Si" ? { ...b, targetKey: "Ge" } : b)) } };
-    expect(refusal(other, structure)).toMatch(/its mode rows do not match this structure's sites/);
+
+  it("this basis reproduces the positions only to x Å, the atomic rows exactly (a rigid shift along a polar axis in the file's vectors): atomic positions", () => {
+    // P2₁ (polar along b), two general sites: the file's mode_1 carries a uniform b shift of every site,
+    // which this build's modes leave out (a rigid translation) and the atomic rows hold.
+    const s: StructureModel = {
+      id: "p21", name: "p21", cell: { a: 5.1, b: 6.2, c: 7.3, alpha: 90, beta: 101, gamma: 90 }, spaceGroup: buildSpaceGroup(4),
+      sites: [
+        { label: "A", element: "Fe", position: [0.11, 0.23, 0.31], occupancy: 1, adp: { kind: "isotropic", bIso: 0.5 } },
+        { label: "X", element: "O", position: [0.62, 0.41, 0.83], occupancy: 1, adp: { kind: "isotropic", bIso: 0.5 } },
+      ],
+    };
+    let page = withPositionMode(pdfPage(s, syntheticPattern(s), { preset: { fitRange: { min: 1.5, max: 8 } } }), "irreps");
+    page = withParameter(page, "mode_1", { value: 0.04, initialValue: 0.01, fixed: false });
+    const base = workspaceOf(page);
+    const shifted: PdfWorkspace = { ...base, refinement: { ...base.refinement, bindings: base.refinement.bindings.map((b) => (b.kind === "positionShift" && b.parameterId === "mode_1" ? { ...b, axis: [b.axis![0], b.axis![1] + 0.05, b.axis![2]] as [number, number, number] } : b)) } };
+    expect(reopenOwnModeBasis([s], shifted).kind).toBe("converted");
+    expectAtomic(s, shifted);
   });
-  it("a saved displacement this basis cannot hold (a vector off the symmetry-allowed space)", () => {
+
+  it("this basis and the atomic rows both fail (a vector off the symmetry-allowed space): refused", () => {
     const { structure, ws } = open("fesi-p213-own-modes");
     const off: PdfWorkspace = { ...ws, refinement: { ...ws.refinement, bindings: ws.refinement.bindings.map((b) => (b.kind === "positionShift" && b.targetKey === "Fe" ? { ...b, axis: [0.05, 0, 0] } : b)) } };
-    expect(refusal(off, structure)).toMatch(/this version's modes reproduce its atom positions only to .* Å/);
+    expect(refusal(off, structure)).toMatch(/^its positions refine as symmetry-mode amplitudes on an earlier mode basis, and this version's modes reproduce its atom positions only to \d\.\de-\d+ Å, so they cannot be carried to this version's basis exactly\. Open it in the version that saved it, set Positions to Atomic, save, and open that file$/);
+  });
+
+  it("mode vectors on sites the structure does not have: the positions as saved cannot be rebuilt, refused", () => {
+    const { structure, ws } = open("fesi-p213-own-modes");
+    const other: PdfWorkspace = { ...ws, refinement: { ...ws.refinement, bindings: ws.refinement.bindings.map((b) => (b.kind === "positionShift" && b.targetKey === "Si" ? { ...b, targetKey: "Ge" } : b)) } };
+    expect(refusal(other, structure)).toBe(REFUSAL("its mode rows do not match this structure's sites"));
+    expect(() => pdfPage(structure, ws.pattern, { restore: other })).toThrow(/cannot be reopened/);
+  });
+
+  it("a mode row missing from the file (its amplitude unknown, no positions stored): refused", () => {
+    const { structure, ws } = open("sns-pnma-own-modes");
+    const missing: PdfWorkspace = { ...ws, refinement: { ...ws.refinement, parameters: ws.refinement.parameters.filter((p) => p.id !== "mode_2") } };
+    expect(refusal(missing, structure)).toBe(REFUSAL("a mode row is missing from the file"));
   });
 });

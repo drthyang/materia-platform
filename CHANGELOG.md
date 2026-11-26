@@ -125,8 +125,10 @@ release fixes bugs.
   only the rigid translations; results on every other structure are
   unchanged to the last digit. A PDF project saved with its own modes on an
   affected structure reopens on the full basis with its atoms where they were
-  (the values are converted; the last fit's result is cleared); one that
-  cannot be converted exactly is refused with the reason. A same-cell
+  (the values are converted; the last fit's result is cleared). One the
+  full basis cannot carry exactly opens with atomic positions, the atoms as
+  saved; one whose saved positions cannot be rebuilt exactly is refused
+  with the reason. A same-cell
   activation saved with a project keeps its set: activate the row again for
   the full one ([report](docs/reports/2026-11-27-polar-gauge-everywhere.md)).
 

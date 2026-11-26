@@ -44,9 +44,16 @@ owner chose to fix every route at once, with a migration for saved projects.
   expressed in the corrected basis, which spans everything the old one did,
   by the least squares the atomic ↔ irreps switch uses
   (`positionShiftValuesFor`). Values and initial values are both converted.
-  The atoms are checked to land where they were (1e-10 Å). A file this cannot
-  hold exactly is refused with the reason, and so is one with a tie on its
-  mode rows (a tie cannot be re-expressed row by row); it is never rebound.
+  The atoms are checked to land where they were (1e-10 Å). A file this
+  basis cannot hold exactly, or one with a tie on its mode rows (a tie
+  cannot be re-expressed row by row), opens with atomic positions instead.
+  The atoms are where the file's own vectors and amplitudes put them, never
+  through this build's basis, and the mode ties and free/fixed choices are
+  not kept. That happens only when the atomic rows hold the positions to the
+  same tolerance. The file stores no refined positions besides those rows.
+  Where the positions as saved cannot be rebuilt (a mode row missing, vectors
+  on sites the structure lacks) or the atomic rows cannot hold them, the file
+  is refused with the reason. It is never rebound.
   Free/fixed is kept when every saved mode row shared it; a mix reopens with
   every mode row fixed. The last fit's result and boxcar scan refer to the
   old rows and are cleared. A workspace whose saved mode vectors are this
@@ -92,7 +99,7 @@ owner chose to fix every route at once, with a migration for saved projects.
   count now required to equal the polar one on every class: **0 mismatches,
   0 gaps**. Before, it dropped 1–3 real modes in 2 946 classes. Fm-3m and
   Fd-3m 2×2×2 were stopped by time, as before.
-- **Saved projects** (`src/app/pdfModeBasis.test.ts`). The four fixtures in
+- **Saved projects** (`src/app/pdfModeBasis.test.ts`, 12 tests). The four fixtures in
   `src/app/fixtures/ownModeBasis/` were written by main 8003787 through the
   app's save path on synthetic structures. SnS-type Pnma (2 saved modes, one
   free and fitted, one fixed with its own initial value) reopens with 4
@@ -101,8 +108,12 @@ owner chose to fix every route at once, with a migration for saved projects.
   < 1e-12 Å). G(r) is the same to 1e-12. Saving again and reopening converts
   nothing. The unaffected Pnma reopens as saved. The stored Pnma → P2₁2₁2₁
   activation (main's 9 modes) reopens with its set equal to the stored one,
-  atoms unchanged. A tie, foreign sites and an unrepresentable vector are
-  each refused.
+  atoms unchanged. There is one test per refusal reason. Two reasons open
+  with atomic positions, with the atoms as saved (< 1e-12 Å, after Reset
+  too) and the notice: a tie on a mode row, and "reproduces only to x Å"
+  (a P2₁ file whose vectors carry a rigid shift along b). Three keep the
+  refusal: a vector off the symmetry-allowed space (neither basis holds
+  it), vectors on sites the structure lacks, and a missing mode row.
 - **Nothing else moved** (full-precision dumps, main 8003787 vs this branch,
   kept outside the repository). Every scripted eval run (good, stage scope,
   bad, fresh get_state and assess for every scenario, the extra failures, the
@@ -130,8 +141,12 @@ owner chose to fix every route at once, with a migration for saved projects.
   their wording.
 - An affected PDF project saved with its own modes reopens on the full
   basis, with a notice: "Reopened on the corrected mode basis (4 modes; the
-  file had 2): the atom positions are unchanged…". One that cannot be
-  converted exactly is refused, and the notice gives the reason.
+  file had 2): the atom positions are unchanged…". One that this basis
+  cannot carry exactly opens with atomic positions, the atoms as saved:
+  "Opened with atomic positions: its mode amplitudes were on an earlier
+  basis that cannot be carried exactly; the positions are as saved, its mode
+  ties and free/fixed choices were not kept." One whose saved positions
+  cannot be rebuilt exactly is refused, and the notice gives the reason.
 - A same-cell activation saved with a project keeps its set. On an affected
   row, activate it again for the full one.
 - Nothing changes on any other structure.
@@ -149,9 +164,9 @@ so freeing every mode is well-posed) is true as written.
 - A same-cell activation stored in a project before the fix is not
   converted; its set is the saved one, by design (a stored set is reopened
   as it is).
-- The refusal asks the user to reopen in the version that saved the file and
-  set Positions to Atomic. Converting such a file to atomic positions here
-  instead would be possible; that is the owner's call.
+- A file still refused (a mode row missing, vectors on other sites, a
+  vector off the symmetry-allowed space) asks the user to reopen it in the
+  version that saved it and set Positions to Atomic.
 
 ## Checks
 
