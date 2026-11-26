@@ -144,4 +144,8 @@ each domain.
 
 - `npm run build`: passes.
 - `npm run lint`: passes.
-- `npm test`: see the pull request for the summary line at the branch head.
+- `npm test` (without `MATERIA_DATA_DIR`): 422 files passed, 39 skipped;
+  3772 tests passed, 359 skipped, 1 failed. The failure is
+  `src/agent/replay/replay.test.ts` › magnetic-30k: it ran past its 120 s
+  wall-clock limit under the full suite's load. Run alone, the file passes
+  (14 of 14, 25 s). Under that load, tier 1 took 72 s; alone it takes 20 s.
