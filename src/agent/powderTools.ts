@@ -595,7 +595,7 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
             ...instrumentNotesView(s),
           }
         : { kind: "time of flight", difC: s.instrument.difC, difA: s.instrument.difA ?? 0, zero: s.instrument.zero ?? 0, note: "TOF = difC·d + difA·d² + zero; set_fit_range and find_unexplained_peaks convert for you", ...fileProfileView(s), ...instrumentNotesView(s) }
-      : "none loaded (default CW, λ = 1.54 Å)",
+      : s.pattern.xUnit === "tof" ? "none loaded (time-of-flight data: peak positions need an instrument file)" : "none loaded (default CW, λ = 1.54 Å)",
     settings: {
       ...s.settings,
       profileShape: s.profile.shape,
