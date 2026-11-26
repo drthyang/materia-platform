@@ -16,8 +16,12 @@ import { parseInstrumentFile } from "@/parsers/instrument";
 import { DEFAULT_INSTRUMENTS, defaultInstrumentInUse } from "@/app/defaultInstruments";
 import { withInstrumentFile, withPattern, withStructure, emptyPage, type PowderPage } from "@/app/powderPage";
 import {
-  agentInstrumentNotes, bankCoverage, followDataBank, followNote, followStepLabel, holdNote, startingPointStepLabel, startingPointWarning, switchedRows,
+  agentInstrumentNotes, bankCoverage, bundleInstrumentNote, closestBank, followDataBank, followNote, followStepLabel, holdNote, loadFollowStepLabel, overrideLabel,
+  startingBanks, startingPointStepLabel, startingPointWarning, switchedRows, withStartingPoint,
 } from "@/app/bankFollow";
+import { withinReflectionLimit } from "@/app/ui/PowderValidation";
+import { ReflectionLimitError } from "@/core/diffraction/reflections";
+import { refinementBundle } from "@/core/export/bundle";
 import { powderWorkspaceFrom, sessionFromPowderWorkspace } from "@/app/projectIo";
 import { powderReportInput } from "@/app/reportInputs";
 import { validateSnapshot } from "@/core/project/validate";
@@ -140,8 +144,8 @@ describe("a data bank the instrument file has no bank for", () => {
     const h = holdNote(c.uncovered);
     expect(h.line).toBe("Refine is off: no instrument bank for data bank 6, and another bank's calibration gives wrong peak positions.");
     expect(h.loadLabel).toBe("Load instrument for bank 6…");
-    expect(h.overrideLabel).toBe("Use bank 5's parameters as a starting point");
     expect(h.detail).toContain("none with a difC within 3 % of the data's DIFC 840.0");
+    expect(h.detail).toContain("or start from another bank's parameters (the closest is bank 1's: difC 1439.6, 71 % from the data's DIFC 840.0)");
     // Covered banks hold nothing.
     for (const b of [1, 2, 3, 4, 5]) {
       const q = followDataBank(toDataBank(withDefault(1), b))?.page ?? toDataBank(withDefault(1), b);
@@ -166,9 +170,11 @@ describe("a data bank the instrument file has no bank for", () => {
 
   it("the override unlocks refining, with the standing warning on the card, in the report and for the Copilot", async () => {
     const p = six();
-    const c0 = bankCoverage(p.session, p.instrument, p.instrumentLoaded)!;
-    expect(startingPointStepLabel(c0.uncovered)).toBe("Bank 5's parameters as a starting point for data bank 6");
-    const over: PowderPage = { ...p, session: { ...p.session, rawInstrument: { ...p.session.rawInstrument!, startingPointFor: 6 } } };
+    expect(startingPointStepLabel(5, 6)).toBe("Bank 5's parameters as a starting point for data bank 6");
+    // Starting from the bank the page holds (bank 5), chosen on the card's chooser.
+    const over = withStartingPoint(p, 5)!;
+    expect(over.session.rawInstrument).toEqual({ ...p.session.rawInstrument!, startingPointFor: 6 });
+    expect(over.session.powderParams).toEqual(p.session.powderParams);
     const c = bankCoverage(over.session, over.instrument, over.instrumentLoaded)!;
     expect(c.startingPoint).toBe(true);
     const w = startingPointWarning(c.uncovered);
@@ -212,3 +218,119 @@ describe("a data bank the instrument file has no bank for", () => {
     expect(agentInstrumentNotes(p.session.rawInstrument, true, bankCoverage(p.session, p.instrument, true))).toBeUndefined();
   });
 });
+
+describe("follow-up of 2026-11-27: a new file, the closest bank, the magnetic step and the posterior, the TOF line, the bundle", () => {
+  const six = (): PowderPage => toDataBank(refined(withDefault(5)), 6);
+
+  it("(a) a new data file follows too: its opening bank takes the file's bank for it, in the load's own step", () => {
+    // The default on data bank 3 of one file; a new file opens on its bank 1.
+    const on3 = withDefault(3);
+    const other = multiBankGsa([1, 2, 3, 4, 5].map((bank) => ({ bank, difC: [1450, 2860, 5600, 9050, 9900][bank - 1]! })), ["# Instrument: NOMAD"]);
+    const fresh = withPattern(on3, patternOf(1, other), { name: "next.gsa", text: other, bank: 1 });
+    const f = followDataBank(fresh)!;
+    expect(f.bank).toBe(1);
+    expect(f.page.session.rawInstrument).toEqual({ name: NOMAD.fileName, text: TEXT, bank: 1, bundledDefault: NOMAD.id });
+    expect(f.page.instrument).toEqual(withDefault(1).instrument);
+    expect(loadFollowStepLabel("Loaded data next.gsa, bank 1", f.bank)).toBe("Loaded data next.gsa, bank 1 · instrument bank 1");
+    // A new file on a bank the instrument is already on: nothing to switch.
+    expect(followDataBank(withPattern(withDefault(1), patternOf(1, other), { name: "next.gsa", text: other, bank: 1 }))).toBeNull();
+  });
+
+  it("(b) the override offers the bank whose difC is closest to the data's DIFC, and any other bank on the chooser", () => {
+    const p = six();
+    const u = bankCoverage(p.session, p.instrument, p.instrumentLoaded)!.uncovered;
+    expect(startingBanks(u).map((b) => b.label)).toEqual([
+      "Bank 1 · difC 1439.6 · 71 % from the data's DIFC",
+      "Bank 2 · difC 2851.1 · 239 % from the data's DIFC",
+      "Bank 3 · difC 5612.4 · 568 % from the data's DIFC",
+      "Bank 4 · difC 9068.6 · 980 % from the data's DIFC",
+      "Bank 5 · difC 9912.1 · 1080 % from the data's DIFC",
+    ]);
+    expect(closestBank(u)!.bank).toBe(1);
+    expect(holdNote(u).closest!.bank).toBe(1);
+    expect(overrideLabel(1)).toBe("Use bank 1's parameters as a starting point");
+    // Taken: bank 1's file values on the page, the choice kept for data bank 6, and the warning names bank 1.
+    const over = withStartingPoint(p, 1)!;
+    expect(over.session.rawInstrument).toEqual({ name: NOMAD.fileName, text: TEXT, bank: 1, bundledDefault: NOMAD.id, startingPointFor: 6 });
+    expect(over.instrument).toEqual(parseInstrumentFile(TEXT).banks[0]!.parameters);
+    const c = bankCoverage(over.session, over.instrument, over.instrumentLoaded)!;
+    expect(c.startingPoint).toBe(true);
+    expect(startingPointWarning(c.uncovered).line).toBe("Bank 1's parameters, a starting point for data bank 6: refine DIFC and Zero, and check the peak positions.");
+    expect(startingPointWarning(c.uncovered).detail).toContain("(its difC 1439.6 is 71 % from the data's DIFC 840.0)");
+    // A bank the file does not have, or a page with nothing held, takes nothing.
+    expect(withStartingPoint(p, 7)).toBeNull();
+    expect(withStartingPoint(withDefault(2), 1)).toBeNull();
+    // Without a DIFC in the data, the offer is the bank the page holds.
+    const noDifc = toDataBank(withInstrumentFile(dataPage(2, NO_DIFC_GSA), "four.instprm", TEXT.split(/(?=#Bank 5)/)[0]!).page, 5, NO_DIFC_GSA);
+    const u2 = bankCoverage(noDifc.session, noDifc.instrument, noDifc.instrumentLoaded)!.uncovered;
+    expect(closestBank(u2)!.bank).toBe(u2.instrumentBank);
+    expect(startingBanks(u2)[0]!.label).toBe("Bank 1 · difC 1439.6");
+  });
+
+  it("(b) the Copilot's texts name the closest bank while held, and the chosen bank once taken", () => {
+    const p = six();
+    const held = agentInstrumentNotes(p.session.rawInstrument, true, bankCoverage(p.session, p.instrument, true))!;
+    expect(held.refineHeld).toBe("Refine is held: data bank 6 has no bank in the instrument file (it has banks 1, 2, 3, 4, 5), and bank 5's calibration, which the page holds, gives wrong peak positions (its difC 9912.1 is 1080 % from the data's DIFC 840.0). The user can load the instrument file for bank 6, choose a data bank the file covers, or choose on the Instrument card to start from another bank's parameters (the closest is bank 1's: difC 1439.6, 71 % from the data's DIFC 840.0).");
+    const over = withStartingPoint(p, 1)!;
+    const taken = agentInstrumentNotes(over.session.rawInstrument, true, bankCoverage(over.session, over.instrument, true))!;
+    expect(taken.refineHeld).toBeUndefined();
+    expect(taken.startingPoint).toBe("Bank 1's parameters, used as a starting point for data bank 6, which the instrument file does not cover (the user's choice) (its difC 1439.6 is 71 % from the data's DIFC 840.0): the TOF difC and Zero rows must be refined and the calculated peak positions checked against the observed ones; the peak-shape terms are bank 1's.");
+  });
+
+  it("(c) the magnetic step's ranking and moments fit, and the posterior, are refused with the same reason while held, and run once the override is taken", async () => {
+    const p = six();
+    const { port } = sessionPort(p.session, p.instrument, { instrumentOnPage: true });
+    const reason = port.state().instrumentNotes!.refineHeld!;
+    const { ex, asked } = executor(fakeHost(port).host, "auto");
+    await ex.run("read_skill", { name: "magnetic-analysis" });
+    expect((await ex.run("refine_moments", {})).text).toContain(reason);
+    expect((await ex.run("rank_magnetic_groups", {})).text).toContain(reason);
+    expect((await ex.run("sample_posterior", {})).text).toContain(reason);
+    expect(asked).toEqual([]);
+    const over = withStartingPoint(p, 1)!;
+    const { port: port2 } = sessionPort(over.session, over.instrument, { instrumentOnPage: true });
+    const { ex: ex2 } = executor(fakeHost(port2).host, "auto");
+    await ex2.run("read_skill", { name: "magnetic-analysis" });
+    expect((await ex2.run("sample_posterior", {})).text).not.toContain("Refine is held");
+    expect((await ex2.run("refine_moments", {})).text).not.toContain("Refine is held");
+  }, T);
+
+  it("(d) get_state on a TOF page without an instrument says peak positions need an instrument file; a constant-wavelength page keeps its line", async () => {
+    const tof = dataPage(2);
+    const { port } = sessionPort(tof.session, tof.instrument, { instrumentOnPage: false });
+    const state = JSON.parse((await executor(fakeHost(port).host).ex.run("get_state", {})).text) as { instrument: unknown };
+    expect(state.instrument).toBe("none loaded (time-of-flight data: peak positions need an instrument file)");
+    const cw = withStructure(emptyPage(), structure);
+    const { port: cwPort } = sessionPort(cw.session, cw.instrument, { instrumentOnPage: false });
+    const cwState = JSON.parse((await executor(fakeHost(cwPort).host).ex.run("get_state", {})).text) as { instrument: unknown };
+    expect(cw.session.pattern.xUnit).not.toBe("tof");
+    expect(cwState.instrument).toBe("none loaded (default CW, λ = 1.54 Å)");
+  }, T);
+
+  it("(e) an exported bundle's README states the starting point, after the default's statement", () => {
+    const over = withStartingPoint(six(), 1)!;
+    const c = bankCoverage(over.session, over.instrument, over.instrumentLoaded);
+    const note = bundleInstrumentNote(over.session.rawInstrument, over.instrumentLoaded, c)!;
+    const w = startingPointWarning(c!.uncovered);
+    expect(note).toBe(`${defaultInstrumentInUse(over.session.rawInstrument, true)!.report} ${w.report}`);
+    for (const target of ["gsas2", "fullprof"] as const) {
+      const readme = refinementBundle(target, structure, over.session.pattern, {
+        name: "t", params: over.session.powderParams, bindings: over.session.powderBindings, otherPhaseIds: [], phases: [],
+        instrument: over.instrument, rawInstrument: over.session.rawInstrument!, instrumentNote: note,
+      }).find((e) => e.name === "README.txt")!.data as string;
+      expect(readme, target).toContain(w.report);
+    }
+    // A user's file on its own bank: nothing to say; held without the override: nothing yet.
+    const own = withInstrumentFile(dataPage(3, NO_DIFC_GSA), "mine.instprm", FIVE_BANK_INSTPRM).page;
+    expect(bundleInstrumentNote(own.session.rawInstrument, true, bankCoverage(own.session, own.instrument, true))).toBeNull();
+    const held = six();
+    expect(bundleInstrumentNote(held.session.rawInstrument, true, bankCoverage(held.session, held.instrument, true))).toBe(defaultInstrumentInUse(held.session.rawInstrument, true)!.report);
+  });
+
+  it("the Validation view's guard: past the reflection limit it reads nothing; any other error is thrown", () => {
+    expect(withinReflectionLimit(() => 7)).toBe(7);
+    expect(withinReflectionLimit(() => { throw new ReflectionLimitError("Reflection list too large for d ≥ 0.04032 Å"); })).toBeNull();
+    expect(() => withinReflectionLimit(() => { throw new Error("something else"); })).toThrow("something else");
+  });
+});
+

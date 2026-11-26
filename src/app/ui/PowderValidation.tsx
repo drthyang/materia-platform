@@ -150,7 +150,7 @@ function pct(v: number | undefined, digits = 2): string {
 }
 
 /** The reading, or null when the page's reflections pass the engine's limit (ReflectionLimitError); anything else is thrown. */
-function withinReflectionLimit<T>(read: () => T): T | null {
+export function withinReflectionLimit<T>(read: () => T): T | null {
   try {
     return read();
   } catch (e) {

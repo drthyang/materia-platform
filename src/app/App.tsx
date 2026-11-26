@@ -42,7 +42,7 @@ import { parsePdfData } from "@/parsers/pdfData";
 import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
 import { currentDataBank, dataBankRef, dataBanksOf, defaultDataBank } from "@/app/bankChoice";
 import { defaultInstrumentById, defaultStepLabel, defaultUncovered } from "@/app/defaultInstruments";
-import { bankCoverage, followDataBank, followNote, followStepLabel, startingPointStepLabel, startingPointWarning, switchedRows } from "@/app/bankFollow";
+import { bankCoverage, followDataBank, followNote, followStepLabel, loadFollowStepLabel, startingPointStepLabel, startingPointWarning, switchedRows, withStartingPoint } from "@/app/bankFollow";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { loadLocalDemoModule, localDemoAvailable } from "@/app/localDemoGate";
@@ -1090,7 +1090,7 @@ export function App(): JSX.Element {
     setDemoActive(false);
     setScNuclearDataset(null);
     setPdfDataset(null);
-    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, raw.bank);
+    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, raw.bank, null);
     setDetection(fmt);
   }
 
@@ -1109,23 +1109,26 @@ export function App(): JSX.Element {
     const fmt = detectDataFormat({ text: raw.text, filename: raw.name, instrument: instrumentLoaded ? instrument : undefined });
     if (fmt.dataType !== "powder") return;
     setDemoActive(false);
-    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, bank, true);
+    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, bank, "chooser");
   }
 
   /**
    * The Instrument card's "Use bank M's parameters as a starting point": on a
-   * data bank the instrument file has no bank for, the user takes the held
-   * bank's parameters anyway. Kept with the file (`startingPointFor`), so
-   * Refine runs and the card, the Validation view and the report state it;
-   * one History step. Nothing else on the page changes.
+   * data bank the instrument file has no bank for, the user takes bank M's
+   * parameters anyway (the card offers the bank whose difC is closest to the
+   * data's DIFC; app/bankFollow.ts withStartingPoint). Kept with the file
+   * (`startingPointFor`), so Refine runs and the card, the Validation view,
+   * the report and a bundle's README state it; one History step.
    */
-  function onStartingPoint(): void {
+  function onStartingPoint(bank: number): void {
     const coverage = bankCoverage(session, instrument, instrumentLoaded);
-    const raw = session.rawInstrument;
-    if (!coverage || coverage.startingPoint || !raw) return;
-    setPage((p) => ({ ...p, session: { ...p.session, rawInstrument: { ...raw, startingPointFor: coverage.uncovered.dataBank } } }));
-    setMessage(startingPointWarning(coverage.uncovered).line);
-    requestStep("edit", startingPointStepLabel(coverage.uncovered));
+    if (!coverage || coverage.startingPoint) return;
+    const next = withStartingPoint(page, bank);
+    if (!next) return;
+    setPage(next);
+    const now = bankCoverage(next.session, next.instrument, next.instrumentLoaded);
+    if (now) setMessage(startingPointWarning(now.uncovered).line);
+    requestStep("edit", startingPointStepLabel(bank, coverage.uncovered.dataBank));
   }
 
   /**
@@ -1134,14 +1137,21 @@ export function App(): JSX.Element {
    * data's bank when the file has it (app/bankFollow.ts), the step's label,
    * and the highlight to show.
    */
-  function followed(before: PowderPage, next: PowderPage, dataLabel: string): { page: PowderPage; label: string } {
+  function followed(before: PowderPage, next: PowderPage, dataLabel: string, how: "chooser" | "load"): { page: PowderPage; label: string } {
     const f = followDataBank(next);
     if (!f) return { page: next, label: dataLabel };
     setBankFollowMark({ session: f.page.session, note: followNote(f.bank), rows: new Set(switchedRows(before.session.powderParams, f.page.session.powderParams)) });
-    return { page: f.page, label: followStepLabel(f.bank, f.dataBank) };
+    return { page: f.page, label: how === "chooser" ? followStepLabel(f.bank, f.dataBank) : loadFollowStepLabel(dataLabel, f.bank) };
   }
 
-  function applyPowder(text: string, filename: string, fmt: DetectedFormat, tag: string, askedBank?: number, follow = false): void {
+  /**
+   * Powder data on the page. `follow`: the instrument follows the data's bank
+   * (app/bankFollow.ts), for a new file ("load": the step is the load's,
+   * "… · instrument bank N") and for the Data card's chooser ("chooser":
+   * "Instrument bank N, following data bank N"); a re-read of the same bank
+   * in another unit leaves the instrument as it is.
+   */
+  function applyPowder(text: string, filename: string, fmt: DetectedFormat, tag: string, askedBank?: number, follow: "chooser" | "load" | null = "load"): void {
     const id = `${structure.id}-powder`;
     const isGsasCsv = /(^|,)\s*"?obs"?\s*,/i.test(text) && /calc/i.test(text);
     const isGsasHist = isGsasHistogram(text);
@@ -1152,9 +1162,9 @@ export function App(): JSX.Element {
     const bank = banks && banks.length > 1 ? (banks.find((b) => b.bankNumber === askedBank) ?? defaultDataBank(banks)).bankNumber : undefined;
     const bankOpt = bank !== undefined ? { bank } : {};
     const dataLabel = bank !== undefined ? `Loaded data ${filename}, bank ${bank}` : `Loaded data ${filename}`;
-    // The data bank chooser: the instrument follows the new bank (one step, its label says so).
+    // The instrument follows the data's bank (one step, its label says so).
     const land = (next: PowderPage): PowderPage => {
-      const out = follow ? followed(page, next, dataLabel) : { page: next, label: dataLabel };
+      const out = follow ? followed(page, next, dataLabel, follow) : { page: next, label: dataLabel };
       requestStep("load", out.label);
       setPage(out.page);
       return out.page;

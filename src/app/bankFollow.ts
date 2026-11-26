@@ -69,6 +69,11 @@ export function followDataBank(p: PowderPage): BankFollow | null {
   return { page, bank: match.bank, dataBank: data.bank };
 }
 
+/** The History step of a new data file the instrument followed: "Loaded data x.gsa, bank 1 · instrument bank 1". */
+export function loadFollowStepLabel(dataLabel: string, bank: number): string {
+  return `${dataLabel} · instrument bank ${bank}`;
+}
+
 /** The Instrument / profile rows a switch changed: new, or at another value than before it. */
 export function switchedRows(before: readonly RefinementParameter[], after: readonly RefinementParameter[]): readonly string[] {
   const was = new Map(before.map((p) => [p.id, p.value]));
@@ -113,28 +118,100 @@ function offText(u: UncoveredBank): string {
   return ` (its difC ${u.instrumentDifC.toFixed(1)} is ${(off * 100).toFixed(off < 0.1 ? 1 : 0)} % from the data's DIFC ${u.dataDifC.toFixed(1)})`;
 }
 
+const pctOff = (difC: number, dataDifC: number): string => {
+  const off = Math.abs(difC - dataDifC) / Math.abs(dataDifC);
+  return `${(off * 100).toFixed(off < 0.1 ? 1 : 0)} %`;
+};
+
+/** A bank of the file the override can start from, with how far its difC is from the data's DIFC when both are known. */
+export interface StartingBank {
+  readonly bank: number;
+  readonly difC?: number;
+  /** "71 %": |difC − DIFC| / DIFC. */
+  readonly off?: string;
+  /** "Bank 1 · difC 1439.6 · 71 % from the data's DIFC" (time of flight), "Bank 1" otherwise. */
+  readonly label: string;
+}
+
+/** The file's banks as the override's chooser lists them, in the file's order. */
+export function startingBanks(u: UncoveredBank): readonly StartingBank[] {
+  return u.fileDifC.map((b) => {
+    const off = b.difC !== undefined && u.dataDifC !== undefined ? pctOff(b.difC, u.dataDifC) : undefined;
+    return {
+      bank: b.bank,
+      ...(b.difC !== undefined ? { difC: b.difC } : {}),
+      ...(off !== undefined ? { off } : {}),
+      label: `Bank ${b.bank}${b.difC !== undefined ? ` · difC ${b.difC.toFixed(1)}` : ""}${off !== undefined ? ` · ${off} from the data's DIFC` : ""}`,
+    };
+  });
+}
+
+/**
+ * The bank the override offers: the one whose difC is closest to the data's
+ * own DIFC (the lower-numbered of two equally close), else, with no DIFC to
+ * compare, the bank the page holds.
+ */
+export function closestBank(u: UncoveredBank): StartingBank | null {
+  const banks = startingBanks(u);
+  const dataDifC = u.dataDifC;
+  const withDifC = dataDifC !== undefined ? banks.filter((b) => b.difC !== undefined) : [];
+  if (withDifC.length > 0) return withDifC.reduce((best, b) => (Math.abs(b.difC! - dataDifC!) < Math.abs(best.difC! - dataDifC!) ? b : best));
+  return banks.find((b) => b.bank === u.instrumentBank) ?? banks[0] ?? null;
+}
+
+/** " (the closest is bank 1's: difC 1439.6, 71 % from the data's DIFC 840.0)", when the data state a DIFC. */
+function closestText(u: UncoveredBank): string {
+  const c = closestBank(u);
+  return c && c.difC !== undefined && c.off !== undefined && u.dataDifC !== undefined
+    ? ` (the closest is bank ${c.bank}'s: difC ${c.difC.toFixed(1)}, ${c.off} from the data's DIFC ${u.dataDifC.toFixed(1)})`
+    : "";
+}
+
 /** The Instrument card while Refine is held, with its two ways on. */
 export interface HoldNote {
   readonly line: string;
   readonly detail: string;
   /** Opens the file picker for the bank's own file. */
   readonly loadLabel: string;
-  /** The explicit override. */
-  readonly overrideLabel: string;
+  /** The override's chooser, the closest bank first chosen. */
+  readonly banks: readonly StartingBank[];
+  readonly closest: StartingBank | null;
 }
 
 export function holdNote(u: UncoveredBank): HoldNote {
   return {
     line: `Refine is off: no instrument bank for data bank ${u.dataBank}, and another bank's calibration gives wrong peak positions.`,
-    detail: `This instrument file has ${fileBanksText(u)}${u.dataDifC !== undefined ? `, none with a difC within ${DIFC_TOLERANCE * 100} % of the data's DIFC ${u.dataDifC.toFixed(1)}` : `, no bank ${u.dataBank}`}. The page still holds ${heldName(u)}'s parameters${offText(u)}: they place the peaks at the wrong d, and a fit would push the error into the cell, the zero and the profile. Load the instrument file of data bank ${u.dataBank}, choose a data bank the file covers, or start from ${heldName(u)}'s parameters: then refine ${calib(u)} and check the peak positions.`,
+    detail: `This instrument file has ${fileBanksText(u)}${u.dataDifC !== undefined ? `, none with a difC within ${DIFC_TOLERANCE * 100} % of the data's DIFC ${u.dataDifC.toFixed(1)}` : `, no bank ${u.dataBank}`}. The page still holds ${heldName(u)}'s parameters${offText(u)}: they place the peaks at the wrong d, and a fit would push the error into the cell, the zero and the profile. Load the instrument file of data bank ${u.dataBank}, choose a data bank the file covers, or start from another bank's parameters${closestText(u)}: then refine ${calib(u)} and check the peak positions.`,
     loadLabel: `Load instrument for bank ${u.dataBank}…`,
-    overrideLabel: `Use ${heldName(u)}'s parameters as a starting point`,
+    banks: startingBanks(u),
+    closest: closestBank(u),
   };
 }
 
+/** The override's button for the bank chosen. */
+export function overrideLabel(bank: number): string {
+  return `Use bank ${bank}'s parameters as a starting point`;
+}
+
 /** The History step of the override. */
-export function startingPointStepLabel(u: UncoveredBank): string {
-  return `${heldNameCap(u)}'s parameters as a starting point for data bank ${u.dataBank}`;
+export function startingPointStepLabel(bank: number, dataBank: number): string {
+  return `Bank ${bank}'s parameters as a starting point for data bank ${dataBank}`;
+}
+
+/**
+ * The override taken: the file's bank `bank` on the page (read again as the
+ * Instrument card's chooser does, when it is not the bank there now) and
+ * the choice kept with the file (`startingPointFor`). Null when the page has
+ * no data bank the file lacks, or the file no such bank.
+ */
+export function withStartingPoint(p: PowderPage, bank: number): PowderPage | null {
+  const coverage = bankCoverage(p.session, p.instrument, p.instrumentLoaded);
+  const raw = p.session.rawInstrument;
+  if (!coverage || !raw || !coverage.uncovered.fileBanks.includes(bank)) return null;
+  const on = coverage.uncovered.instrumentBank === bank
+    ? p
+    : withInstrumentFile(p, raw.name, raw.text, { bank, ...(raw.bundledDefault !== undefined ? { bundledDefault: raw.bundledDefault } : {}) }).page;
+  return { ...on, session: { ...on.session, rawInstrument: { ...on.session.rawInstrument!, startingPointFor: coverage.uncovered.dataBank } } };
 }
 
 /** The standing warning while the override holds: the card's line and "?", the Validation view, the report and an exported bundle. */
@@ -170,11 +247,26 @@ export function agentInstrumentNotes(rawInstrument: Session["rawInstrument"], in
   const notes: AgentInstrumentNotes = {
     ...(d ? { defaultParameters: d.agent } : {}),
     ...(u && !coverage.startingPoint
-      ? { refineHeld: `Refine is held: data bank ${u.dataBank} has no bank in the instrument file (it has ${fileBanksText(u)}), and ${heldName(u)}'s calibration, which the page holds, gives wrong peak positions${offText(u)}. The user can load the instrument file for bank ${u.dataBank}, choose a data bank the file covers, or choose on the Instrument card to start from ${heldName(u)}'s parameters.` }
+      ? { refineHeld: `Refine is held: data bank ${u.dataBank} has no bank in the instrument file (it has ${fileBanksText(u)}), and ${heldName(u)}'s calibration, which the page holds, gives wrong peak positions${offText(u)}. The user can load the instrument file for bank ${u.dataBank}, choose a data bank the file covers, or choose on the Instrument card to start from another bank's parameters${closestText(u)}.` }
       : {}),
     ...(u && coverage.startingPoint
       ? { startingPoint: `${heldNameCap(u)}'s parameters, used as a starting point for data bank ${u.dataBank}, which the instrument file does not cover (the user's choice)${offText(u)}: ${calibRows(u)} must be refined and the calculated peak positions checked against the observed ones; the peak-shape terms are ${heldName(u)}'s.` }
       : {}),
   };
   return Object.keys(notes).length > 0 ? notes : undefined;
+}
+
+/**
+ * The README statement of an exported bundle on the instrument file, when it
+ * is not the measurement's own calibration: a default shipped with the app,
+ * another bank's parameters taken as a starting point, or both; null for a
+ * user's file on its own bank.
+ */
+export function bundleInstrumentNote(rawInstrument: Session["rawInstrument"], instrumentLoaded: boolean, coverage: BankCoverage | null): string | null {
+  const d = defaultInstrumentInUse(rawInstrument, instrumentLoaded);
+  const parts = [
+    ...(d ? [d.report] : []),
+    ...(coverage?.startingPoint ? [startingPointWarning(coverage.uncovered).report] : []),
+  ];
+  return parts.length > 0 ? parts.join(" ") : null;
 }

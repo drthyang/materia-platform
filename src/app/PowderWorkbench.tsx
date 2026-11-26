@@ -93,7 +93,7 @@ import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { fileProfileCardNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
 import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel, defaultUncovered } from "@/app/defaultInstruments";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
-import { agentInstrumentNotes, bankCoverage, holdNote, startingPointWarning } from "@/app/bankFollow";
+import { agentInstrumentNotes, bankCoverage, bundleInstrumentNote, holdNote, overrideLabel, startingPointWarning } from "@/app/bankFollow";
 import type { InstrumentNote } from "@/app/ui/PowderValidation";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
@@ -167,7 +167,7 @@ export interface PowderWorkbenchProps {
   /** Load a default instrument file shipped with the app, by its id (the Instrument card's offer; app/defaultInstruments.ts). */
   onUseDefaultInstrument?: (id: string) => void;
   /** Take the held instrument bank's parameters as a starting point for a data bank the file has no bank for (app/bankFollow.ts). */
-  onStartingPoint?: () => void;
+  onStartingPoint?: (bank: number) => void;
   /** The instrument just switched bank with the data (app/bankFollow.ts): the line and the rows to mark, until the next action. */
   bankFollow?: { readonly note: string; readonly rows: ReadonlySet<string> } | null;
   /** Set an X-ray instrument's polarization and Kα₂ ratio (the shell owns the instrument). */
@@ -293,6 +293,11 @@ export function PowderWorkbench({
     [hasContent, session.rawData, session.rawInstrument, instrument, instrumentLoaded],
   );
   const instHold = instCoverage && !instCoverage.startingPoint ? holdNote(instCoverage.uncovered) : null;
+  // The override's chooser: the bank the user picked for this data bank, else the closest by difC.
+  const [startPick, setStartPick] = useState<{ readonly dataBank: number; readonly bank: number } | null>(null);
+  const startBank = !instHold || !instCoverage ? null
+    : startPick && startPick.dataBank === instCoverage.uncovered.dataBank && instHold.banks.some((b) => b.bank === startPick.bank) ? startPick.bank
+      : instHold.closest?.bank ?? null;
   const instStartingPoint = instCoverage?.startingPoint ? startingPointWarning(instCoverage.uncovered) : null;
   // Data loaded before a structure: the placeholder model (no atoms).
   const noStructure = session.structure.sites.length === 0;
@@ -777,6 +782,8 @@ export function PowderWorkbench({
    * token, so the chain keeps targeting the identical posterior.
    */
   async function runSample(continueRun: boolean, steps = SAMPLE_STEPS): Promise<SampleResult | string> {
+    // A data bank the instrument file has no bank for: held as Refine is (app/bankFollow.ts).
+    if (instHold) return instHold.line;
     setSampleBusy(true);
     const prior = continueRun ? sample : null;
     const total = (prior ? prior.result.resume.stepIndex : 0) + steps;
@@ -1097,7 +1104,8 @@ export function PowderWorkbench({
       // the instrument (whose model is lossy) and data are exactly what they gave.
       ...(session.rawInstrument ? { rawInstrument: session.rawInstrument } : {}),
       // A default shipped with the app is not the user's calibration: the README says so.
-      ...(defaultInstrumentInUse(session.rawInstrument, instrumentLoaded) ? { instrumentNote: defaultInstrumentInUse(session.rawInstrument, instrumentLoaded)!.report } : {}),
+      // Another bank's parameters as a starting point: the README says that too.
+      ...(bundleInstrumentNote(session.rawInstrument, instrumentLoaded, instCoverage) ? { instrumentNote: bundleInstrumentNote(session.rawInstrument, instrumentLoaded, instCoverage)! } : {}),
       ...(session.rawData ? { rawData: session.rawData } : {}),
     };
     // The refined values are applied inside: `structure` is the model as loaded.
@@ -1241,6 +1249,7 @@ export function PowderWorkbench({
       },
       samplePosterior: async ({ continue: continueRun, steps }) => {
         if (sampleBusy) return "a posterior run is already going";
+        if (instHold) return instHold.line;
         if (continueRun && !sample) return "there is no posterior run to continue: sample first";
         setPlotMode("posterior");
         return runSample(continueRun, steps);
@@ -1402,7 +1411,14 @@ export function PowderWorkbench({
               {instHold.loadLabel}
               <input type="file" accept=".instprm,.prm,.irf,text/plain" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onLoadInstrument(f); }} />
             </label>
-            {onStartingPoint && <button style={toolbarBtn} onClick={onStartingPoint}>{instHold.overrideLabel}</button>}
+            {onStartingPoint && startBank !== null && (
+              <>
+                <select data-testid="instrument-starting-bank" aria-label="Bank to start from" value={String(startBank)} onChange={(e) => setStartPick({ dataBank: instCoverage!.uncovered.dataBank, bank: Number(e.target.value) })} style={{ ...bgSelect, maxWidth: "100%" }}>
+                  {instHold.banks.map((b) => <option key={b.bank} value={b.bank}>{b.label}{b.bank === instHold.closest?.bank && b.difC !== undefined ? " (closest)" : ""}</option>)}
+                </select>
+                <button style={toolbarBtn} onClick={() => onStartingPoint(startBank)}>{overrideLabel(startBank)}</button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1782,7 +1798,7 @@ export function PowderWorkbench({
                       onRun={(continueRun) => void runSample(continueRun)}
                       onStop={stopSample}
                       hasRefined={powderResult !== null}
-                      blockedReason={lock.sample}
+                      blockedReason={lock.sample ?? instHold?.line ?? null}
                       labels={new Map(powderParams.map((p) => [p.id, p.label]))}
                     />
                   </div>
@@ -1974,7 +1990,8 @@ export function PowderWorkbench({
               {...(magneticFitChip ? { patternFitChip: magneticFitChip } : {})}
               {...(tofViewOnly ? {} : { onFocusFit: () => setFocusFitToken((t) => t + 1) })}
               focusFitToken={focusFitToken}
-              magneticFit={powderMagneticFit}
+              // Held on a data bank the instrument file has no bank for, as Refine is (app/bankFollow.ts).
+              {...(instHold ? { fitHeld: { line: instHold.line, detail: instHold.detail } } : { magneticFit: powderMagneticFit })}
               baselineAgreement={nuclearWr}
               nuclearValues={momentRoundRows}
               onMomentFit={takeMomentRoundRows}

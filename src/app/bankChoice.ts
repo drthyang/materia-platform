@@ -183,6 +183,8 @@ export interface UncoveredBank {
   readonly instrumentBank: number | null;
   /** The banks the file has, by number. */
   readonly fileBanks: readonly number[];
+  /** Each numbered bank of the file with its difC, when it has one (time of flight). */
+  readonly fileDifC: readonly { readonly bank: number; readonly difC?: number }[];
   /** The data file's own DIFC for its bank, when it states one. */
   readonly dataDifC?: number;
   /** The held bank's difC, when it has one. */
@@ -205,6 +207,7 @@ export function uncoveredDataBank(file: InstrumentFile | null, current: Instrume
     dataBank: data.bank,
     instrumentBank: current.bank,
     fileBanks: file.banks.map((b) => b.bank).filter((n): n is number => n !== null),
+    fileDifC: file.banks.filter((b) => b.bank !== null).map((b) => ({ bank: b.bank!, ...(difCOf(b) !== undefined ? { difC: difCOf(b)! } : {}) })),
     ...(data.difC !== undefined ? { dataDifC: data.difC } : {}),
     ...(curDifC !== undefined ? { instrumentDifC: curDifC } : {}),
   };
