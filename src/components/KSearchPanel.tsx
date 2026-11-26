@@ -1207,6 +1207,13 @@ export function KSearchPanel({
               const allowing = reps.map((r, i) => ({ r, i })).filter(({ i }) => (repMomentDims[i] ?? 0) > 0);
               const inOpen = allowing.filter(({ r }) => openIndices.has(r.index));
               return (
+                <>
+                {fitHeld && (
+                  <div data-testid="magnetic-fit-held" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: theme.warnInk, margin: "2px 0 4px" }}>
+                    <span>{fitHeld.line}</span>
+                    <InfoBadge width={340} text={fitHeld.detail} />
+                  </div>
+                )}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, rowGap: 6, flexWrap: "wrap", margin: "2px 0 8px" }}>
                   <button
                     style={{ ...btn, marginTop: 0, opacity: canFit && !rank.running && inOpen.length > 0 ? 1 : 0.5 }}
@@ -1272,6 +1279,7 @@ export function KSearchPanel({
                     </span>
                   )}
                 </div>
+                </>
               );
             })()}
             {(() => {
@@ -1627,12 +1635,6 @@ let <b>Refine moments</b> fit them here against the pattern{magneticFit?.alterna
                       )}
                     </div>
                   ))}
-                </div>
-              )}
-              {fitHeld && (
-                <div data-testid="magnetic-fit-held" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: theme.warnInk, margin: "0 0 6px" }}>
-                  <span>{fitHeld.line}</span>
-                  <InfoBadge width={340} text={fitHeld.detail} />
                 </div>
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 10, rowGap: 8, flexWrap: "wrap" }}>
