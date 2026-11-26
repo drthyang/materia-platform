@@ -83,7 +83,7 @@ function dRange(pattern: PowderPattern): { dMin: number; dMax: number } {
 /** Smallest d-spacing (Å) modelled for a TOF pattern. The data extends to very
  *  high Q (tiny d); enumerating every reflection there is pointless (the peaks
  *  overlap into the background) and costly, so the modelled range is floored. */
-const TOF_DMIN_FLOOR = 0.5;
+export const TOF_DMIN_FLOOR = 0.5;
 
 /** d-range covered by a TOF pattern, from its TOF extent and calibration. */
 function tofDRange(
