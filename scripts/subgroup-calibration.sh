@@ -14,9 +14,9 @@ GATA_SEEDS=${GATA_SEEDS:-1}
 mkdir -p "$OUT"
 jobs=()
 # The heaviest first: GaTa4Se8, then the tilts, then cubic.
-for s in $(seq 1 "$GATA_SEEDS"); do for l in 0.05 0.1 0.15; do jobs+=("GaTa4Se8 P-42_1m|$l|$s"); done; done
-for s in $(seq 1 "$TRUTH_SEEDS"); do for t in "a-b+a-" "a-a-a-"; do for l in 0.05 0.1 0.15; do jobs+=("$t|$l|$s"); done; done; done
-for s in $(seq 1 "$CUBIC_SEEDS"); do for l in 0.05 0.1 0.15; do jobs+=("cubic|$l|$s"); done; done
+for ((s = 1; s <= GATA_SEEDS; s++)); do for l in 0.05 0.1 0.15; do jobs+=("GaTa4Se8 P-42_1m|$l|$s"); done; done
+for ((s = 1; s <= TRUTH_SEEDS; s++)); do for t in "a-b+a-" "a-a-a-"; do for l in 0.05 0.1 0.15; do jobs+=("$t|$l|$s"); done; done; done
+for ((s = 1; s <= CUBIC_SEEDS; s++)); do for l in 0.05 0.1 0.15; do jobs+=("cubic|$l|$s"); done; done
 start=$(date +%s)
 stop_ms=$(( (start + (CAP_MIN - 4) * 60) * 1000 ))
 echo "{\"start\": $start, \"procs\": $PROCS, \"capMin\": $CAP_MIN, \"jobs\": ${#jobs[@]}}" > "$OUT/run.json"

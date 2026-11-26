@@ -32,6 +32,13 @@ const JOBS = (process.env.SUBGROUP_CALIBRATION_JOBS ?? "").split(";").filter((x)
 });
 const STOP = Number(process.env.SUBGROUP_CALIBRATION_STOP ?? Infinity);
 const RULES = { ...SEARCH_RULES, stepBudgetMs: Infinity };
+/**
+ * A shard of step 1's candidates, "i/n": this process fits every n-th from
+ * the i-th. Each candidate is independent (its own starts, seeded by its key;
+ * the parent's fits are deterministic), so the shards' rows together are the
+ * sequential step's; the report merges them and ranks.
+ */
+const SHARD = (process.env.SUBGROUP_CALIBRATION_SHARD ?? "0/1").split("/").map(Number) as [number, number];
 /** A smoke run's limit on step 1's candidates (unset: every one). */
 const LIMIT = Number(process.env.SUBGROUP_CALIBRATION_LIMIT ?? Infinity);
 
@@ -84,16 +91,17 @@ describe.skipIf(!OUT)("subgroup search calibration (opt-in)", () => {
       const ctx = await pdfSearchContext(client, pdfPage(truth.parent, data), truth.bound, { rules: RULES });
       const ref = await ctx.reference.refit(ctx.window);
       const stepCtx = { host: ctx.host, window: ctx.window, firstPeakPast: ctx.peak.past, rules: RULES };
-      const s1 = await searchStep1(stepCtx, ctx.reference, ctx.singles.slice(0, LIMIT));
+      const s1 = await searchStep1(stepCtx, ctx.reference, ctx.singles.slice(0, LIMIT).filter((_, i) => i % SHARD[1] === SHARD[0]));
       const top = topIrreps(s1, RULES.pairedIrreps);
       // Step 2 as specified, fitted when its pairing holds the truth's pair; else what it would try, named.
       const target = job.truth === "a-b+a-" ? ["M irrep 3 of 10", "R irrep 8 of 10"] : job.truth === "GaTa4Se8 P-42_1m" ? ["X irrep 5 of 5", "W irrep 1 of 4"] : null;
       const tried = ctx.pairs.filter((c) => c.irreps.length === 2 && c.irreps[0]!.label !== c.irreps[1]!.label && c.irreps.every((x) => top.includes(x.label)));
       const accepted1 = s1.rows.some((r) => r.gate?.accepted);
-      const s2 = target && accepted1 && target.every((l) => top.includes(l)) ? await searchStep2(stepCtx, ctx.reference, s1, ctx.pairs) : null;
+      const s2 = SHARD[1] === 1 && target && accepted1 && target.every((l) => top.includes(l)) ? await searchStep2(stepCtx, ctx.reference, s1, ctx.pairs) : null;
       const ranks = target ? Object.fromEntries(target.map((l) => [l, s1.rows.filter((r) => r.status === "fitted").findIndex((r) => r.candidate.irreps.some((x) => x.label === l))])) : null;
       appendFileSync(OUT!, JSON.stringify({
         ...job,
+        shard: SHARD,
         window: ctx.window,
         peak: ctx.peak,
         parentRwWhole: ctx.parentRw,

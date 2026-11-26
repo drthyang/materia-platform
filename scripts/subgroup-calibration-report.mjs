@@ -2,7 +2,7 @@
 // The subgroup search's calibration report (THY-72): reads the JSON lines
 // scripts/subgroup-calibration.sh wrote, computes the rates, and writes an
 // HTML page with SVG figures (each also saved as its own .svg file).
-// Usage: node scripts/subgroup-calibration-report.mjs RAW_DIR OUT_DIR
+// Usage: node scripts/subgroup-calibration-report.mjs RAW_DIR[,RAW_DIR…] OUT_DIR
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -11,11 +11,48 @@ if (!rawDir || !outDir) throw new Error("usage: subgroup-calibration-report.mjs 
 mkdirSync(join(outDir, "figures"), { recursive: true });
 
 const runs = [];
-for (const f of readdirSync(rawDir).filter((x) => x.endsWith(".jsonl"))) {
-  for (const line of readFileSync(join(rawDir, f), "utf8").split("\n")) if (line.trim()) runs.push(JSON.parse(line));
+const runInfo = [];
+for (const dir of rawDir.split(",")) {
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".jsonl"))) {
+    for (const line of readFileSync(join(dir, f), "utf8").split("\n")) if (line.trim()) runs.push(JSON.parse(line));
+  }
+  if (existsSync(join(dir, "run.json"))) runInfo.push(JSON.parse(readFileSync(join(dir, "run.json"), "utf8")));
 }
-const run = existsSync(join(rawDir, "run.json")) ? JSON.parse(readFileSync(join(rawDir, "run.json"), "utf8")) : {};
-const done = runs.filter((r) => !r.skipped);
+const run = { procs: runInfo.map((r) => r.procs).join(" and "), runs: runInfo };
+// A sharded dataset (each shard fitted every n-th step-1 candidate) is one dataset once all its shards are in:
+// its rows merged and ranked as the step ranks them, its step-1 time the sum of the shards' (one process's time).
+const tier = (x) => (x.status === "fitted" ? (x.accepted ? 0 : 1) : x.status === "fit failed" ? 2 : 3);
+const rankRows = (rows) => [...rows].sort((a, b) => tier(a) - tier(b) || (a.bic ?? Infinity) - (b.bic ?? Infinity));
+const TARGETS = { "a-b+a-": ["M irrep 3 of 10", "R irrep 8 of 10"], "GaTa4Se8 P-42_1m": ["X irrep 5 of 5", "W irrep 1 of 4"] };
+function merged(all) {
+  const out = all.filter((r) => !r.skipped && (!r.shard || r.shard[1] === 1));
+  const groups = new Map();
+  for (const r of all) if (!r.skipped && r.shard && r.shard[1] > 1) {
+    const key = `${r.truth}|${r.level}|${r.seed}`;
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  const incomplete = [];
+  for (const [key, parts] of groups) {
+    const n = parts[0].shard[1];
+    if (new Set(parts.map((x) => x.shard[0])).size !== n) { incomplete.push(`${key} (${parts.length} of ${n} shards)`); continue; }
+    const rows = rankRows(parts.flatMap((x) => x.step1.rows));
+    const top3 = [];
+    for (const x of rows) if (x.status === "fitted") for (const ir of x.irreps) { const l = ir.replace(/ \(.*$/, ""); if (!top3.includes(l) && top3.length < 3) top3.push(l); }
+    const fittedRows = rows.filter((x) => x.status === "fitted");
+    const t = TARGETS[parts[0].truth];
+    out.push({
+      ...parts[0],
+      shard: [0, 1],
+      step1: { ...parts[0].step1, rows, seconds: parts.reduce((a, x) => a + x.step1.seconds, 0), stop: rows.some((x) => x.accepted) ? null : "no child passes the gate" },
+      top3,
+      ...(t ? { targetRanks: Object.fromEntries(t.map((l) => [l, fittedRows.findIndex((x) => x.irreps.some((ir) => ir.startsWith(l)))])), step2Fitted: false } : {}),
+      sharded: n,
+    });
+  }
+  return { out, incomplete };
+}
+const mergedRuns = merged(runs);
+const done = mergedRuns.out;
 const skipped = runs.filter((r) => r.skipped);
 const LEVELS = [0.05, 0.1, 0.15];
 const COLORS = { 0.05: "#2a78d6", 0.1: "#eb6834", 0.15: "#1baf7a" };
@@ -68,7 +105,7 @@ function outcome(r) {
     const s1 = labels.has("M irrep 3 of 10") && labels.has("R irrep 8 of 10");
     const top2 = r.step2?.rows.find((x) => x.accepted);
     const s2 = top2 && top2.group === "P n m a #62" && new Set(top2.irreps.map((i) => i.replace(/ \(.*$/, ""))).size === 2 && top2.irreps.every((i) => /^(M irrep 3 of 10|R irrep 8 of 10)/.test(i));
-    return { ok: !!(s1 && s2), what: `step 1 accepts M3: ${labels.has("M irrep 3 of 10") ? "yes" : "no"}, R8: ${labels.has("R irrep 8 of 10") ? "yes" : "no"}; step 2 ${r.step2Fitted ? (top2 ? `top accepted ${top2.group} ${irrepsOf(top2)}` : "accepted nothing") : "did not reach the pair (not in step 1's top 3)"}` };
+    return { ok: !!(s1 && s2), what: `step 1 accepts M3: ${labels.has("M irrep 3 of 10") ? "yes" : "no"}, R8: ${labels.has("R irrep 8 of 10") ? "yes" : "no"}; step 2 ${r.step2Fitted ? (top2 ? `top accepted ${top2.group} ${irrepsOf(top2)}` : "accepted nothing") : r.top3.includes("M irrep 3 of 10") && r.top3.includes("R irrep 8 of 10") ? "not fitted in this run (sharded step 1)" : "never tries M3 + R8: they are not both among step 1's top 3 irreps"}` };
   }
   if (r.truth === "GaTa4Se8 P-42_1m") {
     const top2 = r.step2?.rows.find((x) => x.accepted);
@@ -236,6 +273,9 @@ const capTable = `<table><tr><th>dataset</th><th>N_ind</th><th>N_ind/4</th><th>c
 const noiseTable = `<table><tr><th>truth</th><th>noise</th><th>parent Rw in the window: mean (min–max)</th><th>first peak found at (Å)</th></tr>${["cubic", ...TRUTHS].flatMap((t) => LEVELS.map((l) => { const ds = done.filter((r) => r.truth === t && r.level === l); if (!ds.length) return ""; const rw = ds.map((r) => r.parentRw); const pk = ds.map((r) => r.peak.r.toFixed(2)); return `<tr>${td(esc(t))}${td(`${l * 100} %`)}${td(`${pct(rw.reduce((a, b) => a + b, 0) / rw.length)} (${pct(Math.min(...rw))}–${pct(Math.max(...rw))})`)}${td([...new Set(pk)].join(", "))}</tr>`; })).join("")}</table>`;
 const bound = done.flatMap((r) => r.step1.rows.filter((x) => /moves .* Å from its parent position/.test(x.reason ?? "")));
 const failed = done.flatMap((r) => r.step1.rows.filter((x) => x.status === "fit failed"));
+// Rows these runs marked "worse than the parent" by round-off only (within the 0.1 % agreement tolerance): the engine
+// now reads them as fitted (back at the parent's minimum). They have ΔBIC > 0, so no acceptance depends on them.
+const roundOff = done.flatMap((r) => r.step1.rows.filter((x) => x.status === "fit failed" && /worse than its parent/.test(x.reason ?? "") && x.rw !== undefined && x.rw <= r.parentRw * 1.001));
 
 const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>THY-72 subgroup search: calibration</title>
 <style>
@@ -245,7 +285,7 @@ table{border-collapse:collapse;font-size:12.5px;margin:8px 0}td,th{border:1px so
 figure{margin:16px 0}figcaption{color:#52514e;font-size:13px;max-width:760px}.note{color:#52514e}
 </style></head><body>
 <h1>THY-72 subgroup search: calibration of the gate</h1>
-<p class="note">${COPY}. Synthetic data only: SrTiO₃ (cubic, a⁻a⁻a⁻, a⁻b⁺a⁻, tilt 0.07 rad, neutron, Qmax 25 Å⁻¹, Qdamp 0.03 Å⁻¹, 2×2×2) and GaTa₄Se₈ (the bundled public demo structure; P-42₁m 1×1×2 truth with the X5 and W1 modes each moving the atom they move most by 0.07 Å; X-ray, the demo's Qmax and refined Qdamp, Qbroad, δ1, δ2). G(r) on 1–13 Å at 0.05 Å, F(Q) noise σ_F ∝ Q transformed with Qmax, level set so the parent fit on parent data reads Rw ≈ 5, 10, 15 %. Full step-1 screen (every single-irrep class), every number as decided; the step budget lifted so no screen is cut short. ${done.length} datasets done${skipped.length ? `, ${skipped.length} not started (the run's cap)` : ""}; run ${run.end && run.start ? `${((run.end - run.start) / 60).toFixed(1)} min wall clock on ${run.procs} processes` : "time not recorded"}.</p>
+<p class="note">${COPY}. Synthetic data only: SrTiO₃ (cubic, a⁻a⁻a⁻, a⁻b⁺a⁻, tilt 0.07 rad, neutron, Qmax 25 Å⁻¹, Qdamp 0.03 Å⁻¹, 2×2×2) and GaTa₄Se₈ (the bundled public demo structure; P-42₁m 1×1×2 truth with the X5 and W1 modes each moving the atom they move most by 0.07 Å; X-ray, the demo's Qmax and refined Qdamp, Qbroad, δ1, δ2). G(r) on 1–13 Å at 0.05 Å, F(Q) noise σ_F ∝ Q transformed with Qmax, level set so the parent fit on parent data reads Rw ≈ 5, 10, 15 %. Full step-1 screen (every single-irrep class), every number as decided; the step budget lifted so no screen is cut short. ${done.length} datasets done${skipped.length ? `, ${new Set(skipped.map((r) => `${r.truth}|${r.level}|${r.seed}`)).size} not started (the run's cap)` : ""}${mergedRuns.incomplete.length ? `, ${mergedRuns.incomplete.length} cut by the cap before all their shards finished (left out: ${esc(mergedRuns.incomplete.join(", "))})` : ""}; ${run.runs.map((r, i) => `run ${i + 1}: ${r.end ? `${((r.end - r.start) / 60).toFixed(1)} min wall clock` : "time not recorded"} on ${r.procs} processes, ${r.jobs} datasets queued`).join("; ")}.</p>
 <h2>1. False descents on cubic data (decision 3: target ≤ 5 % at ΔBIC ≤ −6)</h2>
 ${rateTable}
 <p class="note">"Threshold that would give ≤ 5 %" reads the lowest ΔBIC among candidates that pass the other four criteria, per dataset; with n datasets at most ⌊0.05·n⌋ may fall at or below the threshold. With few datasets the interval is wide: the rates are estimates, not a verdict.</p>
@@ -259,7 +299,7 @@ ${figures.slice(3, 5).map((f) => `<figure>${f.svg}<figcaption>${esc(f.caption)}<
 <h2>4. The N_ind/4 cap and the 0.5 Å bound</h2>
 ${capTable}
 <p>GaTa₄Se₈: ${gata.length ? esc(gata.map((r) => (r.step2Tries ?? []).length ? "" : "").join("")) : ""}the truth's class (c45, P-42₁m 1×1×2, X5 + W1) frees 19 modes, p = 24, against N_ind/4 ≈ ${gata[0] ? (gata[0].step1.nInd / 4).toFixed(1) : "16.5"} at the decided window: it would be listed "not fitted" by stop rule 8(1) even when step 2 pairs X5 with W1.</p>
-<p>${failed.length} step-1 candidates over all datasets were "fit failed"; ${bound.length} of them for an atom moving more than 0.5 Å.</p>
+<p>${failed.length} step-1 candidates over all datasets were "fit failed"; ${bound.length} of them for an atom moving more than 0.5 Å, ${failed.filter((x) => /did not converge/.test(x.reason ?? "")).length} for a best start that did not converge (mostly the 30-iteration cap on candidates with many modes). ${roundOff.length} were marked "worse than the parent" by round-off only (within 0.1 % of the parent's Rw, a child back at the parent's minimum); these runs predate the engine's fix that reads such a child as fitted. They all have ΔBIC &gt; 0, so no rate or acceptance here depends on them; only the ranking of rows below the parent does.</p>
 ${figures.slice(5, 6).map((f) => `<figure>${f.svg}<figcaption>${esc(f.caption)}</figcaption></figure>`).join("")}
 <h2>5. The noise levels and the window</h2>
 ${noiseTable}

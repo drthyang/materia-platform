@@ -159,6 +159,7 @@ describe("step 1: the gate and the stop rules", () => {
       worse: { rw: (w) => 1.01 * parentRw(w) },
       stuck: { rw: (w) => 0.5 * parentRw(w), converged: false },
       far: { rw: (w) => 0.5 * parentRw(w), displacement: 0.6 },
+      back: { rw: (w) => 1.0000001 * parentRw(w) },
       big: { rw: (w) => 0.5 * parentRw(w), modes: 14 },
     };
     const log: string[] = [];
@@ -167,12 +168,14 @@ describe("step 1: the gate and the stop rules", () => {
     expect(rowOf(step.rows, "stuck").reason).toMatch(/did not converge/);
     expect(rowOf(step.rows, "far").reason).toMatch(/moves 0\.600 Å/);
     for (const k of ["worse", "stuck", "far"]) expect(rowOf(step.rows, k).status).toBe("fit failed");
+    // Back at the parent's minimum, worse by round-off only: fitted, not failed.
+    expect(rowOf(step.rows, "back").status).toBe("fitted");
     const big = rowOf(step.rows, "big");
     expect([big.status, big.p]).toEqual(["not fitted", 18]);
     expect(big.reason).toMatch(/exceed N_ind\/4 = 16\.7; rmax ≥ 10\.6\d Å/);
     expect(rowOf(step.rows, "strain").reason).toMatch(/strain or ordering only/);
     expect(log.some((x) => x.startsWith("big") || x.startsWith("strain"))).toBe(false);
-    expect(step.rows.map((r) => r.status)).toEqual(["fit failed", "fit failed", "fit failed", "not fitted", "not fitted"]);
+    expect(step.rows.map((r) => r.status)).toEqual(["fitted", "fit failed", "fit failed", "fit failed", "not fitted", "not fitted"]);
     expect(step.stop).toBe("no child passes the gate");
   });
 

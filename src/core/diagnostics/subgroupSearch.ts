@@ -418,7 +418,9 @@ function failureOf(best: FitReading | null, referenceRw: number, rules: SearchRu
   if (!best) return "no start gave a number";
   if (!Number.isFinite(best.rw)) return "the fit returned non-numbers";
   if (!best.converged) return `the best start did not converge (${best.status})`;
-  if (best.rw > referenceRw) return `its best Rw ${pct(best.rw)} is worse than its parent's ${pct(referenceRw)}`;
+  // A child holds its parent (its modes at 0), so it is worse only when its fit missed: beyond round-off, read
+  // with the starts' agreement tolerance (a child back at the parent's minimum is not a failed fit).
+  if (best.rw > referenceRw * (1 + rules.agreementTolerance)) return `its best Rw ${pct(best.rw)} is worse than its parent's ${pct(referenceRw)}`;
   if (best.maxDisplacement > rules.maxDisplacement) return `an atom moves ${best.maxDisplacement.toFixed(3)} Å from its parent position (bound ${rules.maxDisplacement} Å)`;
   return null;
 }
