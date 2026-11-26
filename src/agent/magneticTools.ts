@@ -30,6 +30,12 @@ function handleOf(port: PowderAgentPort): MagneticAgentHandle {
   return h;
 }
 
+/** A data bank the instrument file has no bank for holds every fit to the data (app/bankFollow.ts): refused with the page's reason. */
+function refuseWhileHeld(port: PowderAgentPort): void {
+  const held = port.state().instrumentNotes?.refineHeld;
+  if (held) throw new Error(held);
+}
+
 /** The fraction glyphs a k label prints (kSearch.ts kLabel), as fractions. */
 const K_GLYPH: Readonly<Record<string, string>> = { "½": "1/2", "⅓": "1/3", "⅔": "2/3", "¼": "1/4", "¾": "3/4", "⅙": "1/6", "⅚": "5/6" };
 
@@ -209,6 +215,7 @@ export async function readMagneticTool(name: string, input: Input, port: PowderA
       };
     }
     case "rank_magnetic_groups": {
+      refuseWhileHeld(port);
       const scope = (input.scope as "open" | "all" | undefined) ?? "open";
       port.openStep?.(1);
       const restarts = typeof input.restarts === "number" ? input.restarts : RANK_RESTARTS;
@@ -323,6 +330,7 @@ export const MAGNETIC_PLANS: Pick<Plans<PowderAgentPort>, MagneticChangeTool> = 
     }));
   },
   refine_moments: (_input, _s, port) => {
+    refuseWhileHeld(port);
     const { selected } = handleOf(port).state();
     const preview = selected ? `Fit the moments of ${selected.symbol} (${selected.parameters.length} amplitude${selected.parameters.length === 1 ? "" : "s"}), nuclear structure held, scale and background re-refined` : "Fit the moments";
     return change(preview, onStep(port, async (h) => {
