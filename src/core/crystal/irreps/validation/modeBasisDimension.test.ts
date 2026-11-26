@@ -113,7 +113,7 @@ describe("every class: the mode basis has the dimension Wyckoff splitting gives"
 
   it("the default gauge keeps every real mode where the per-site intersection is larger than H's translations", () => {
     // R-3m 1×1×1, P3₁21: every site allows c, H has no polar direction; both
-    // gauges keep all 7 modes (the default kept 6 before 2026-11-27).
+    // gauges keep all 7 modes (the default kept 6 before 2026-11-26).
     const r = checkModeBound("R-3m", "1x1x1", BOUNDS["1x1x1"]!);
     const c = r.classes.find((x) => x.number === 152)!;
     expect(c).toMatchObject({ expected: 7, polar: 0, engine: 7, engineGauged: 7, defaultGauge: 7 });

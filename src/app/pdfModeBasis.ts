@@ -5,7 +5,7 @@
  *
  * Those amplitudes are not stored with their vectors in force: the page
  * rebuilds the basis from the structure on open (buildSymmetryModes) and
- * overlays the saved values by row id. Until 2026-11-27 that basis lost real
+ * overlays the saved values by row id. Until 2026-11-26 that basis lost real
  * modes on some structures (its gauge projected out every direction all the
  * sites allow, not only the rigid translations); the corrected basis has
  * more modes, and its `mode_k` is a different vector. Overlaying the old

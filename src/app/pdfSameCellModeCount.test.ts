@@ -3,7 +3,7 @@
  * (tier 1, sampled; every row of every parent is the opt-in tier 2,
  * pdfSameCellModeCount.tier2.test.ts; the method is in
  * testSupport/sameCellModeCount.ts). The rows sampled are the ones that
- * offered fewer modes than they listed before the gauge fix of 2026-11-27,
+ * offered fewer modes than they listed before the gauge fix of 2026-11-26,
  * and unaffected rows of the same parents beside them.
  */
 import { describe, it, expect, beforeAll } from "vitest";

@@ -130,7 +130,7 @@ release fixes bugs.
   saved; one whose saved positions cannot be rebuilt exactly is refused
   with the reason. A same-cell
   activation saved with a project keeps its set: activate the row again for
-  the full one ([report](docs/reports/2026-11-27-polar-gauge-everywhere.md)).
+  the full one ([report](docs/reports/2026-11-26-polar-gauge-everywhere.md)).
 
 - **The live evals' refusal check no longer fails a staging rule** restated
   and followed ("the width must not refine with the positions, so I'll hold

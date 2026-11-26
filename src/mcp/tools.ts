@@ -2312,7 +2312,7 @@ export function build_distortion_modes(args: {
  * unobservable in any scattering fit — are projected out (`acousticExcluded`
  * counts them); a direction every site allows but a rotation does not fix is
  * a real distortion and stays a mode (the default gauge removed it before
- * 2026-11-27).
+ * 2026-11-26).
  * These are the symmetry-CONSERVING (Γ, identity-irrep) modes: the same DOF
  * as per-coordinate positions, re-expressed as orthonormal whole-cell Å
  * amplitudes. Symmetry-breaking (subgroup-tree) modes are a separate,

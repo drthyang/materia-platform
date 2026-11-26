@@ -498,7 +498,7 @@ export function buildSymmetryModes(
      * direction some rotation does not fix (P2₁3 with every site on a
      * 3-fold: [111] is allowed at each site, but moving each site along it
      * moves the orbits apart, a genuine distortion; P2₁ with every site
-     * general: a and c); until 2026-11-27 the default projected that whole
+     * general: a and c); until 2026-11-26 the default projected that whole
      * intersection out and lost those modes.
      */
     readonly gaugeBasis?: "sites" | "rotations";

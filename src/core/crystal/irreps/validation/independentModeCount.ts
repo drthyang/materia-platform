@@ -37,7 +37,7 @@
  * the polar dimension, and each irrep loses m_V(Γ)·n_Γ modes, m_V(Γ) the
  * copies of Γ in the vector representation (tr W_f). buildSymmetryModes'
  * default (the gauge basis the PDF page's same-cell routes use) must keep the
- * same count: until 2026-11-27 it removed every direction all the child's
+ * same count: until 2026-11-26 it removed every direction all the child's
  * site representatives allow, which drops a real distortion where that space
  * is larger than the polar one. A class where it keeps fewer modes fails.
  */
@@ -384,7 +384,7 @@ export function checkModes(
       problems.push(`engine (irrepModeSet): ${e instanceof Error ? e.message : String(e)}`);
     }
     // The default gauge basis removes H's translations only, as the polar one
-    // does (before 2026-11-27 it removed every direction each child site's
+    // does (before 2026-11-26 it removed every direction each child site's
     // representative allows, and dropped real modes where that was more).
     defaultGauge = buildSymmetryModes(realised.structure).modes.length;
     if (defaultGauge !== expected - polar) problems.push(`default gauge: buildSymmetryModes keeps ${defaultGauge} modes, expected ${expected} − ${polar} without H's translations`);
@@ -559,7 +559,7 @@ export function modeFindings(b: ModeBoundCheck): string[] {
     .map((c) => `#${b.parent} ${b.bound} class ${c.id} (#${c.number ?? "?"} ${c.hm ?? ""}, order ${c.order}, ${c.kind}; polar ${c.polar}): ${c.problems.join("; ")} | orbits ${c.orbits.map((o) => `${o.parentSite}→${o.wyckoff}(${o.siteSymmetry}):${o.free}`).join(" ")} | seed ${c.seed}`);
 }
 
-/** The classes where buildSymmetryModes' default gauge removes more than the rigid translations (the gauge bug fixed on 2026-11-27; none expected). */
+/** The classes where buildSymmetryModes' default gauge removes more than the rigid translations (the gauge bug fixed on 2026-11-26; none expected). */
 export function gaugeGaps(b: ModeBoundCheck): string[] {
   return b.classes
     .filter((c) => c.defaultGauge !== undefined && c.defaultGauge < c.expected - c.polar)

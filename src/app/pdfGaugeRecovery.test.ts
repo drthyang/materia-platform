@@ -1,6 +1,6 @@
 /**
  * The full same-cell mode basis recovers a synthetic distortion along the
- * directions the earlier gauge dropped (the gauge fix of 2026-11-27; the
+ * directions the earlier gauge dropped (the gauge fix of 2026-11-26; the
  * verification's three cases). Synthetic neutron G(r), 1.5–12 Å, of the
  * distorted child; the page on the undistorted parent, the row activated as
  * the view does, every position mode and the scale free.

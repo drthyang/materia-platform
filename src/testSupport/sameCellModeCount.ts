@@ -1,6 +1,6 @@
 /**
  * The PDF page's same-cell mode sets checked against an independent count
- * (test code only, never imported by the app; the gauge fix of 2026-11-27).
+ * (test code only, never imported by the app; the gauge fix of 2026-11-26).
  *
  * For a parent structure, every same-cell row of its Subgroups listing (bound
  * 1×1×1) is activated as the view does (activationOf), and the mode set the

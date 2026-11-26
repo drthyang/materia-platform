@@ -662,8 +662,8 @@ Conventions are pinned in
   parent cell alone, so the magnetic G(r) is wrong.
 - A PDF refinement of a Pnma child with many modes free can run away instead
   of converging. Free the leading modes first and the others a few at a time.
-- A same-cell Activate saved before 2026-11-27 reopens with the mode set it
-  was saved with. Where every site of the child allows a direction that one
+- A same-cell Activate saved before the symmetry-mode gauge fix (CHANGELOG,
+  Unreleased) reopens with the mode set it was saved with. Where every site of the child allows a direction that one
   of the child's symmetry operations does not fix (an inversion or a mirror,
   for example), that set lacks up to 3 modes.
   Activate the row again for the full set.
