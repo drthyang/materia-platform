@@ -89,6 +89,7 @@ import {
 import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
+import { CanLinesSection, CanLinesToggle, CanScaleRow, useCanLines } from "@/app/ui/CanLines";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
@@ -496,6 +497,13 @@ export function PowderWorkbench({
     }
     return phases;
   }, [refinedPhases, structure, session.extraPhases, liveMagnetic, patternExtent, pattern.xUnit, effectiveUnit, axisCtx]);
+  // σ of every point as the engine weights it (data σ, else counting statistics).
+  const pointSigma = useMemo(() => pattern.points.map((p) => p.sigma ?? (p.yObs > 0 ? Math.sqrt(p.yObs) : 1)), [pattern]);
+  // Can lines (neutron data): the V and Al can's ticks beside the phase ticks, and the Validation view's section.
+  const can = useCanLines({
+    structure, extraPhases: session.extraPhases, pattern, params: powderParams, bindings: pBindings, profile: session.powderProfile,
+    rawText: session.rawData?.text, displayUnit: effectiveUnit, axis: axisCtx, wanted: plotMode === "validation",
+  });
 
   // Manually added residual peaks (clicked on the magnetic page's pattern):
   // stored as d-spacings; height/significance are sampled from the residual at
@@ -1533,6 +1541,7 @@ export function PowderWorkbench({
                 {plotMode === "curves" && (
                   <div className="wb-plot-toolbar" style={plotToolbar}>
                     <AxisUnitToggle units={displayUnits} value={effectiveUnit} onChange={setDisplayUnit} />
+                    <CanLinesToggle can={can} />
                     {!tofViewOnly && (
                       <button
                         style={{ ...toolbarBtn, display: "inline-flex", alignItems: "center", gap: 5, ...(fitRangeActive ? {} : { opacity: 0.45, cursor: "default" }) }}
@@ -1674,6 +1683,19 @@ export function PowderWorkbench({
                         return next;
                       })}
                     />
+                    <CanLinesSection
+                      can={can}
+                      phaseTicks={phaseTicks}
+                      x={curves.x}
+                      yObs={curves.yObs}
+                      sigma={pointSigma}
+                      d={curvesD}
+                      onLocateX={(x) => {
+                        can.setOn(true);
+                        setFocusPoint((f) => ({ x: toDisplayX(x), token: (f?.token ?? 0) + 1 }));
+                        setPlotMode("curves");
+                      }}
+                    />
                   </div>
                 ) : plotMode === "posterior" ? (
                   <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
@@ -1696,7 +1718,7 @@ export function PowderWorkbench({
                       viewKey={plotViewKey}
                       ariaLabel="Powder pattern: observed, calculated and difference"
                       fitRange={displayFitRange}
-                      phases={phaseTicks}
+                      phases={can.ticks.length > 0 ? [...phaseTicks, ...can.ticks] : phaseTicks}
                       focusFitToken={focusFitToken}
                       focusPeakToken={focusPeakToken}
                       focusPoint={focusPoint}
@@ -1705,6 +1727,7 @@ export function PowderWorkbench({
                       {...(agentPeakMarks.length > 0 ? { foundPeaks: agentPeakMarks, foundStyle: { label: agentPeakMarks.some((p) => !p.near) ? "unexplained" : "residual peak", color: theme.flag, guides: true } } : {})}
                       {...(tofViewOnly ? {} : { onFitRangeChange: setFitRangeFromDisplay })}
                     />
+                    {can.on && <div style={{ marginTop: 6 }}><CanScaleRow can={can} /></div>}
                     {agentPeakMarks.length > 0 && (
                       <div style={{ display: "flex", alignItems: "center", gap: 6, rowGap: 4, marginTop: 6, fontSize: 12, color: theme.secondary, flexWrap: "wrap" }}>
                         <span style={{ color: theme.flag, fontWeight: 600 }} title="Residual peaks the Agent found (find_unexplained_peaks). Filled ▽: between every phase's reflections — intensity no phase explains. Hollow ▽: on a known reflection — a misfit of that reflection. Cleared at the next refinement.">

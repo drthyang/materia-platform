@@ -381,7 +381,8 @@ const within = (sep: number): boolean => sep < OVERLAP_FWHM + 0.005;
 
 /**
  * Every sample reflection and every observed peak within one FWHM of a can
- * line (the FWHM of the page's profile at the can line), closest first per line.
+ * line (the FWHM of the page's profile at the can line): the strongest can
+ * lines first, the closest first on each.
  */
 export function canOverlaps(ctx: CanLineContext, phases: readonly CanPhaseLines[], reflections: readonly SampleReflection[], observed: readonly ObservedPeakAt[]): CanOverlaps {
   const sample: SampleOverlap[] = [];
@@ -419,7 +420,9 @@ export function canOverlaps(ctx: CanLineContext, phases: readonly CanPhaseLines[
       }
     }
   }
-  const order = (a: { line: CanLine; separation: number }, b: { line: CanLine; separation: number }): number => b.line.d - a.line.d || a.separation - b.separation;
+  // The strongest can lines first (per volume of metal, across the cans), then the closest.
+  const order = (a: { line: CanLine; separation: number }, b: { line: CanLine; separation: number }): number =>
+    b.line.height - a.line.height || b.line.d - a.line.d || a.separation - b.separation;
   return { sample: sample.sort(order), observed: out.sort(order) };
 }
 
