@@ -69,8 +69,8 @@ export const SETTLED_ESD = 0.1;
 export const MAX_CYCLES = 20;
 /** A bank with fewer of the standard's reflections in its fit range than this is not calibrated. */
 export const MIN_REFLECTIONS = 8;
-/** A bank whose difC comes out with a relative esd above this is flagged as low-statistics. */
-export const LOW_STATISTICS_DIFC = 5e-5;
+/** A bank whose difC comes out with a relative esd above this is flagged as low-statistics (500 ppm: on the NOMAD 2023A Si data the good banks give 100–200 ppm; a threshold for the owner to confirm). */
+export const LOW_STATISTICS_DIFC = 5e-4;
 
 /** The zero's limits in a calibration (µs): a starting file can be tens of µs off. */
 const ZERO_BOUND = 500;
