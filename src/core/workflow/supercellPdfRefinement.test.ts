@@ -94,7 +94,7 @@ function refineClass(cls: SubgroupClass, pattern: PdfPattern): { rw: number; ref
   const r = realiseChild(PARENT, group, cls.elements, cls.identity);
   // A class that leaves every atom on a fixed position has no displacement to kick (it differs from the parent in its metric only).
   const field = symmetryBreakingField(PARENT, r);
-  const set = buildSymmetryModes(r.structure, field ? { seeds: [{ axes: field, label: "symmetry-breaking kick" }], gauge: "polar" } : { gauge: "polar" });
+  const set = buildSymmetryModes(r.structure, field ? { seeds: [{ axes: field, label: "symmetry-breaking kick" }], gaugeBasis: "rotations" } : { gaugeBasis: "rotations" });
   const spec = buildPdfSpec(set.parentized, pattern);
   const swapped = set.modes.length > 0 ? withDistortionModes({ params: spec.params, bindings: spec.bindings }, set) : spec;
   const lead = field ? set.modes[0]!.id : null;
