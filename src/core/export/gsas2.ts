@@ -366,3 +366,63 @@ export function buildGpxScript(opts: GpxScriptOptions): string {
   lines.push("", "gpx.save()", `print('Wrote ${opts.gpxName}')`);
   return lines.join("\n") + "\n";
 }
+
+/** One bank of a calibrated instrument file. */
+export interface CalibratedInstprmBank {
+  /** The data bank's number, which the `#Bank N` header carries (paired as the Instrument card pairs: number, difC within 3 %). */
+  readonly bank: number;
+  /** The calibrated instrument (TOF, GSAS-II profile terms). */
+  readonly instrument: Extract<InstrumentParameters, { kind: "tof" }>;
+  /** The starting file's `key:value` texts of this bank, in file order (InstrumentBank.texts): every key the calibration did not change is written as it was. */
+  readonly texts?: ReadonlyMap<string, string>;
+}
+
+/** What the header of each bank states: the convention and the standard. */
+export interface CalibrationProvenance {
+  /** "MATERIA 0.5.1". */
+  readonly software: string;
+  /** "NIST SRM 640e (Si)": plain ASCII. */
+  readonly standard: string;
+  /** The standard's cell held in the calibration (Å) and its temperature (K). */
+  readonly a: number;
+  readonly temperatureK: number;
+}
+
+/** The keys a calibration writes, from the calibrated instrument. */
+const CALIBRATED_KEYS: readonly (readonly [string, (i: Extract<InstrumentParameters, { kind: "tof" }>) => number])[] = [
+  ["difC", (i) => i.difC], ["difA", (i) => i.difA ?? 0], ["Zero", (i) => i.zero ?? 0],
+  ["alpha", (i) => i.alpha ?? 0], ["beta-0", (i) => i.beta0 ?? 0], ["beta-1", (i) => i.beta1 ?? 0],
+  ["sig-0", (i) => i.sig0 ?? 0], ["sig-1", (i) => i.sig1 ?? 0], ["sig-2", (i) => i.sig2 ?? 0],
+  ["X", (i) => i.gamX ?? 0], ["Y", (i) => i.gamY ?? 0],
+];
+
+/**
+ * The header line of a calibrated bank. GSAS-II's reader (GSASIIfiles.ReadInstprm) needs
+ * "GSAS-II" on the file's first line and ends a bank at any further `#` line, so the
+ * convention and the standard go on the `#Bank N:` line itself, in ASCII.
+ */
+export function calibratedBankHeader(bank: number, p: CalibrationProvenance): string {
+  const ascii = (s: string): string => s.replace(/[^\x20-\x7e]/g, "?");
+  return ascii(`#Bank ${bank}: GSAS-II instrument parameter file; do not add/delete items! Calibrated by ${p.software} from ${p.standard}, `
+    + `a = ${p.a.toFixed(6)} A held (at ${p.temperatureK.toFixed(2)} K); GSAS-II convention: sample size 1 um and Lorentzian microstrain 1000 held`);
+}
+
+/**
+ * A multi-bank GSAS-II `.instprm` of calibrated banks, one `#Bank N` block each, in the order
+ * given. A bank with its starting file's texts keeps every line of it (order included) and
+ * changes only the calibrated keys; one without is written with the full PNT key set.
+ */
+export function calibratedInstprm(banks: readonly CalibratedInstprmBank[], provenance: CalibrationProvenance): string {
+  const seen = new Set<number>();
+  const blocks = banks.map(({ bank, instrument, texts }) => {
+    if (seen.has(bank)) throw new Error(`calibratedInstprm: bank ${bank} twice`);
+    seen.add(bank);
+    const values = new Map<string, string>(CALIBRATED_KEYS.map(([k, f]) => [k, String(f(instrument))]));
+    const rows: [string, string][] = texts && texts.size > 0
+      ? [...texts].map(([k, v]): [string, string] => [k, values.get(k) ?? (k.toLowerCase() === "bank" ? `${bank}.0` : v)])
+      : tofRows(instrument).map(([k, v]): [string, string] => [k, values.get(k) ?? (k === "Bank" ? `${bank}.0` : k === "Z" ? String(instrument.gamZ ?? 0) : String(v))]);
+    for (const k of values.keys()) if (!rows.some(([q]) => q === k)) rows.push([k, values.get(k)!]);
+    return [calibratedBankHeader(bank, provenance), ...rows.map(([k, v]) => `${k}:${v}`)].join("\n");
+  });
+  return blocks.join("\n") + "\n";
+}
