@@ -240,10 +240,17 @@ export function CanLinesSection({
   /** Open the pattern at a native x. */
   onLocateX?: (x: number) => void;
 }): JSX.Element | null {
-  const reflections = useMemo(
-    () => phaseTicks.flatMap((p) => p.ticks.map((t) => ({ d: t.d, hkl: t.hkl, phase: p.label }))),
-    [phaseTicks],
-  );
+  // The sample's reflections, those of one phase at one d (822 and 660 of a cubic cell) as one.
+  const reflections = useMemo(() => {
+    const out = new Map<string, { d: number; hkl: string; phase: string }>();
+    for (const p of phaseTicks) for (const t of p.ticks) {
+      const key = `${p.id}|${t.d.toFixed(6)}`;
+      const had = out.get(key);
+      out.set(key, had ? { ...had, hkl: `${had.hkl}/${t.hkl}` } : { d: t.d, hkl: t.hkl, phase: p.label });
+    }
+    return [...out.values()];
+  }, [phaseTicks]);
+  const onePhase = phaseTicks.length <= 1;
   const observed = useMemo(() => observedPeakApexes(x, yObs, sigma, d ?? null), [x, yObs, sigma, d]);
   const overlaps = useMemo(() => (can.ctx ? canOverlaps(can.ctx, can.phases, reflections, observed) : null), [can.ctx, can.phases, reflections, observed]);
   if (!can.available) return null;
@@ -277,9 +284,9 @@ export function CanLinesSection({
             canLine: canName(o),
             d: o.line.d,
             rel: o.line.relative,
-            other: `${compactHkl(o.reflection.hkl)} · ${o.reflection.phase}`,
+            other: onePhase ? compactHkl(o.reflection.hkl) : `${compactHkl(o.reflection.hkl)} · ${o.reflection.phase}`,
             separation: o.separation,
-            reading: sampleReading(o),
+            reading: sampleReading(o, { phase: !onePhase }),
             x: o.line.x,
           }))}
           otherHead="Sample"
@@ -333,7 +340,7 @@ function OverlapList({ title, rows, otherHead, onLocateX }: { title: string; row
         <ol style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {shown.map((r, i) => (
             <li key={r.key} style={{ padding: "5px 0", borderTop: i > 0 ? `1px solid ${color.subtle2}` : "none", fontSize: fz.small }}>
-              <div style={{ display: "flex", flexWrap: "wrap", columnGap: 10, rowGap: 1, alignItems: "baseline", fontFamily: mono }}>
+              <div style={{ display: "flex", flexWrap: "wrap", columnGap: 10, rowGap: 1, alignItems: "baseline", fontFamily: mono, lineHeight: 1.35 }}>
                 <span><Dot c={canColor(r.can)} />{r.canLine}</span>
                 <span style={{ color: color.secondary }}>d {r.d.toFixed(3)} Å</span>
                 <span style={{ color: color.secondary }}>rel. I {r.rel.toFixed(2)}</span>
@@ -341,7 +348,7 @@ function OverlapList({ title, rows, otherHead, onLocateX }: { title: string; row
                 <span>{r.separation.toFixed(2)} FWHM</span>
                 {view(r)}
               </div>
-              <div style={{ color: color.secondary, marginTop: 2 }}>{r.reading}</div>
+              <div style={{ color: color.secondary, marginTop: 2, lineHeight: 1.4 }}>{r.reading}</div>
             </li>
           ))}
         </ol>

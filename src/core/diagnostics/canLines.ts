@@ -287,10 +287,12 @@ function structureOf(name: string): StructureModel | null {
   return structures.get(name)!;
 }
 
-/** "1 1 1" → "111" when every index is one digit and none is negative. */
+/** "1 1 1" → "111" when every index is one digit and none is negative; "8 2 2/6 6 0" → "822/660". */
 export function compactHkl(hkl: string): string {
-  const parts = hkl.trim().split(/\s+/);
-  return parts.every((p) => /^\d$/.test(p)) ? parts.join("") : parts.join(" ");
+  return hkl.split("/").map((one) => {
+    const parts = one.trim().split(/\s+/);
+    return parts.every((p) => /^\d$/.test(p)) ? parts.join("") : parts.join(" ");
+  }).join("/");
 }
 
 /**
@@ -485,10 +487,11 @@ export function scaleShift(ctx: CanLineContext, phase: CanPhaseLines, scale: num
   return { hkl: strongest.hkl, d: strongest.d293 * scale, fwhm: (atS.x - at1.x) / at1.fwhm };
 }
 
-/** The plain reading of a sample reflection under a can line. */
-export function sampleReading(o: SampleOverlap): string {
+/** The plain reading of a sample reflection under a can line; `phase` false leaves the phase's name out (a one-phase page). */
+export function sampleReading(o: SampleOverlap, { phase = true }: { readonly phase?: boolean } = {}): string {
   const where = o.separation <= 0.5 ? "sits under" : "overlaps";
-  return `The ${o.line.phase} ${compactHkl(o.line.hkl)} line at ${o.line.d.toFixed(3)} Å ${where} the sample's ${compactHkl(o.reflection.hkl)} (${o.reflection.phase}, ${o.reflection.d.toFixed(3)} Å): its intensity may include the can.`;
+  const of = phase ? `${o.reflection.phase}, ` : "";
+  return `The ${o.line.phase} ${compactHkl(o.line.hkl)} line at ${o.line.d.toFixed(3)} Å ${where} the sample's ${compactHkl(o.reflection.hkl)} (${of}${o.reflection.d.toFixed(3)} Å): its intensity may include the can.`;
 }
 
 /** The plain reading of an observed peak near a can line. */
