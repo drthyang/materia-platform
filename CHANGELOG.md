@@ -9,6 +9,14 @@ release fixes bugs.
 
 ### Added
 
+- **Can lines** (neutron powder, constant wavelength and time of flight): a
+  toggle beside the phase ticks draws the V and Al can lines at their
+  relative strength, each can with a d-scale (a one-click cooled value when
+  the data file states the sample temperature, from the tabulated thermal
+  expansion), and the Validation view lists every sample reflection and
+  observed peak within one FWHM of a can line. Nothing is fitted or
+  excluded; nothing reaches the Copilot
+  ([report](docs/reports/2026-11-26-can-lines.md)).
 - **One bank at a time.** A GSAS histogram with several banks and an
   instrument file with several banks each show a bank chooser on their card.
   The instrument opens on the data's bank; when the two do not belong

@@ -270,6 +270,34 @@ magnetic model are steps too. Loading a new dataset starts a new history.
   own scale, cell, atoms and tick row; the profile and background are shared.
   Click **×** on a phase badge to remove it.
 
+### Can lines (neutron data)
+
+Does a peak of your sample sit on a line of the vanadium or aluminium can
+(or an aluminium cryostat shield)?
+
+- Tick **Can lines** beside the unit buttons. Two tick rows join the phase
+  ticks: **V can** and **Al can**. A tick's solid part is the line's
+  strength per volume of metal, so vanadium's lines are drawn a few percent
+  as strong as aluminium's; the faint mark above it only shows where the
+  line is. How much can the beam sees is unknown, so the lines say nothing
+  about their strength against the sample's.
+- Under the plot, each can has its **d ×** scale: the lines sit at the
+  room-temperature cell's d times it (default 1). Beside a scale that is not
+  1, the shift it makes at the can's strongest line, in FWHM of your profile
+  there, says whether it matters. When the data file states the sample
+  temperature (for example `Temperature: 10 K` in its header), a button
+  offers the cooled value from the tabulated thermal expansion of Al and V;
+  click it if the can is at the sample's temperature. A file that states no
+  temperature (or 0 K, a reduction's placeholder) gets no button: type the
+  scale yourself. A part away from the sample position shifts its lines too.
+- In **Validation**, the **Can lines** section lists every reflection of
+  your model and every observed peak within one FWHM of a can line (your
+  page's own profile at that d), with the can line, its relative intensity
+  among that can's lines, the separation in FWHM, and one line on what it
+  means. **view →** opens the pattern there with the can rows on.
+- Nothing is fitted or excluded for you, and the Copilot does not see it.
+  The toggle is absent on X-ray data.
+
 ### Zoom, pan and the cursor readout
 
 The pattern, the G(r) plot, the magnetic page's pattern and the S(Q) view all

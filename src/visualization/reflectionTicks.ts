@@ -25,6 +25,8 @@ export interface ReflectionTick {
   readonly hkl: string;
   /** d-spacing in Å (for the tooltip). */
   readonly d: number;
+  /** Drawn height as a fraction of the row's tick (0–1): a line's relative strength (the can lines). Omitted: full height. */
+  readonly height?: number;
 }
 
 export interface PhaseTicks {
