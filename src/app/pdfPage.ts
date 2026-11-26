@@ -27,6 +27,7 @@ import {
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel } from "@/core/workflow/mpdf";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import type { MagneticModel } from "@/core/magnetic/types";
+import { reopenOwnModeBasis } from "@/app/pdfModeBasis";
 import { buildDistortionModes, buildSymmetryModes, isodistortAmplitudes, positionShiftValuesFor, withDistortionModes, type DistortionModeSet } from "@/core/crystal/distortionModes";
 import { decomposeDisplacementRepresentation, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
 import { activateDisplacementMode, fieldSeedAxes, realizeSubgroup, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
@@ -160,7 +161,10 @@ export function pdfPage(
   pattern: PdfPattern,
   opts: { readonly extraPhases?: readonly StructureModel[]; readonly preset?: PdfPageModel["preset"]; readonly restore?: PdfWorkspace } = {},
 ): PdfPageModel {
-  const r = opts.restore;
+  // A workspace on an earlier own-mode basis is converted (the shell has done it already, with its note).
+  const reopened = opts.restore ? reopenOwnModeBasis([loaded, ...(opts.extraPhases ?? [])], opts.restore) : null;
+  if (reopened?.kind === "refused") throw new Error(`This project cannot be reopened: ${reopened.message}.`);
+  const r = reopened?.kind === "converted" ? reopened.workspace : opts.restore;
   const dm = r?.distortionModes;
   const sm = r?.spinModel;
   const defaultRange = defaultRangeOf(pattern, r?.fitRange ?? opts.preset?.fitRange);

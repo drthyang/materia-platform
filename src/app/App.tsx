@@ -23,6 +23,7 @@ import { moveTo, recordStep, redoTarget, renameStep, undoTarget, type ProjectHis
 import { clearAutosave, readAutosave, writeAutosave, type AutosaveEntry } from "@/app/autosave";
 import { recordOnLatest, type HistoryBinding } from "@/app/historyBinding";
 import { defaultProjectTitle, projectFileFor, sessionFromPowderWorkspace, type PowderViewState } from "@/app/projectIo";
+import { reopenedWorkspace } from "@/app/pdfModeBasis";
 import { downloadText } from "@/app/download";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { PdfPattern, PdfScatteringType, SingleCrystalDataset } from "@/core/diffraction/types";
@@ -401,8 +402,12 @@ export function App(): JSX.Element {
   function goToStep(id: string): void {
     if (!history) return;
     let snap: Snapshot;
+    let reopenNote: string | null;
     try {
       snap = restoreHistoryStep(history, id);
+      const reopened = reopenedWorkspace(snap.structures, snap.workspace);
+      snap = { ...snap, workspace: reopened.workspace };
+      reopenNote = reopened.note;
     } catch (e) {
       setNotice(`Could not go back to that step — ${e instanceof Error ? e.message : String(e)}`);
       return;
@@ -410,6 +415,7 @@ export function App(): JSX.Element {
     const withLive = recordNow("edit") ?? history; // unrecorded changes become a step first
     setHistory(moveTo(withLive, id));
     applyWorkspace(snap.structures, snap.workspace);
+    if (reopenNote) setNotice(reopenNote);
     setMessage(`Went to step ${id}.`);
   }
 
@@ -831,8 +837,13 @@ export function App(): JSX.Element {
    */
   function openProjectText(text: string, sourceName: string, fromFile = true): void {
     let file: ProjectFile;
+    let reopenNote: string | null;
     try {
       file = parseProject(text);
+      // A PDF workspace on an earlier own-mode basis is converted (positions kept) or refused.
+      const reopened = reopenedWorkspace(file.structures, file.workspace);
+      file = { ...file, workspace: reopened.workspace };
+      reopenNote = reopened.note;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setNotice(`Could not open “${sourceName}” — ${msg}`);
@@ -850,7 +861,7 @@ export function App(): JSX.Element {
     const magneticPage = ws.technique !== "pdf" || (ws.pattern.scatteringType === "neutron" && structures.length === 1);
     setStep(magneticPage ? wantStep : 0);
     setProjectMeta({ title: file.metadata.title, createdAt: file.metadata.createdAt, ...(file.metadata.notes !== undefined ? { notes: file.metadata.notes } : {}) });
-    setNotice(null);
+    setNotice(reopenNote);
     // A project stores the resolved pattern, not the detector's reasoning.
     setDetection(null);
     // The file's own history, or a new one that starts at this open.
