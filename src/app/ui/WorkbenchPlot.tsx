@@ -653,6 +653,22 @@ export function WorkbenchPlot({
       for (const t of phase.ticks) {
         if (t.x < vlo || t.x > vhi) continue;
         const X = mx(t.x);
+        if (t.height !== undefined) {
+          // A tick with a strength (the can lines): a faint full-height mark, so a weak line is
+          // found, and a solid bar up from the row's foot at its true relative height (≥ 1 px).
+          ctx!.globalAlpha = 0.22;
+          ctx!.beginPath();
+          ctx!.moveTo(X, y1);
+          ctx!.lineTo(X, y1 + tickH);
+          ctx!.stroke();
+          ctx!.globalAlpha = 0.9;
+          ctx!.beginPath();
+          ctx!.moveTo(X, y1 + tickH);
+          ctx!.lineTo(X, y1 + tickH - Math.max(1, Math.min(1, t.height) * tickH));
+          ctx!.stroke();
+          ctx!.globalAlpha = 0.7;
+          continue;
+        }
         ctx!.beginPath();
         ctx!.moveTo(X, y1);
         ctx!.lineTo(X, y1 + tickH);
