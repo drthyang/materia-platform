@@ -111,12 +111,12 @@ describe("every class: the mode basis has the dimension Wyckoff splitting gives"
     });
   }
 
-  it("the known gauge issue is seen: the default gauge drops a real mode where the polar gauge keeps it", () => {
-    // R-3m 1×1×1, P3₁21: every site allows c, H has no polar direction; the
-    // polar gauge keeps all 7 modes, the default gauge (not on this route) 6.
+  it("the default gauge keeps every real mode where the per-site intersection is larger than H's translations", () => {
+    // R-3m 1×1×1, P3₁21: every site allows c, H has no polar direction; both
+    // gauges keep all 7 modes (the default kept 6 before 2026-11-27).
     const r = checkModeBound("R-3m", "1x1x1", BOUNDS["1x1x1"]!);
     const c = r.classes.find((x) => x.number === 152)!;
-    expect(c).toMatchObject({ expected: 7, polar: 0, engine: 7, engineGauged: 7, sitesGauge: 6 });
-    expect(gaugeGaps(r).length).toBeGreaterThan(0);
+    expect(c).toMatchObject({ expected: 7, polar: 0, engine: 7, engineGauged: 7, defaultGauge: 7 });
+    expect(gaugeGaps(r)).toEqual([]);
   });
 });

@@ -71,7 +71,7 @@ describe.skipIf(!ENABLED)("tier 2: every class of THY-80's coverage has the mode
     const gaps = results.flatMap(gaugeGaps);
     console.log(
       [
-        `moyo-wasm ${moyoVersion()}; ${total} classes checked in ${((Date.now() - start) / 60_000).toFixed(1)} min; ${bad.length} mismatches; ${gaps.length} classes where the default gauge would drop a real mode`,
+        `moyo-wasm ${moyoVersion()}; ${total} classes checked in ${((Date.now() - start) / 60_000).toFixed(1)} min; ${bad.length} mismatches; ${gaps.length} classes where the default gauge drops a real mode`,
         ...lines,
         ...skipped,
         ...bad,
