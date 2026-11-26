@@ -81,8 +81,8 @@ never held by a one-bank file.
   the constant-wavelength placeholder's "none loaded (default CW, λ = 1.54
   Å)", which constant-wavelength pages keep.
 - A TOF page without an instrument shows "No instrument loaded" and "Load
-  .instprm / .prm / .irf", not the constant-wavelength placeholder's
-  "Constant wavelength · λ 1.54 Å". The default's title is "TOF · NOMAD ·
+  .instprm / .prm / .irf", with no status chip, not the constant-wavelength
+  placeholder's "default" chip and "Constant wavelength · λ 1.54 Å". The default's title is "TOF · NOMAD ·
   default 2023A".
 - The Instrument card's GSAS-II profile line is folded to "Profile as the
   file gives it, held."; the sentence on GSAS-II's default sample rows leads
@@ -119,12 +119,15 @@ else changes (the numbers below are the synthetic test file's):
   parameters (the closest is bank 1's: difC 1439.6, 71 % from the data's DIFC
   840.0)." The same text is the refusal of `refine`, `rank_magnetic_groups`,
   `refine_moments` and `sample_posterior`.
-- `startingPoint` (the override taken): "Bank 1's parameters, used as a
-  starting point for data bank 6, which the instrument file does not cover
-  (the user's choice) (its difC 1439.6 is 71 % from the data's DIFC 840.0):
-  the TOF difC and Zero rows must be refined and the calculated peak
-  positions checked against the observed ones; the peak-shape terms are
-  bank 1's."
+- `startingPoint` (the override taken; the owner's wording): "Bank 1's
+  parameters are the starting point for data bank 6, which the instrument
+  file does not cover (the user's choice; bank 1's difC 1439.6 is 71 % from
+  the data's DIFC 840.0): the TOF difC and Zero rows must be refined and the
+  calculated peak positions checked against the observed ones; the
+  peak-shape terms are bank 1's and may not match this bank's peak widths."
+  Without a DIFC in the data the "; bank 1's difC …" part is left out; on
+  constant-wavelength banks the rows read "the Zero row (and check the
+  wavelength)".
 - `instrument` on a TOF page without one: "none loaded (time-of-flight data:
   peak positions need an instrument file)" (before: "none loaded (default
   CW, λ = 1.54 Å)", which constant-wavelength pages keep).
@@ -179,7 +182,6 @@ else changes (the numbers below are the synthetic test file's):
 
 ## Not done
 
-- A TOF page without an instrument: the card's chip still reads "default".
 - MCP's own `refine_moments` and `sample_posterior` (outside the app) have
   no banks and are unchanged.
 - Even the closest bank is far from NOMAD's sixth bank (72 % in difC): a
