@@ -1,6 +1,6 @@
 # Plan: Rietveld refinement over several banks (DRAFT)
 
-> **Status: draft for the owner's review. Nothing here is built.** Linear
+> **Status: questions decided 2026-11-26 (section 0), except Q5 and Q23. Nothing here is built.** Linear
 > THY-89. Each numbered QUESTION is a choice for the owner; my recommendation
 > is given with it and all of them are collected in [section 13](#13-the-questions-collected).
 >
@@ -28,6 +28,77 @@ Words used here: a **pattern** is one measured histogram with its own
 instrument description; a **bank** is the pattern of one detector bank of a
 time-of-flight instrument. `GLOSSARY.md` has neither word yet; the first step
 adds them.
+
+## 0. Decisions (2026-11-26)
+
+Decided by the owner, or by the Session monitor under the owner's delegation
+(scientific correctness first; the owner reviews where needed). These replace
+the recommendations in the questions below where they differ.
+
+**From the owner's request.** The user co-refines all five banks or a chosen
+subset. Every bank has a weight factor, editable in the first delivery.
+
+**Science and validation**
+
+- **Q8 Weighting:** "equal weighted" means every bank's weight factor is 1, on
+  top of its counting statistics (GSAS-II `wtFactor` = 1, FullProf equal
+  `W_PAT`). χ², GoF and the esds then keep their statistical meaning. When a
+  factor is changed, the page and the report state the factors, and say that
+  the esds are no longer pure counting-statistics esds. No automatic balancing.
+- **Q1:** one scale per bank.
+- **Q2:** phase fractions shared across banks.
+- **Q3:** calibrations held and the cell free, by default. "One reference bank
+  held, the others' difC free" is an explicit choice. The cell is never freed
+  together with every difC.
+- **Q4:** microstrain and size shared, one value per phase.
+- **Q5 Absorption:** open with the owner. Meanwhile there is no absorption
+  term, and the report says so.
+- **Q6:** no preferred orientation in the first delivery.
+- **Q7:** excluded regions are out of scope.
+- **Q9:** the overall GoF judges the fit. Each bank in a worse band is named
+  beside it.
+- **Q15:** all chosen banks from the first refinement. Best-bank-first is a
+  user choice.
+- **Q16:** profile terms for all banks with the structure held, then held while
+  the structure refines.
+- **Q17 and Q18:** a finding or a satellite counts when every covering bank that
+  has the resolution and the counting statistics to see it at that size shows
+  it.
+  - A bank that cannot see it is not held against it, and the table says so
+    ("seen in bank 1; banks 3–5 not sensitive enough at this size").
+  - A feature that a sensitive bank does not show is flagged as a likely
+    artefact.
+- **Q19:** the banks that reach the magnetic peaks rank the groups. All chosen
+  banks take part in the final moments fit.
+- **Q23 First public case:** Mn₃O₄ on POWGEN. Whether the NOMAD Si 640e
+  calibration data can be released as a public test is open with the owner.
+- **Q24:** agreement with GSAS-II means the shared parameters within 2
+  combined esds, with the per-bank wR side by side.
+
+**UI, architecture and format**
+
+- **Q10:** option A, a list of patterns in one powder session and one joint
+  problem.
+- **Q11:** a general list in the data model. Time-of-flight banks of one
+  measurement are offered and validated now.
+- **Q12:** this work gets its own format version.
+- **Q13:** a tab per bank, plus a stacked "All" view on d.
+- **Q14:** a multi-bank file opens on one bank. "Use several banks" adds the
+  rest.
+- **Q20:** the Copilot is off on multi-bank pages until its own step, with a
+  plain note saying why.
+- **Q21:** Copilot tools come later. Their wording goes to the owner.
+- **Q22:** GSAS-II export first. FullProf after a check against the owner's
+  FullProf run.
+
+**Musts.**
+
+- Agreement with GSAS-II on public multi-bank data is the proof.
+- Each bank's parameters come from #179's NOMAD 2023A five-bank file, paired
+  by bank number and checked against the data's DIFC.
+
+**Order.** The gauge fix, then #179 with the bank follow, then Can lines, then
+this work, one builder at a time.
 
 ## 1. What exists today, and what is missing
 
