@@ -231,8 +231,8 @@ describe("refine_moments holds k", () => {
     { parameterId: "bkg0", kind: "background", targetId: "pat", targetKey: "0" },
     { parameterId: "width", kind: "peakWidth", targetId: "pat" },
   ];
-  /** A helix's pattern (2 µB on each quadrature) with counting noise from a fixed seed. */
-  function pattern(): PowderPattern {
+  /** A helix's pattern (2 µB on each quadrature) with counting noise from a fixed seed (none: noise-free). */
+  function pattern(noise = true): PowderPattern {
     const truth = build_magnetic_model({ structure, ionLabels: ["Fe1"], k: K, moment: 2 });
     const grid = Array.from({ length: 1200 }, (_, i) => 8 + (i * 112) / 1199);
     const empty: PowderPattern = { id: "pat", name: "p", xUnit: "twoTheta", radiation: { kind: "neutron", wavelength: 1.8 }, wavelength: 1.8, points: grid.map((x) => ({ x, yObs: 0 })) };
@@ -244,7 +244,7 @@ describe("refine_moments holds k", () => {
       const next = (): number => { state = (1103515245 * state + 12345) % 2147483648; return (state + 0.5) / 2147483648; };
       return Math.sqrt(-2 * Math.log(next())) * Math.cos(2 * Math.PI * next());
     };
-    return { ...empty, points: empty.points.map((p, i) => { const y = Math.max(sim.yCalc[i]!, 1); return { x: p.x, yObs: y + Math.sqrt(y) * gauss(), sigma: Math.sqrt(y) }; }) };
+    return { ...empty, points: empty.points.map((p, i) => { const y = Math.max(sim.yCalc[i]!, 1); return { x: p.x, yObs: noise ? y + Math.sqrt(y) * gauss() : y, sigma: Math.sqrt(y) }; }) };
   }
   // The helix's two amplitudes start off their true 2 µB; the other rows start at 0. The moment rows keep the builder's flags (fixed).
   const START: Record<string, number> = { mom_Fe1_0: 1.5, mom_Fe1_1q: 1.5 };
@@ -312,6 +312,15 @@ describe("refine_moments holds k", () => {
     expect(held.rounds).toBe(plain.rounds);
     expect(held.settled).toBe(true);
     expect(Math.abs(Math.abs(held.moments.mom_Fe1_0!) - 2) / held.esd.mom_Fe1_0!).toBeLessThan(3);
+  }, 60_000);
+
+  it("noise-free: both fits are exact, the zero rows are held at 0, and the y cosine/sine pair is still a direction not determined", async () => {
+    const noK = build_magnetic_model({ structure, ionLabels: ["Fe1"], k: K, moment: 2 });
+    const r = await refine_moments({ structure, pattern: pattern(false), profile: { shape: "gaussian" }, magnetic: noK.magnetic, parameters: [...nuc, ...rowsOf(noK, false)], bindings: [...nucBindings, ...noK.bindings], phaseGaugeParameterId: noK.phaseGaugeParameterId! });
+    expect(r.zeroStart).toMatchObject({ rows: ["mom_Fe1_1", "mom_Fe1_2", "mom_Fe1_2q"], kept: false, f: null });
+    expect(r.directionNotDetermined?.map((f) => f.rows)).toEqual([["mom_Fe1_1", "mom_Fe1_1q"]]);
+    expect(r.reading).toContain("they are not required by the data (both fits are exact (noise-free data)) and are held at 0, with no esd.");
+    for (const id of ["mom_Fe1_1", "mom_Fe1_1q", "mom_Fe1_2", "mom_Fe1_2q"]) expect(r.esd[id], id).toBeUndefined();
   }, 60_000);
 
   it("a two-arm model without the phase gauge's id is refused: the tool does not guess the row", async () => {

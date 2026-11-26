@@ -146,6 +146,12 @@ export const NULL_DIRECTION_COMPONENT = 0.1;
  */
 export const CARRIED_MOMENT_ESDS = 3;
 
+/**
+ * And at least this large, in µ_B: on an exact (noise-free) fit the esds are
+ * round-off, and an amplitude of 1e-6 µ_B is more than 3 of them.
+ */
+export const CARRIED_MOMENT_FLOOR = 0.01;
+
 /** The zero-start test: the kicked fit against the fit that left the rows at 0, by the ranking's own Hamilton test. */
 export interface ZeroStartTest {
   /** The rows left at exactly 0 and kicked to ZERO_START_KICK, in row order. */
@@ -157,7 +163,7 @@ export interface ZeroStartTest {
   readonly deltaChi2: number | null;
   /** The number of parameters the test adds: the kicked rows. */
   readonly q: number;
-  /** Hamilton's F = (Δχ²/q)/(χ²/ν of the kicked fit), and its 5 % point F(q, ν). Null where the fits report no χ². */
+  /** Hamilton's F = (Δχ²/q)/(χ²/ν of the kicked fit), and its 5 % point F(q, ν). Null where the fits report no χ², or both are exact (noise-free data: not kept). */
   readonly f: number | null;
   readonly fCritical: number | null;
   /**
@@ -232,7 +238,8 @@ function momentsStepIds(problem: MomentsFitProblem): string[] {
  * moments step's result: each null direction of its covariance (the engine's
  * `nullDirections`) restricted to the moment rows it moves by at least
  * NULL_DIRECTION_COMPONENT, where one of those rows carries a moment (its
- * value more than CARRIED_MOMENT_ESDS of its esd from 0). A null direction
+ * value more than CARRIED_MOMENT_ESDS of its esd, and CARRIED_MOMENT_FLOOR,
+ * from 0). A null direction
  * that moves only amplitudes at or near 0, or a dead row (no esd), is a
  * component the data do not ask for (the zero-start test's business), not a
  * direction in question. On a powder a helix in an orthogonal cell is
@@ -247,7 +254,7 @@ export function undeterminedFamilies(result: RefinementResult, momentIds: readon
     const carried = rows.some((id) => {
       const v = Math.abs(result.parameters[id] ?? 0);
       const e = result.esd[id];
-      return e !== undefined && e > 0 && v > Math.max(ZERO_AMPLITUDE, CARRIED_MOMENT_ESDS * e);
+      return e !== undefined && e > 0 && v > Math.max(CARRIED_MOMENT_FLOOR, CARRIED_MOMENT_ESDS * e);
     });
     if (rows.length > 0 && carried) out.push(rows);
   }
@@ -412,8 +419,10 @@ export function zeroStartSentences(out: Pick<MomentsFitOutcome, "zeroStart" | "u
     const rows = z.rows;
     const n = rows.length;
     const test = z.deltaChi2 === null
-      ? "the fits report no χ², and wR moved by less than the ranking's tie"
-      : `Δχ² ${sig3(z.deltaChi2)} for ${z.q} amplitude${z.q === 1 ? "" : "s"}, F ${sig3(z.f!)} ${z.kept ? ">" : "≤"} ${sig3(z.fCritical!)} at 5 %`;
+      ? `the fits report no χ²; wR ${z.kept ? "fell" : "did not fall"} by more than the ranking's tie`
+      : z.f === null
+        ? "both fits are exact (noise-free data)"
+        : `Δχ² ${sig3(z.deltaChi2)} for ${z.q} amplitude${z.q === 1 ? "" : "s"}, F ${sig3(z.f)} ${z.kept ? ">" : "≤"} ${sig3(z.fCritical!)} at 5 %`;
     const it = n === 1 ? "it" : "them";
     const started = `${listOf(rows.map(name))} started at 0, where the fit cannot move ${it}; kicked to ${z.kick} µB`;
     if (z.kept) {
