@@ -6,7 +6,7 @@
  * P6₃/mmc; every class the engine lists.
  *
  * Time: each parent has a budget (MATERIA_SUBGROUP_TIER2_PARENT_MIN, default
- * 4 minutes) and the run a cap (MATERIA_SUBGROUP_TIER2_CAP_MIN, default and at
+ * 6 minutes) and the run a cap (MATERIA_SUBGROUP_TIER2_CAP_MIN, default and at
  * most 30), checked between classes and between bounds; the engine's search
  * of one bound is not interrupted. What the time did not reach is listed, not
  * failed. A bound the engine refuses (SubgroupSearchTooLarge) is listed as
@@ -28,7 +28,7 @@ const minutes = (name: string, fallback: number, max = Number.POSITIVE_INFINITY)
   const v = Number(process.env[name]);
   return Math.min(Number.isFinite(v) && v > 0 ? v : fallback, max) * 60_000;
 };
-const PARENT_MS = minutes("MATERIA_SUBGROUP_TIER2_PARENT_MIN", 4);
+const PARENT_MS = minutes("MATERIA_SUBGROUP_TIER2_PARENT_MIN", 6);
 const CAP_MS = minutes("MATERIA_SUBGROUP_TIER2_CAP_MIN", 30, 30);
 
 /** Mismatches already reported to the owner, as "parent bound class id"; none so far. */

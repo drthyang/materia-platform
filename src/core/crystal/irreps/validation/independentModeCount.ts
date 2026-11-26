@@ -37,8 +37,9 @@
  * the polar dimension, and each irrep loses m_V(Γ)·n_Γ modes, m_V(Γ) the
  * copies of Γ in the vector representation (tr W_f). buildSymmetryModes'
  * default gauge ("sites") instead removes every direction all the child's
- * sites allow; where that space is larger than the polar one it would drop a
- * real distortion (a known, frozen issue, not on the supercell path). Those
+ * site representatives allow; where that space is larger than the polar one
+ * it drops a real distortion (a known, frozen issue; the PDF page's
+ * same-cell t-subgroup route uses it, the supercell route does not). Those
  * classes are counted and listed, not failed.
  */
 import { analyze_cell, type MoyoDataset } from "@spglib/moyo-wasm";
@@ -76,26 +77,6 @@ const mod1 = (x: number): number => {
 };
 const near = (x: number): boolean => Math.abs(x - Math.round(x)) < 1e-6;
 const colMajor = (a: readonly number[]): M3 => [0, 1, 2].map((i) => [0, 1, 2].map((j) => a[i + 3 * j]!));
-
-/** The rank of a set of row vectors (Gaussian elimination, relative tolerance). */
-function rank(rows: readonly V3[]): number {
-  const R = rows.map((r) => [...r]);
-  let r = 0;
-  const scale = Math.max(1e-300, ...R.flat().map(Math.abs));
-  for (let c = 0; c < 3 && r < R.length; c++) {
-    let p = r;
-    for (let i = r + 1; i < R.length; i++) if (Math.abs(R[i]![c]!) > Math.abs(R[p]![c]!)) p = i;
-    if (Math.abs(R[p]![c]!) < 1e-9 * scale) continue;
-    [R[r], R[p]] = [R[p]!, R[r]!];
-    for (let i = 0; i < R.length; i++) {
-      if (i === r) continue;
-      const f = R[i]![c]! / R[r]![c]!;
-      for (let k = 0; k < 3; k++) R[i]![k]! -= f * R[r]![k]!;
-    }
-    r++;
-  }
-  return r;
-}
 
 /**
  * Free coordinates of a Wyckoff position from its site-symmetry symbol, the
@@ -191,9 +172,12 @@ export interface ModeCheck {
   readonly expected: number;
   /** Dimension of H's rigid translations (its polar directions). */
   readonly polar: number;
-  /** Dimension of the directions every child site allows: buildSymmetryModes' default gauge removes these. */
-  readonly common: number;
-  /** buildSymmetryModes' default-gauge mode count, computed only where common > polar. */
+  /**
+   * buildSymmetryModes' default-gauge ("sites") mode count on the realised
+   * child, computed where it can differ from the polar gauge's (every child
+   * orbit free, H not P1); `expected − polar − sitesGauge` real modes it would
+   * drop (the known gauge issue).
+   */
   readonly sitesGauge?: number;
   readonly orbits: readonly ChildOrbit[];
   /** By parent site: the engine's modes and the expected count. */
@@ -359,7 +343,6 @@ export function checkModes(
     if (r >= nParent) problems.push(`oracle: parent atom ${i} in an orbit with a marker`);
     repOf.set(r, (repOf.get(r) ?? 0) + 1);
   }
-  const spans: V3[][] = []; // per child orbit, the rows of I − Π (their null space is the allowed span)
   for (const [r, count] of repOf) {
     const x = sites[r]!.f;
     const stab = ops.filter(({ W, w }) => app(W, x).every((v, k) => near(v + w[k]! - x[k]!)));
@@ -374,10 +357,6 @@ export function checkModes(
     }
     if (fromSymbol !== Math.round(free)) problems.push(`oracle: site symmetry "${sym}" gives ${fromSymbol} free coordinates, the stabiliser ${Math.round(free)}`);
     orbits.push({ parentSite: parent.sites[sites[r]!.z - 1]!.label, wyckoff: d.wyckoffs[r]!, siteSymmetry: sym, free: Math.round(free), freeFromSymbol: fromSymbol, atoms: count });
-    // I − Π, Π = (1/|S|)Σ W in the T″ basis: its rows span the complement of the allowed shifts' annihilator.
-    const Pi = [0, 1, 2].map((i) => [0, 1, 2].map((j) => stab.reduce((t, { W }) => t + W[i]![j]!, 0) / stab.length));
-    const IminusPi = [0, 1, 2].map((i) => [0, 1, 2].map((j) => (i === j ? 1 : 0) - Pi[i]![j]!));
-    spans.push(IminusPi);
   }
   const expected = orbits.reduce((t, o) => t + o.free, 0);
   const rotations = new Map<string, M3>();
@@ -385,8 +364,6 @@ export function checkModes(
   const polarRaw = [...rotations.values()].reduce((t, W) => t + tr(W), 0) / rotations.size;
   if (!near(polarRaw)) problems.push(`oracle: a non-integer polar dimension ${polarRaw}`);
   const polar = Math.round(polarRaw);
-  // Directions every child site allows: the null space of all rows I − Π stacked.
-  const common = 3 - rank(spans.flat());
 
   // ── 2. the engine ──
   let engine: number | null = null;
@@ -409,10 +386,13 @@ export function checkModes(
     } catch (e) {
       problems.push(`engine (irrepModeSet): ${e instanceof Error ? e.message : String(e)}`);
     }
-    if (common > polar) {
-      // The known gauge issue: the default gauge removes all `common` directions, not only the polar ones.
+    if (polar < 3 && orbits.every((o) => o.free > 0)) {
+      // The known gauge issue: the default gauge removes every direction each
+      // child site's representative allows (which depends on the
+      // representatives), the polar one only H's translations. It can only
+      // remove more, never less: a polar direction is allowed at every site.
       sitesGauge = buildSymmetryModes(realised.structure).modes.length;
-      if (sitesGauge !== expected - common) problems.push(`default gauge: buildSymmetryModes gives ${sitesGauge} modes, expected ${expected} − ${common} = ${expected - common}`);
+      if (sitesGauge > expected - polar) problems.push(`default gauge: buildSymmetryModes keeps ${sitesGauge} modes, more than the ${expected} − ${polar} without H's translations`);
     }
 
     for (const s of parent.sites) {
@@ -541,7 +521,6 @@ export function checkModes(
     engineGauged,
     expected,
     polar,
-    common,
     ...(sitesGauge !== undefined ? { sitesGauge } : {}),
     orbits,
     bySite,
@@ -589,6 +568,6 @@ export function modeFindings(b: ModeBoundCheck): string[] {
 /** The classes where buildSymmetryModes' default gauge would remove more than the rigid translations (the known frozen issue). */
 export function gaugeGaps(b: ModeBoundCheck): string[] {
   return b.classes
-    .filter((c) => c.common > c.polar)
-    .map((c) => `#${b.parent} ${b.bound} class ${c.id} (#${c.number ?? "?"} ${c.hm ?? ""}): every child site allows ${c.common} common direction(s), H's polar ${c.polar}; the default gauge gives ${c.sitesGauge ?? "?"} modes, the polar gauge ${c.engineGauged ?? "?"} (of ${c.expected})`);
+    .filter((c) => c.sitesGauge !== undefined && c.sitesGauge < c.expected - c.polar)
+    .map((c) => `#${b.parent} ${b.bound} class ${c.id} (#${c.number ?? "?"} ${c.hm ?? ""}, polar ${c.polar}): the default gauge keeps ${c.sitesGauge} modes, the polar gauge ${c.engineGauged ?? "?"} of ${c.expected}; ${c.expected - c.polar - c.sitesGauge!} real mode(s) dropped`);
 }
