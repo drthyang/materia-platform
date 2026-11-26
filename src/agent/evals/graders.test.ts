@@ -328,3 +328,35 @@ describe("namesKIrrep", () => {
     expect(check.grade(run("It is Δ (0, 0, 1/4) irrep 2.")).pass).toBe(false);
   });
 });
+
+describe("namesIrreps", () => {
+  it("takes a coupled pair as the engine labels it, in one sentence, and never Δ (THY-85)", async () => {
+    const { namesIrreps } = await import("@/agent/evals/checks");
+    const run = (...replies: string[]): EvalRun => ({ events: replies.map((text) => ({ kind: "reply", text })) }) as unknown as EvalRun;
+    const check = namesIrreps(["X", 5], ["W", 1]);
+    expect(check.name).toBe("names the k-points and irreps as the engine labels them: X irrep 5 + W irrep 1");
+    for (const said of [
+      "P-42₁m is reached by X irrep 5 + W irrep 1, coupled.",
+      "The row reads X irrep 5 (0,0,a,-a,-a,a) + W irrep 1 (a,0,0,a,0,0).",
+      "It takes W irrep 1 of 4 together with X irrep 5 of 5.",
+      "Two irreps coupled: X irrep 5 and W irrep 1; the ΔRw of the fit is small.",
+    ]) expect(check.grade(run(said)).pass, said).toBe(true);
+    for (const said of [
+      // Only one of the pair, or each in its own sentence.
+      "It is reached by X irrep 5.",
+      "It is reached by W irrep 1 (a,0,0,a,0,0).",
+      "The first irrep is X irrep 5. The second is W irrep 1.",
+      // Another irrep number.
+      "It is reached by X irrep 3 + W irrep 1.",
+      "It is reached by X irrep 5 + W irrep 2.",
+      "It is reached by X irrep 55 + W irrep 1.",
+      // The coordinates without the point's name, or another point.
+      "It is reached by k = (0, 0, 1) irrep 5 + W irrep 1.",
+      "It is reached by Γ irrep 5 + W irrep 1.",
+    ]) expect(check.grade(run(said)).pass, said).toBe(false);
+    // Δ named anywhere, even beside the right pair.
+    for (const delta of ["It is Δ (0, 0, 1/2) irrep 2.", "The Δ line gives the doubled c.", "Δ irrep 2 reaches it."]) {
+      expect(check.grade(run("It is reached by X irrep 5 + W irrep 1.", delta)), delta).toMatchObject({ pass: false });
+    }
+  });
+});

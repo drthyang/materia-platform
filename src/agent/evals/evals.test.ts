@@ -233,6 +233,20 @@ describe("the eval pages", () => {
     expect(users(await replay("pdf-line-k-subgroup", good))).toHaveLength(1);
   }, 120_000);
 
+  it("catches a coupled pair named as the line point, or by another irrep (THY-85)", async () => {
+    const good = REPLAYS["pdf-coupled-k-subgroup"]!.good;
+    const NAMING = "names the k-points and irreps as the engine labels them: X irrep 5 + W irrep 1";
+    for (const last of [
+      "F-43m is lowered to P-42₁m #113 in its own 1×1×2 cell, reached by Δ (0, 0, 1/2) irrep 2; its modes are refined with the scale: Rw {{Rw}}.",
+      "F-43m is lowered to P-42₁m #113 in its own 1×1×2 cell, reached by X irrep 3 + W irrep 1; its modes are refined with the scale: Rw {{Rw}}.",
+    ]) {
+      // The good run, its naming sentence before lowering left out and its answer naming another k-point or irrep.
+      const r = await replay("pdf-coupled-k-subgroup", [good[0]!, { ...good[1]!, text: "Lowering to the row's default." }, ...good.slice(2, -1), { text: last }]);
+      expect(r.overrun, why(r)).toBe(0);
+      expect(failing(r), why(r)).toEqual([NAMING]);
+    }
+  }, 120_000);
+
   it("does not take a denial for a proposal: \"Neither is evidence for a lower group\"", async () => {
     // A live run (2026-10-10) failed symmetry-last on that sentence: "neither" was not read as a negation.
     const r = await replay("symmetry-last", [

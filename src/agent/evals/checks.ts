@@ -375,6 +375,31 @@ export function namesKIrrep(line: string, k: readonly [string, string, string], 
   };
 }
 
+/** Δ named as a k-point: "Δ (0, 0, 1/2)", "Δ irrep 2", "the Δ line" (not ΔPDF, ΔRw or Δr). */
+const DELTA_K = /(?<!\p{L})Δ(?:\s*\(|\s+(?:irreps?|line|point)\b|\s*(?:=|at)\s*\()/u;
+
+/**
+ * A reply names, in one sentence, every k-point and irrep of a coupled pair
+ * as the engine labels them (list_subgroups' row: "X irrep 5 (0,0,a,-a,-a,a)
+ * + W irrep 1 (a,0,0,a,0,0)"; lower_symmetry's modes: "X irrep 5 of 5"); the
+ * order-parameter directions are optional. No reply may name the line point Δ
+ * for it (THY-85: the pair-reached subgroup beside pdf-line-k-subgroup's Δ).
+ */
+export function namesIrreps(...labels: readonly (readonly [point: string, irrep: number])[]): Check {
+  const label = labels.map(([p, i]) => `${p} irrep ${i}`).join(" + ");
+  const each = labels.map(([p, i]) => new RegExp(`(?<!\\p{L})${p}\\s+irrep\\s*${i}(?!\\d)`, "u"));
+  return {
+    name: `names the k-points and irreps as the engine labels them: ${label}`,
+    grade: (run) => {
+      const said = replies(run).flatMap((r) => sentences(r));
+      const delta = said.find((s) => DELTA_K.test(s));
+      if (delta) return fail(`names Δ: "${delta.slice(0, 120)}"`);
+      const hit = said.find((s) => each.every((re) => re.test(s)));
+      return hit ? ok(`"${hit.slice(0, 120)}"`) : fail(`no reply names ${label} in one sentence`);
+    },
+  };
+}
+
 /** The row picked from the Subgroups view's list: list_subgroups before the first lowering. */
 export const listsBeforeLowering: Check = {
   name: "lists the subgroups before lowering",

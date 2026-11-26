@@ -18,7 +18,7 @@ where one fit takes seconds).
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
   was found (the checks written against it must fail). That shows each of
-  those checks catches its failure: 63 of the suite's 71 checks so far; the
+  those checks catches its failure: 64 of the suite's 72 checks so far; the
   rest (`calls identify_peaks` among them) have no failing replay yet. The scripts are in
   [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
 - **On demand**, the same scenarios run against a real model
@@ -114,6 +114,7 @@ with a known answer, is a separate protocol:
 | `pdf-local-geometry` | answers a bond-length question box by box, and reports the scan | round 9 (LaMnO₃) |
 | `pdf-lower-symmetry` | lowers the symmetry to the subgroup asked for (P-42₁m in a 1×1×2 cell of the GaTa₄Se₈ demo) from the Subgroups list, refines the freed modes, and asks for no CIF; a question before the lowering gets the user's "Use the default variant, and go on.", one after it "Refine it with the method's defaults, and go on." | the owner: the Agent said the PDF page had no tool to change the space group and asked for a CIF made in VESTA, ISODISTORT or TRANSTRU |
 | `pdf-line-k-subgroup` | names the k-point and irrep that reach P-4c2 in a 1×1×2 cell of the GaTa₄Se₈ demo as the engine labels them, Δ (0, 0, 1/2) irrep 2 (a point on a line of the zone, named with its coordinates), lowers to it from the Subgroups list, refines the freed modes, and asks for no CIF; the same two follow-ups as `pdf-lower-symmetry` | THY-85: the THY-73 eval (2026-11-08) reached only the X and W points, so no live model had seen a line point's name |
+| `pdf-coupled-k-subgroup` | names the k-points and irreps that reach P-42₁m in a 1×1×2 cell of the GaTa₄Se₈ demo as the engine labels them, the coupled pair X irrep 5 + W irrep 1 in one sentence (never Δ, never one of the two alone), lowers to it from the Subgroups list, refines the freed modes, and asks for no CIF; the same two follow-ups as `pdf-lower-symmetry` | THY-85: the owner's second scenario beside `pdf-line-k-subgroup`, a subgroup reached only by a coupled pair of points (class c45@1×1×2, cross-checked with ISOTROPY) |
 | `sc-data-first` | reads the reflection statistics before refining, and refines the extinction before the structure | single-crystal round 1 (sapphire, TOPAZ) |
 | `sc-failed-reflection` | compares a misfit reflection with its equivalents, and leaves out only the failed measurement | single-crystal round 1 (5 4 1 in batch 24) |
 | `sc-failed-measurements` | finds every failed measurement by its equivalents (the second shows once the first is out), not by a σ cutoff | single-crystal round 1 (3 4 2, also in batch 24) |

@@ -339,6 +339,24 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["names the k-point and irrep as the engine labels them: Δ (0, 0, 1/2) irrep 2"],
   },
+  "pdf-coupled-k-subgroup": {
+    good: [
+      { text: "Your method first, then the Subgroups view's list for P-42₁m in the 1×1×2 cell.", calls: [PDF, { name: "list_subgroups", input: { name: "P-42_1m", cell: "1×1×2" } }] },
+      { text: "One row: P-42₁m #113 in 1×1×2, four variants, reached only by X irrep 5 (0,0,a,-a,-a,a) and W irrep 1 (a,0,0,a,0,0) together. Lowering to its default.", calls: [{ name: "lower_symmetry", input: { name: "P-42_1m", cell: "1×1×2" } }] },
+      { text: "The order parameter's modes are free from a small kick. The cell held, they refine with the scale.", calls: [{ name: "set_free", input: { fix: ["cell_*"] } }, { name: "refine" }] },
+      { text: "Two pairs of modes correlate at the kick: one of each fixed for now.", calls: [{ name: "set_free", input: { fix: ["mode_16", "mode_17"] } }, { name: "refine" }] },
+      { text: "F-43m is lowered to P-42₁m #113 in its own 1×1×2 cell. It takes two k-points and irreps coupled, X irrep 5 + W irrep 1, neither alone; their modes are refined with the scale: Rw {{Rw}}." },
+    ],
+    // A model fresh from the line point names Δ for the doubled c, or only the X irrep of the pair.
+    bad: [
+      { text: "Your method first, then the Subgroups view's list for P-42₁m in the 1×1×2 cell.", calls: [PDF, { name: "list_subgroups", input: { name: "P-42_1m", cell: "1×1×2" } }] },
+      { text: "Lowering to the row's default.", calls: [{ name: "lower_symmetry", input: { name: "P-42_1m", cell: "1×1×2" } }] },
+      { text: "The modes refine with the scale, the cell held.", calls: [{ name: "set_free", input: { fix: ["cell_*"] } }, { name: "refine" }] },
+      { text: "Two pairs correlate: one of each fixed.", calls: [{ name: "set_free", input: { fix: ["mode_16", "mode_17"] } }, { name: "refine" }] },
+      { text: "F-43m is lowered to P-42₁m #113 in its own 1×1×2 cell, reached by X irrep 5; its modes are refined with the scale: Rw {{Rw}}." },
+    ],
+    catches: ["names the k-points and irreps as the engine labels them: X irrep 5 + W irrep 1"],
+  },
   "sc-data-first": {
     good: [
       { text: "The method, then the data.", calls: [SC, { name: "get_state" }, { name: "reflection_statistics" }] },

@@ -1,4 +1,4 @@
-# An eval scenario on a line point's k-name, and a follow-up after lowering
+# Two eval scenarios on k-names, and a follow-up after lowering
 
 THY-85, from the THY-73 live eval (2026-11-08). In that eval,
 `pdf-lower-symmetry` (F-43m → P-42₁m in 1×1×2 on the GaTa₄Se₈ PDF demo)
@@ -7,6 +7,10 @@ of the Brillouin zone (Δ, Σ, Λ), which give the line's letter with the
 point's coordinates, were never seen by a live model. Run 1 also lowered
 correctly, then asked about the fit window and stopped, because the scripted
 follow-up only answered a question asked before the lowering.
+
+The owner chose to have both scenarios: one on a line point
+(`pdf-line-k-subgroup`, Δ) and one on a subgroup reached only by a coupled
+pair of points (`pdf-coupled-k-subgroup`, X irrep 5 + W irrep 1).
 
 This change is to the eval harness only. No tool description, skill,
 knowledge note, Copilot text or engine label changed.
@@ -62,7 +66,27 @@ lowering scenarios now use `LOWERING_FOLLOW_UPS`:
 `pdf-lower-symmetry` gets the second answer too, because its run 1 stopped
 on that question.
 
-### The scenario's wording, for approval
+**A second scenario, `pdf-coupled-k-subgroup`**, on the same page. The
+owner approved its wording. The target is P-42₁m #113 in the 1×1×2 cell,
+the group of `pdf-lower-symmetry`. The engine reaches it only by the
+coupled pair "X irrep 5 (0,0,a,-a,-a,a) + W irrep 1 (a,0,0,a,0,0)": class
+`c45@1×1×2`, 44 modes, 4 variants. ISOTROPY gives the same pair. The labels
+are the engine's: `list_subgroups` writes the row as above, and
+`lower_symmetry` names the modes "X irrep 5 of 5" and "W irrep 1 of 4".
+Unlike `pdf-lower-symmetry`, the user asks which k-points and irreps take
+the structure there, so the reply is graded on naming them.
+
+**A new check, `namesIrreps`** (`src/agent/evals/checks.ts`). One sentence
+of a reply must name every irrep of the pair as the engine labels it:
+"X irrep 5" and "W irrep 1", in either order. The order-parameter
+directions and "of 5" / "of 4" are optional. The check fails when either
+irrep is missing, when the two are in different sentences, when an irrep
+number differs (X irrep 3, W irrep 2, X irrep 55), when the point is not
+named (k = (0, 0, 1) irrep 5), and when any reply names Δ as a k-point
+("Δ (0, 0, 1/2)", "Δ irrep 2", "the Δ line"). ΔRw, ΔPDF and Δr do not count
+as Δ.
+
+### The first scenario's wording (approved by the owner)
 
 - Message: "Lower the symmetry to P-4c2 in a 1×1×2 cell (c doubled) and
   refine it. Which k-point and irrep of F-43m take the structure there?"
@@ -80,6 +104,21 @@ on that question.
   6. asks for no CIF of the subgroup
   7. does not end on a promise to act
 
+### The second scenario's wording (approved by the owner)
+
+- Message: "Lower the symmetry to P-42₁m in a 1×1×2 cell (c doubled) and
+  refine it. Which k-points and irreps of F-43m take the structure there?"
+- Follow-ups: the same two as above (`LOWERING_FOLLOW_UPS`).
+- Checks, as named in a report:
+  1. reads the method first (shared)
+  2. lists the subgroups before lowering
+  3. names the k-points and irreps as the engine labels them: X irrep 5 +
+     W irrep 1
+  4. lowers the symmetry to P -4 21 m #113, in its own cell, 1×1×2
+  5. refines the lowered model
+  6. asks for no CIF of the subgroup
+  7. does not end on a promise to act
+
 ## Evidence
 
 All of it is offline: a scripted model, no key, no live run.
@@ -91,6 +130,17 @@ All of it is offline: a scripted model, no key, no live run.
   - The bad replay does the same but says "reached by the X point, k = (0,
     0, 1), irrep 2". It fails the naming check.
   - Each replay takes about 0.4 s.
+- `evals.test.ts`, scenario `pdf-coupled-k-subgroup`:
+  - The good replay passes all seven checks, also with the tools offered by
+    stage. It lists, says "reached only by X irrep 5 (0,0,a,-a,-a,a) and W
+    irrep 1 (a,0,0,a,0,0) together", lowers to the default, holds the cell,
+    fixes one mode of each pair that correlates at the kick (mode_16,
+    mode_17) and refines (Rw 16.47 → 13.57; the first refine is refused for the two correlated pairs, as the tool says).
+  - The bad replay names only "X irrep 5". It fails the naming check and
+    passes the other six.
+  - "catches a coupled pair named as the line point, or by another irrep":
+    the good run with its answer changed to "Δ (0, 0, 1/2) irrep 2", or to
+    "X irrep 3 + W irrep 1", fails the naming check alone.
 - `evals.test.ts`, "answers a question after lowering with the method's
   defaults" (3 s):
   - A run that lowers and then asks about the fit window gets the new
@@ -102,6 +152,11 @@ All of it is offline: a scripted model, no key, no live run.
 - `graders.test.ts`, `namesKIrrep`: the engine's label passes when written
   with ½, 1/2 or 0.5. Irrep 1, "irreps 2⊕4", "k = (0, 0, 1/2), irrep 2",
   "the Δ line, irrep 2", the X point, and Δ (0, 0, 1/4) all fail.
+- `graders.test.ts`, `namesIrreps`: four positives (the pair with or
+  without the directions, in either order, with "of 5" / "of 4", beside a
+  ΔRw) and eleven negatives (one of the pair, the pair split over two
+  sentences, another irrep number, the point unnamed, another point, Δ named
+  in any reply).
 - **Every existing scripted eval result is unchanged.** Every scripted run
   was dumped to the last bit (the good, stage-scope and bad replays, the
   extra failure replays, each page's fresh `get_state` and
@@ -110,6 +165,10 @@ All of it is offline: a scripted model, no key, no live run.
   166 keys of `main` are byte-identical on the branch. The only new keys are
   the four of `pdf-line-k-subgroup`. The dumps are kept outside the
   repository.
+- **Again for the second scenario**, after rebasing onto `main`
+  (d5fc99e): the dump at the rebased branch without the second scenario
+  (685455f) and with it. The 170 keys of the first are byte-identical in the
+  second; the only new keys are the four of `pdf-coupled-k-subgroup`.
 
 ## What changes for users
 
@@ -120,22 +179,29 @@ an answer instead of ending the run.
 ## What it means for the validation
 
 Arm A's pinned results, the model-text snapshots and `docs/AGENT_TOOLS.md`
-are unchanged. `docs/AGENT_EVALS.md` now states 63 of 71 checks shown to
-catch their failure (it was 62 of 69). The two new checks are the naming
-check, which the bad replay catches, and the P-4c2 lowering check, which no
-replay fails yet.
+are unchanged. `docs/AGENT_EVALS.md` now states 64 of 72 checks shown to
+catch their failure (it was 62 of 69). The three new checks are the two
+naming checks, which the bad replays catch, and the P-4c2 lowering check,
+which no replay fails yet. The second scenario's lowering check is the one
+`pdf-lower-symmetry` already has.
 
 ## Not done
 
-- **The live run waits for the owner.** No model has run the scenario. The
-  wording above should be approved first.
+- **The live run waits for the owner.** No model has run either scenario.
 - **Only Δ is covered.** Σ(0,½,½) rows exist at 2×2×2 (for example I-43m
   #217 in 2×2×2, Σ irrep 1). They were not tried, because a fit in that
   cell is slower. No Λ row appeared within the bounds probed.
 
 ## Checks
 
-At the branch's head, before this report's own commit:
+At the branch's head with the second scenario, rebased on `main`
+(d5fc99e):
+
+- `npm run build` and `npm run lint`: clean.
+- `npm test` without `MATERIA_DATA_DIR`: 428 files passed, 42 skipped; 3840
+  tests passed, 401 skipped, none failed (275 s).
+
+At the branch's head, before this report's own commit (first scenario):
 
 - `npm run build` and `npm run lint`: clean.
 - `npm test` without `MATERIA_DATA_DIR`: 422 files passed, 38 skipped; 3770
