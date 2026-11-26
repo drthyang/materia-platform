@@ -9,9 +9,11 @@ silicon-standard check had to start its window at 0.52 Å. This report says
 where the limit is, why, what a user gets today, whether the model is valid
 below 0.5 Å, what a longer list costs, and the options.
 
-All numbers here come from the bundled public Mn₃Ga data and from synthetic
-patterns on a made-up bank (invented, round calibration numbers). No number
-from a local data or instrument file is in this report.
+All numbers here come from the bundled public Mn₃Ga data, from synthetic
+patterns on a made-up bank (invented, round calibration numbers), and (added
+2026-11-26) from the owner's published NOMAD GaTa₄Se₈ 300 K data, Phys. Rev.
+Research 4, 033123 (2022). That file stays local and is not in the repository;
+its numbers may be quoted.
 
 ## In short
 
@@ -397,6 +399,41 @@ Prefit, the gate) and `docs/USER_GUIDE.md`.
    (constant-wavelength path, single crystal).
 8. **`LIMITATIONS.md` says the lists are complete**; on TOF data they stop at
    0.5 Å.
+
+## Measured on published NOMAD data (added 2026-11-26)
+
+The owner's published NOMAD GaTa₄Se₈ data at 300 K (Phys. Rev. Research 4,
+033123 (2022); the file is local, not in the repository), with NOMAD's 2023A
+five-bank instrument file. The banks were refined on the page as far as the
+data allow: scale, four Chebyshev background terms, a, one isotropic U per site
+and the free x of Ta, Se1 and Se2, alternating with sample microstrain and
+size. The instrument file's profile and calibration were held.
+
+**How much of each bank lies below the limit.** No reflection is calculated
+there, so those points are fitted by the background alone:
+
+| Bank | Points with d < 0.5 Å | Observed maxima there | Calculated maxima there | Rw, GoF after refinement |
+| --- | --- | --- | --- | --- |
+| 2 | 625 of 2999 | 118 | 0 | 4.41 %, 6.43 |
+| 3 | 1182 of 2937 | 206 | 0 | 3.65 %, 10.84 |
+| 4 | 1473 of 2906 | 228 | 0 | 3.39 %, 7.29 |
+| 5 | 1640 of 2999 | 243 | 0 | 17.41 %, 43.84 |
+
+- In bank 4, half the points and 228 observed peaks are outside the model. The
+  structure is refined from the upper half of the pattern, and the background
+  absorbs real lines.
+- Bank 5 cannot be fitted with this model and instrument file: the U's sit on
+  their bounds and the positions run away.
+- The Validation view's "Lines no phase explains" (`diagnose_fit`'s
+  excess detector) reports the sample's own uncalculated lines below 0.5 Å as
+  extra peaks: bank 4, 8 to 10 of them at d 0.126–0.419 Å, each on 46–156
+  GaTa₄Se₈ reflections within ±3 FWHM, the nearest 0.1–0.2 FWHM away. Bank 5
+  has about 30. They survive refinement only because no refinement can reach
+  that range. A detector or check that reads this range reads the floor, not
+  the sample.
+- Evidence (figures per bank, the detectors' marks, the d < 0.5 Å region
+  shaded) is kept locally with the Can lines review (#194), which waits for
+  this decision.
 
 ## Options
 
