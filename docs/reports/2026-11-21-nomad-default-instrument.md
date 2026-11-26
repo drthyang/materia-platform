@@ -1,5 +1,7 @@
 # Default NOMAD instrument parameters, offered and named while in use
 
+> Followed by [the instrument follows the data's bank](./2026-11-27-nomad-bank-follow.md) (2026-11-27), which also does three of the points left open below: the statement in the Validation view, a `get_state` line for the default, and "No instrument loaded" on a TOF page without one (the default's title now reads "TOF · NOMAD · default 2023A").
+
 The owner's request: "When load NOMAD multi-bank data and instrument
 parameters, I want to have the pulldown list to select which bank I would like
 to use for the refinement. We can save a default instrument parameters for
