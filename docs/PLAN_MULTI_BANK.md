@@ -1,6 +1,6 @@
 # Plan: Rietveld refinement over several banks (DRAFT)
 
-> **Status: questions decided 2026-11-26 (section 0), except Q5 and Q23. Nothing here is built.** Linear
+> **Status: all questions decided (section 0, 2026-11-26/27). Nothing here is built.** Linear
 > THY-89. Each numbered QUESTION is a choice for the owner; my recommendation
 > is given with it and all of them are collected in [section 13](#13-the-questions-collected).
 >
@@ -51,8 +51,12 @@ subset. Every bank has a weight factor, editable in the first delivery.
   held, the others' difC free" is an explicit choice. The cell is never freed
   together with every difC.
 - **Q4:** microstrain and size shared, one value per phase.
-- **Q5 Absorption:** open with the owner. Meanwhile there is no absorption
-  term, and the report says so.
+- **Q5 Absorption (owner, 2026-11-27):** the NOMAD reduced data are
+  corrected for sample absorption in reduction. So there is no absorption term
+  in the fit, and the report says the data were corrected in reduction (not
+  that "no absorption correction was applied"). A shared-μR correction for data
+  that were not corrected stays a later step (step 12); it is not needed before
+  first real use.
 - **Q6:** no preferred orientation in the first delivery.
 - **Q7:** excluded regions are out of scope.
 - **Q9:** the overall GoF judges the fit. Each bank in a worse band is named
@@ -70,8 +74,10 @@ subset. Every bank has a weight factor, editable in the first delivery.
     artefact.
 - **Q19:** the banks that reach the magnetic peaks rank the groups. All chosen
   banks take part in the final moments fit.
-- **Q23 First public case:** Mn₃O₄ on POWGEN. Whether the NOMAD Si 640e
-  calibration data can be released as a public test is open with the owner.
+- **Q23 First public case:** Mn₃O₄ on POWGEN. The owner's published NOMAD
+  GaTa₄Se₈ 300 K data (Phys. Rev. Research 4, 033123 (2022)) stays a local
+  file: it may be mentioned and shown in screenshots, never committed. It is
+  the local real-data check.
 - **Q24:** agreement with GSAS-II means the shared parameters within 2
   combined esds, with the per-bank wR side by side.
 
