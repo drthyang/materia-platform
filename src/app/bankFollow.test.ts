@@ -192,7 +192,7 @@ describe("a data bank the instrument file has no bank for", () => {
     const { port } = sessionPort(over.session, over.instrument, { instrumentOnPage: true });
     const notes = port.state().instrumentNotes!;
     expect(notes.refineHeld).toBeUndefined();
-    expect(notes.startingPoint).toMatch(/^Bank 5's parameters, used as a starting point for data bank 6/);
+    expect(notes.startingPoint).toMatch(/^Bank 5's parameters are the starting point for data bank 6/);
     const { ex } = executor(fakeHost(port).host, "auto");
     expect((await ex.run("refine", {})).text).not.toContain("Refine is held");
     // The project keeps the choice; a later switch to a covered bank drops it with the old bank.
@@ -274,7 +274,21 @@ describe("the follow-up: a new file, the closest bank, the magnetic step and the
     const over = withStartingPoint(p, 1)!;
     const taken = agentInstrumentNotes(over.session.rawInstrument, true, bankCoverage(over.session, over.instrument, true))!;
     expect(taken.refineHeld).toBeUndefined();
-    expect(taken.startingPoint).toBe("Bank 1's parameters, used as a starting point for data bank 6, which the instrument file does not cover (the user's choice) (its difC 1439.6 is 71 % from the data's DIFC 840.0): the TOF difC and Zero rows must be refined and the calculated peak positions checked against the observed ones; the peak-shape terms are bank 1's.");
+    expect(taken.startingPoint).toBe("Bank 1's parameters are the starting point for data bank 6, which the instrument file does not cover (the user's choice; bank 1's difC 1439.6 is 71 % from the data's DIFC 840.0): the TOF difC and Zero rows must be refined and the calculated peak positions checked against the observed ones; the peak-shape terms are bank 1's and may not match this bank's peak widths.");
+  });
+
+  it("(3) the owner's startingPoint wording: without a DIFC in the data, and on constant-wavelength banks", () => {
+    // Time of flight, data that state no DIFC: a four-bank file against data bank 5, started from bank 2.
+    const noDifc = toDataBank(withInstrumentFile(dataPage(2, NO_DIFC_GSA), "four.instprm", TEXT.split(/(?=#Bank 5)/)[0]!).page, 5, NO_DIFC_GSA);
+    const over = withStartingPoint(noDifc, 2)!;
+    expect(agentInstrumentNotes(over.session.rawInstrument, true, bankCoverage(over.session, over.instrument, true))!.startingPoint).toBe(
+      "Bank 2's parameters are the starting point for data bank 5, which the instrument file does not cover (the user's choice): the TOF difC and Zero rows must be refined and the calculated peak positions checked against the observed ones; the peak-shape terms are bank 2's and may not match this bank's peak widths.",
+    );
+    // Constant wavelength (no difC on either side): its own ending, the same closing clause.
+    const cw = { uncovered: { dataBank: 3, instrumentBank: 1, fileBanks: [1, 2], fileDifC: [{ bank: 1 }, { bank: 2 }] }, startingPoint: true };
+    expect(agentInstrumentNotes({ name: "cw.instprm", text: "", bank: 1, startingPointFor: 3 }, true, cw)!.startingPoint).toBe(
+      "Bank 1's parameters are the starting point for data bank 3, which the instrument file does not cover (the user's choice): the Zero row (and check the wavelength) must be refined and the calculated peak positions checked against the observed ones; the peak-shape terms are bank 1's and may not match this bank's peak widths.",
+    );
   });
 
   it("(c) the magnetic step's ranking and moments fit, and the posterior, are refused with the same reason while held, and run once the override is taken", async () => {

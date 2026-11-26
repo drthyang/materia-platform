@@ -123,6 +123,12 @@ const pctOff = (difC: number, dataDifC: number): string => {
   return `${(off * 100).toFixed(off < 0.1 ? 1 : 0)} %`;
 };
 
+/** "; bank 1's difC 1439.6 is 71 % from the data's DIFC 840.0", when both are known (the owner's wording for get_state's startingPoint). */
+function heldOffText(u: UncoveredBank): string {
+  if (u.dataDifC === undefined || u.instrumentDifC === undefined) return "";
+  return `; ${heldName(u)}'s difC ${u.instrumentDifC.toFixed(1)} is ${pctOff(u.instrumentDifC, u.dataDifC)} from the data's DIFC ${u.dataDifC.toFixed(1)}`;
+}
+
 /** A bank of the file the override can start from, with how far its difC is from the data's DIFC when both are known. */
 export interface StartingBank {
   readonly bank: number;
@@ -250,7 +256,7 @@ export function agentInstrumentNotes(rawInstrument: Session["rawInstrument"], in
       ? { refineHeld: `Refine is held: data bank ${u.dataBank} has no bank in the instrument file (it has ${fileBanksText(u)}), and ${heldName(u)}'s calibration, which the page holds, gives wrong peak positions${offText(u)}. The user can load the instrument file for bank ${u.dataBank}, choose a data bank the file covers, or choose on the Instrument card to start from another bank's parameters${closestText(u)}.` }
       : {}),
     ...(u && coverage.startingPoint
-      ? { startingPoint: `${heldNameCap(u)}'s parameters, used as a starting point for data bank ${u.dataBank}, which the instrument file does not cover (the user's choice)${offText(u)}: ${calibRows(u)} must be refined and the calculated peak positions checked against the observed ones; the peak-shape terms are ${heldName(u)}'s.` }
+      ? { startingPoint: `${heldNameCap(u)}'s parameters are the starting point for data bank ${u.dataBank}, which the instrument file does not cover (the user's choice${heldOffText(u)}): ${calibRows(u)} must be refined and the calculated peak positions checked against the observed ones; the peak-shape terms are ${heldName(u)}'s and may not match this bank's peak widths.` }
       : {}),
   };
   return Object.keys(notes).length > 0 ? notes : undefined;
