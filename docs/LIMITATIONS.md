@@ -465,6 +465,14 @@ approximate, however plausible its output looks.
   in the rows it is given and runs no moment search of its own
   (`refine_magnetic_powder` with `restarts` and only the moment rows free
   searches first), and it holds k: a k component passed free is not refined.
+- Refine moments (page and MCP) kicks an amplitude the fit leaves at exactly 0
+  to 0.1 µB and keeps it only when Hamilton's test at 5 % says the data
+  require it; several such amplitudes are tested together, so one the data do
+  not need can be kept with one they do. A kept amplitude's sign is a domain
+  choice. "Direction not determined" is read from the null directions of the
+  moments step's covariance (and of the kicked fit, when that is not kept);
+  a direction the data determine only weakly, without a null direction, is
+  not caught. The single-crystal and magnetic-PDF moment fits do not kick.
 - The k = 0 guard is advice, not a rule: the method's order (ADPs before the
   magnetic step) is the user's. It does not apply to k ≠ 0 satellites that
   overlap nuclear lines by accident in d, where a nuclear-first fit can still

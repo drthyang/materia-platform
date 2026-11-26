@@ -279,16 +279,39 @@ describe("refine_moments holds k", () => {
     expect(Object.keys(held.moments)).toEqual(["mom_Fe1_0", "mom_Fe1_1", "mom_Fe1_1q", "mom_Fe1_2", "mom_Fe1_2q"]);
     expect(held.parameters.find((p) => p.id === "mom_Fe1_0q")!.value).toBe(0);
     expect(held.esd.mom_Fe1_0q).toBeUndefined();
-    // An amplitude that starts at exactly 0 has no gradient (the intensity is quadratic in it): it stays at 0.
-    for (const id of ["mom_Fe1_1", "mom_Fe1_2", "mom_Fe1_2q"]) expect(held.moments[id], id).toBe(0);
+    // The amplitudes that start at exactly 0 have no gradient there (the intensity is quadratic in them), so the fit
+    // leaves them at 0; they are kicked to 0.1 µB and refitted (momentsFit.ts). The kicked fit is no better (Δχ² ≤ 0):
+    // the data do not require them, and they are held at 0, with no esd (not "esd 0").
+    expect(held.zeroStart).toMatchObject({ rows: ["mom_Fe1_1", "mom_Fe1_2", "mom_Fe1_2q"], kick: 0.1, kept: false, q: 3 });
+    expect(held.zeroStart!.f!).toBeLessThanOrEqual(held.zeroStart!.fCritical!);
+    for (const id of ["mom_Fe1_1", "mom_Fe1_2", "mom_Fe1_2q"]) {
+      expect(held.moments[id], id).toBe(0);
+      expect(held.esd[id], id).toBeUndefined();
+    }
+    // The helix on this orthogonal cell is one of a family the powder cannot tell apart: the cosine and sine
+    // amplitudes along y trade on a circle of the same |M| (the kicked fit, equally good, sits elsewhere on it).
+    // So mom_Fe1_1 and mom_Fe1_1q are "direction not determined", with no esd (the engine's esd leaves that
+    // direction out and reads too small), and the reading says so. Before this, the zero start returned the
+    // seeds' member of the family with an esd of 0.003 µB, and mom_Fe1_1 as 0 with esd 0.
+    expect(held.directionNotDetermined).toHaveLength(1);
+    const family = held.directionNotDetermined![0]!;
+    expect(family.rows).toEqual(["mom_Fe1_1", "mom_Fe1_1q"]);
+    expect(held.esd.mom_Fe1_1q).toBeUndefined();
+    const alt = family.alternative!;
+    expect(Math.abs(alt.mom_Fe1_1!)).toBeGreaterThan(0.3);
+    // The same |M| on y on both members of the family, to 1 %: 2 µB, the truth.
+    expect(Math.abs(Math.hypot(alt.mom_Fe1_1!, alt.mom_Fe1_1q!) - Math.hypot(held.moments.mom_Fe1_1!, held.moments.mom_Fe1_1q!))).toBeLessThan(0.02);
+    expect(Math.abs(Math.hypot(held.moments.mom_Fe1_1!, held.moments.mom_Fe1_1q!) - 2)).toBeLessThan(0.02);
+    expect(held.reading).toContain("mom_Fe1_1, mom_Fe1_2 and mom_Fe1_2q started at 0, where the fit cannot move them; kicked to 0.1 µB, they are not required by the data (Δχ² −");
+    expect(held.reading).toContain("The data do not determine the direction of mom_Fe1_1 and mom_Fe1_1q (an equally good fit puts mom_Fe1_1 ");
     // The flags of the moment rows come back as the builder set them.
     expect(held.parameters.filter((p) => p.kind === "momentMode").every((p) => p.fixed)).toBe(true);
     const d = Object.keys(plain.moments).map((id) => relative(held.moments[id]!, plain.moments[id]!));
-    console.log(`[mcp-moments] k held: ${Object.entries(held.moments).map(([id, v]) => `${id} ${v.toFixed(5)}(${held.esd[id]!.toFixed(5)})`).join(", ")} in ${held.rounds} rounds; relative difference from the fit without k rows: ${d.map((x) => x.toExponential(2)).join(", ")}`);
+    console.log(`[mcp-moments] k held: ${Object.entries(held.moments).map(([id, v]) => `${id} ${v.toFixed(5)}${held.esd[id] === undefined ? "" : `(${held.esd[id]!.toFixed(5)})`}`).join(", ")} in ${held.rounds} rounds; relative difference from the fit without k rows: ${d.map((x) => x.toExponential(2)).join(", ")} · ${held.reading}`);
     for (const x of d) expect(x).toBeLessThan(1e-9);
     expect(held.rounds).toBe(plain.rounds);
     expect(held.settled).toBe(true);
-    for (const id of ["mom_Fe1_0", "mom_Fe1_1q"]) expect(Math.abs(Math.abs(held.moments[id]!) - 2) / held.esd[id]!, id).toBeLessThan(3);
+    expect(Math.abs(Math.abs(held.moments.mom_Fe1_0!) - 2) / held.esd.mom_Fe1_0!).toBeLessThan(3);
   }, 60_000);
 
   it("a two-arm model without the phase gauge's id is refused: the tool does not guess the row", async () => {
