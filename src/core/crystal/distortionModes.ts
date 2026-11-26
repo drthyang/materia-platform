@@ -463,10 +463,10 @@ export function buildDistortionModes(parent: StructureModel, child: StructureMod
  * group: a direction every rotation fixes, so every atom can follow), it is an
  * exact null direction of the fit. Refining it stalls the engine with a ±1.00
  * correlation. Such combinations are projected OUT of the catalog here
- * (`acousticExcluded` counts them); a non-polar group has none and nothing is
- * excluded, even when every site allows a common direction (moving each orbit
- * representative along it moves the orbits' other atoms along its images: a
- * genuine distortion, kept). The per-coordinate
+ * (`acousticExcluded` counts them); a non-polar group has none. A direction
+ * every site allows but some rotation does not fix is NOT one: moving each
+ * orbit representative along it moves the orbits' other atoms along its
+ * images, a genuine distortion, kept. The per-coordinate
  * parameterization cannot make this distinction — a genuine advantage of the
  * mode basis. (The child-decomposition path `buildDistortionModes` is left
  * as-is: its frozen order parameter is an observed, observable displacement.)
@@ -494,11 +494,12 @@ export function buildSymmetryModes(
      * IS the polar space, the basis the same-cell subgroup routes, the
      * Positions → Irreps toggle and build_symmetry_modes have always used, so
      * their results stay bit-identical, and the rotations' basis where the
-     * intersection is larger. It is larger for a non-polar group whose sites
-     * all allow one common direction (P2₁3 with every site on a 3-fold:
-     * [111] is allowed at each site, but moving each site along it moves the
-     * orbits apart, a genuine distortion); until 2026-11-27 the default
-     * projected that whole intersection out and lost those modes.
+     * intersection is larger. It is larger where every site allows a
+     * direction some rotation does not fix (P2₁3 with every site on a
+     * 3-fold: [111] is allowed at each site, but moving each site along it
+     * moves the orbits apart, a genuine distortion; P2₁ with every site
+     * general: a and c); until 2026-11-27 the default projected that whole
+     * intersection out and lost those modes.
      */
     readonly gaugeBasis?: "sites" | "rotations";
   },

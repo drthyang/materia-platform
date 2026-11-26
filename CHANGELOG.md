@@ -115,6 +115,21 @@ release fixes bugs.
 
 ### Fixed
 
+- **Symmetry modes no longer lose real distortions.** The mode basis built
+  from a structure's own group projected out every direction all its sites
+  allow, not only the rigid translations; where such a direction is not fixed
+  by every rotation it is a real distortion, so up to 3 modes were missing:
+  38 of 809 same-cell Activate rows checked (Pnma → P2₁2₁2₁ 9 of 12,
+  P2₁/c → P2₁ 6 of 8), Positions → Irreps on FeSi-type P2₁3 (1 of 2) and
+  SnS-type Pnma (2 of 4), and `build_symmetry_modes`. Every route now removes
+  only the rigid translations; results on every other structure are
+  unchanged to the last digit. A PDF project saved with its own modes on an
+  affected structure reopens on the full basis with its atoms where they were
+  (the values are converted; the last fit's result is cleared); one that
+  cannot be converted exactly is refused with the reason. A same-cell
+  activation saved with a project keeps its set: activate the row again for
+  the full one ([report](docs/reports/2026-11-27-polar-gauge-everywhere.md)).
+
 - **The live evals' refusal check no longer fails a staging rule** restated
   and followed ("the width must not refine with the positions, so I'll hold
   the width and free …"); real refusals and gate citations still fail.

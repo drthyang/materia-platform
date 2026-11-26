@@ -2307,8 +2307,12 @@ export function build_distortion_modes(args: {
  * Enumerate the symmetry-adapted displacement modes of a structure FROM ITS
  * OWN SPACE GROUP — no parent/child pair. All amplitudes seed at 0 (activating
  * a mode never changes the curve); modes enter `fixed` and are freed
- * deliberately. Rigid-translation (acoustic) combinations — unobservable in
- * any scattering fit — are projected out (`acousticExcluded` counts them).
+ * deliberately. Rigid translations of the whole structure (acoustic: along
+ * the group's polar directions, the only ones every atom can follow) —
+ * unobservable in any scattering fit — are projected out (`acousticExcluded`
+ * counts them); a direction every site allows but a rotation does not fix is
+ * a real distortion and stays a mode (the default gauge removed it before
+ * 2026-11-27).
  * These are the symmetry-CONSERVING (Γ, identity-irrep) modes: the same DOF
  * as per-coordinate positions, re-expressed as orthonormal whole-cell Å
  * amplitudes. Symmetry-breaking (subgroup-tree) modes are a separate,
