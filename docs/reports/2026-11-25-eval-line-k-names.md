@@ -82,9 +82,22 @@ of a reply must name every irrep of the pair as the engine labels it:
 directions and "of 5" / "of 4" are optional. The check fails when either
 irrep is missing, when the two are in different sentences, when an irrep
 number differs (X irrep 3, W irrep 2, X irrep 55), when the point is not
-named (k = (0, 0, 1) irrep 5), and when any reply names Δ as a k-point
-("Δ (0, 0, 1/2)", "Δ irrep 2", "the Δ line"). ΔRw, ΔPDF and Δr do not count
-as Δ.
+named (k = (0, 0, 1) irrep 5), and when any reply, in any sentence,
+asserts Δ as the k-point ("Δ (0, 0, 1/2)", "Δ irrep 2", "the Δ line", or a
+hedge such as "Δ or X"). ΔRw, ΔPDF, Δr and Δ-PDF do not count as Δ.
+
+A correct exclusion of Δ does not fail. A mention of Δ is taken back only
+when one of a fixed list of patterns stands right next to it, in the same
+clause (the list is written beside the check):
+
+- before Δ, with an optional "the" between: "not Δ", "no Δ", "isn't Δ" (any
+  n't), "is not Δ", "never Δ", "rules out Δ", "ruled out Δ", "excludes Δ",
+  "excluding Δ", "excluded: Δ";
+- after it: "Δ … is ruled out", "Δ … is excluded", "Δ … does not apply".
+
+Any other mention asserts Δ. A negation farther away or in another clause
+("Not X alone, but Δ (0, 0, 1/2)") does not count, and a reply that excludes
+Δ in one sentence and gives it as the answer in a later one fails.
 
 ### The first scenario's wording (approved by the owner)
 
@@ -152,11 +165,15 @@ All of it is offline: a scripted model, no key, no live run.
 - `graders.test.ts`, `namesKIrrep`: the engine's label passes when written
   with ½, 1/2 or 0.5. Irrep 1, "irreps 2⊕4", "k = (0, 0, 1/2), irrep 2",
   "the Δ line, irrep 2", the X point, and Δ (0, 0, 1/4) all fail.
-- `graders.test.ts`, `namesIrreps`: four positives (the pair with or
-  without the directions, in either order, with "of 5" / "of 4", beside a
-  ΔRw) and eleven negatives (one of the pair, the pair split over two
-  sentences, another irrep number, the point unnamed, another point, Δ named
-  in any reply).
+- `graders.test.ts`, `namesIrreps`:
+  - Passes: the pair with or without the directions, in either order, with
+    "of 5" / "of 4", beside a ΔRw (4 replies); the pair with Δ excluded by
+    each pattern of the list (7 replies).
+  - Fails: one of the pair, the pair split over two sentences, another irrep
+    number, the point unnamed, another point (8 replies); Δ asserted beside
+    the right pair, as "Δ (0, 0, 1/2) irrep 2", "the Δ line", "Δ irrep 2", a
+    hedge "Δ or X", or with a negation not next to it (7 replies); Δ
+    excluded in one sentence and given as the answer in a later one.
 - **Every existing scripted eval result is unchanged.** Every scripted run
   was dumped to the last bit (the good, stage-scope and bad replays, the
   extra failure replays, each page's fresh `get_state` and
@@ -165,10 +182,11 @@ All of it is offline: a scripted model, no key, no live run.
   166 keys of `main` are byte-identical on the branch. The only new keys are
   the four of `pdf-line-k-subgroup`. The dumps are kept outside the
   repository.
-- **Again for the second scenario**, after rebasing onto `main`
-  (d5fc99e): the dump at the rebased branch without the second scenario
-  (685455f) and with it. The 170 keys of the first are byte-identical in the
-  second; the only new keys are the four of `pdf-coupled-k-subgroup`.
+- **Again for the second scenario**, rebased onto `main` (6044d07): the dump
+  at `main` and at the branch. The 166 keys of `main` are byte-identical on
+  the branch; the only new keys are the four of each new scenario. The
+  branch's dump is also byte-identical to the one taken before the Δ
+  exclusion list was added, so the list changes no scripted result.
 
 ## What changes for users
 
@@ -195,11 +213,11 @@ which no replay fails yet. The second scenario's lowering check is the one
 ## Checks
 
 At the branch's head with the second scenario, rebased on `main`
-(d5fc99e):
+(6044d07):
 
 - `npm run build` and `npm run lint`: clean.
-- `npm test` without `MATERIA_DATA_DIR`: 428 files passed, 42 skipped; 3840
-  tests passed, 401 skipped, none failed (275 s).
+- `npm test` without `MATERIA_DATA_DIR`: 431 files passed, 42 skipped; 3885
+  tests passed, 401 skipped, none failed (174 s).
 
 At the branch's head, before this report's own commit (first scenario):
 

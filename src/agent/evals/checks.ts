@@ -375,15 +375,40 @@ export function namesKIrrep(line: string, k: readonly [string, string, string], 
   };
 }
 
-/** Δ named as a k-point: "Δ (0, 0, 1/2)", "Δ irrep 2", "the Δ line" (not ΔPDF, ΔRw or Δr). */
-const DELTA_K = /(?<!\p{L})Δ(?:\s*\(|\s+(?:irreps?|line|point)\b|\s*(?:=|at)\s*\()/u;
+/**
+ * Δ as a k-point: the letter on its own, with its coordinates, irrep or "line"
+ * / "point" if given ("Δ (0, 0, 1/2) irrep 2", "the Δ line", "Δ or X"); not
+ * ΔPDF, ΔRw, Δr or Δ-PDF.
+ */
+const DELTA_K = /(?<!\p{L})Δ(?![\p{L}-])(?:\s*\([^)]*\))?(?:\s+irreps?\s*\d+(?:\s+of\s+\d+)?|\s+(?:line|point)\b)?/gu;
+
+/**
+ * The fixed list of ways a reply excludes Δ, in the same clause, right next to
+ * it. Before Δ (an optional "the" between): "not Δ", "no Δ", "isn't Δ" (any
+ * n't), "is not Δ", "never Δ", "rules out Δ", "ruled out Δ", "excludes Δ",
+ * "excluding Δ", "excluded: Δ". After it: "Δ … is ruled out", "Δ … is
+ * excluded", "Δ … does not apply". Anything else that mentions Δ asserts it.
+ */
+const DELTA_EXCLUDED_BEFORE = /(?:\b(?:not|no|never|rules?\s+out|ruled\s+out|excludes|excluding)|n't|\bexcluded:)\s+(?:the\s+)?$/iu;
+const DELTA_EXCLUDED_AFTER = /^\s*(?:is|was)\s+(?:ruled\s+out|excluded)\b|^\s*does\s+not\s+apply\b/iu;
+
+/** A sentence's mention of Δ that no excluding pattern next to it, in its clause, takes back. */
+function assertsDelta(sentence: string): boolean {
+  for (const m of sentence.matchAll(DELTA_K)) {
+    const before = sentence.slice(0, m.index).split(/[,;]/).pop()!;
+    const after = sentence.slice(m.index + m[0].length);
+    if (!DELTA_EXCLUDED_BEFORE.test(before) && !DELTA_EXCLUDED_AFTER.test(after)) return true;
+  }
+  return false;
+}
 
 /**
  * A reply names, in one sentence, every k-point and irrep of a coupled pair
  * as the engine labels them (list_subgroups' row: "X irrep 5 (0,0,a,-a,-a,a)
  * + W irrep 1 (a,0,0,a,0,0)"; lower_symmetry's modes: "X irrep 5 of 5"); the
- * order-parameter directions are optional. No reply may name the line point Δ
- * for it (THY-85: the pair-reached subgroup beside pdf-line-k-subgroup's Δ).
+ * order-parameter directions are optional. No reply may assert the line point
+ * Δ for it; a Δ excluded by one of the fixed patterns above is fine (THY-85:
+ * the pair-reached subgroup beside pdf-line-k-subgroup's Δ).
  */
 export function namesIrreps(...labels: readonly (readonly [point: string, irrep: number])[]): Check {
   const label = labels.map(([p, i]) => `${p} irrep ${i}`).join(" + ");
@@ -392,7 +417,7 @@ export function namesIrreps(...labels: readonly (readonly [point: string, irrep:
     name: `names the k-points and irreps as the engine labels them: ${label}`,
     grade: (run) => {
       const said = replies(run).flatMap((r) => sentences(r));
-      const delta = said.find((s) => DELTA_K.test(s));
+      const delta = said.find(assertsDelta);
       if (delta) return fail(`names Δ: "${delta.slice(0, 120)}"`);
       const hit = said.find((s) => each.every((re) => re.test(s)));
       return hit ? ok(`"${hit.slice(0, 120)}"`) : fail(`no reply names ${label} in one sentence`);

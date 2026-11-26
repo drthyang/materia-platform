@@ -354,9 +354,30 @@ describe("namesIrreps", () => {
       "It is reached by k = (0, 0, 1) irrep 5 + W irrep 1.",
       "It is reached by Γ irrep 5 + W irrep 1.",
     ]) expect(check.grade(run(said)).pass, said).toBe(false);
-    // Δ named anywhere, even beside the right pair.
-    for (const delta of ["It is Δ (0, 0, 1/2) irrep 2.", "The Δ line gives the doubled c.", "Δ irrep 2 reaches it."]) {
-      expect(check.grade(run("It is reached by X irrep 5 + W irrep 1.", delta)), delta).toMatchObject({ pass: false });
-    }
+    // Δ asserted anywhere, even beside the right pair, fails.
+    const PAIR = "It is reached by X irrep 5 + W irrep 1.";
+    for (const delta of [
+      "It is Δ (0, 0, 1/2) irrep 2.",
+      "The Δ line gives the doubled c.",
+      "Δ irrep 2 reaches it.",
+      // A hedge is not an exclusion.
+      "It is Δ or X, most likely X irrep 5 + W irrep 1.",
+      // A negation that is not next to Δ, or in another clause, does not take it back.
+      "Not X alone, but Δ (0, 0, 1/2).",
+      "It is not X irrep 3, it is Δ irrep 2.",
+    ]) expect(check.grade(run(PAIR, delta)), delta).toMatchObject({ pass: false });
+    expect(check.grade(run("It is Δ or X irrep 5 + W irrep 1.")).pass).toBe(false);
+    // Excluded once, then named as the answer later: fails.
+    expect(check.grade(run("It is not Δ (0, 0, 1/2): X irrep 5 + W irrep 1 reach it.", "On second thought, the answer is Δ (0, 0, 1/2) irrep 2."))).toMatchObject({ pass: false });
+    // Δ excluded by one of the fixed patterns, with the pair named: passes.
+    for (const excluded of [
+      "It is not Δ (0, 0, 1/2): X irrep 5 + W irrep 1 reach it together.",
+      "The row rules out Δ; X irrep 5 + W irrep 1 reach it.",
+      "The answer isn't Δ, it is X irrep 5 + W irrep 1.",
+      "It is X irrep 5 + W irrep 1, so the k-point is not the Δ line.",
+      "Excluded: Δ (0, 0, 1/2). It is reached by X irrep 5 + W irrep 1.",
+      "No Δ row reaches it; X irrep 5 + W irrep 1 do.",
+      "Δ (0, 0, 1/2) is ruled out; X irrep 5 + W irrep 1 reach it.",
+    ]) expect(check.grade(run(excluded)).pass, excluded).toBe(true);
   });
 });
