@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { parseCif } from "@/parsers/cif";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { parseInstrumentFile } from "@/parsers/instrument";
-import { DEFAULT_INSTRUMENTS, defaultInstrumentInUse } from "@/app/defaultInstruments";
+import { DEFAULT_INSTRUMENTS, defaultInstrumentInUse, instrumentCardChip } from "@/app/defaultInstruments";
 import { withInstrumentFile, withPattern, withStructure, emptyPage, type PowderPage } from "@/app/powderPage";
 import {
   agentInstrumentNotes, bankCoverage, bundleInstrumentNote, closestBank, followDataBank, followNote, followStepLabel, holdNote, loadFollowStepLabel, overrideLabel,
@@ -339,6 +339,18 @@ describe("the follow-up: a new file, the closest bank, the magnetic step and the
     expect(bundleInstrumentNote(own.session.rawInstrument, true, bankCoverage(own.session, own.instrument, true))).toBeNull();
     const held = six();
     expect(bundleInstrumentNote(held.session.rawInstrument, true, bankCoverage(held.session, held.instrument, true))).toBe(defaultInstrumentInUse(held.session.rawInstrument, true)!.report);
+  });
+
+  it("the Instrument card's chip: none on a TOF page without an instrument; \"default file\" with the NOMAD default; \"default\" for the CW placeholder", () => {
+    expect(instrumentCardChip({ defaultInUse: false, instrumentLoaded: false, tof: true })).toBe("");
+    expect(instrumentCardChip({ defaultInUse: true, instrumentLoaded: true, tof: true })).toBe("default file");
+    expect(instrumentCardChip({ defaultInUse: false, instrumentLoaded: true, tof: true })).toBe("✓ loaded");
+    expect(instrumentCardChip({ defaultInUse: false, instrumentLoaded: false, tof: false })).toBe("default");
+    // The pages: the synthetic NOMAD data without an instrument, then with the default clicked.
+    const none = dataPage(2);
+    expect(instrumentCardChip({ defaultInUse: !!defaultInstrumentInUse(none.session.rawInstrument, none.instrumentLoaded), instrumentLoaded: none.instrumentLoaded, tof: none.session.pattern.xUnit === "tof" })).toBe("");
+    const withIt = withDefault(2);
+    expect(instrumentCardChip({ defaultInUse: !!defaultInstrumentInUse(withIt.session.rawInstrument, withIt.instrumentLoaded), instrumentLoaded: withIt.instrumentLoaded, tof: true })).toBe("default file");
   });
 
   it("the Validation view's guard: past the reflection limit it reads nothing; any other error is thrown", () => {

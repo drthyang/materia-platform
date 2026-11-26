@@ -91,7 +91,7 @@ import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { fileProfileCardNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
-import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel, defaultUncovered } from "@/app/defaultInstruments";
+import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel, defaultUncovered, instrumentCardChip } from "@/app/defaultInstruments";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
 import { agentInstrumentNotes, bankCoverage, bundleInstrumentNote, holdNote, overrideLabel, startingPointWarning } from "@/app/bankFollow";
 import type { InstrumentNote } from "@/app/ui/PowderValidation";
@@ -1580,7 +1580,7 @@ export function PowderWorkbench({
       help: "Loads instrument files from the major facilities — GSAS-II .instprm, GSAS .prm, FullProf .irf. If your file isn't recognized, contact the author.",
       loadLabel: "Load instrument…", accept: ".instprm,.prm,.irf,text/plain", onFile: onLoadInstrument,
       muted: !hasContent && !instrumentLoaded,
-      chip: instDefault ? "default file" : instrumentLoaded ? "✓ loaded" : "default",
+      chip: instrumentCardChip({ defaultInUse: !!instDefault, instrumentLoaded, tof: powderIsTof }),
       ...(instDefault ? { chipTone: "warn" as const } : {}),
       // A TOF page without an instrument has none: never the constant-wavelength placeholder's title and λ.
       title: !instrumentLoaded && (!hasContent || powderIsTof) ? "No instrument loaded" : instDefault ? instDefault.title : instTitle,

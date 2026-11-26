@@ -137,6 +137,17 @@ export function defaultInstrumentInUse(rawInstrument: { readonly bundledDefault?
   return instrumentLoaded && rawInstrument?.bundledDefault !== undefined ? defaultInstrumentWarning(rawInstrument.bundledDefault) : null;
 }
 
+/**
+ * The Instrument card's status chip: "default file" while a default shipped
+ * with the app is in use, "✓ loaded" for any other instrument file, "default"
+ * for the constant-wavelength placeholder a CW page runs on, and none on a
+ * time-of-flight page without an instrument, where nothing default is
+ * loaded (the card's chip row then drops it).
+ */
+export function instrumentCardChip(o: { readonly defaultInUse: boolean; readonly instrumentLoaded: boolean; readonly tof: boolean }): string {
+  return o.defaultInUse ? "default file" : o.instrumentLoaded ? "✓ loaded" : o.tof ? "" : "default";
+}
+
 /** The History step's label for a default applied. */
 export function defaultStepLabel(d: DefaultInstrument, bank: number | null): string {
   return `Loaded default ${d.instrument} parameters (${d.cycle})${bank !== null ? `, bank ${bank}` : ""}`;
