@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
@@ -55,6 +55,24 @@ describe("calibrated instrument file", () => {
     const got = one.banks[0]!.parameters as Tof;
     expect([got.difC, got.difA, got.zero, got.gamX, got.gamY]).toEqual([i.difC, i.difA, i.zero, i.gamX, i.gamY]);
     expect([...one.banks[0]!.texts.keys()].sort()).toEqual(["2-theta", "Azimuth", "Bank", "X", "Y", "Z", "Type", "Zero", "alpha", "beta-0", "beta-1", "beta-q", "difA", "difB", "difC", "fltPath", "sig-0", "sig-1", "sig-2", "sig-q"].sort());
+  });
+
+  // Validation (c): GSAS-II's own reader (scripts/gsas2-read-instprm.py) on this very file. Regenerate
+  // with MATERIA_WRITE_FIXTURES=1, then: python scripts/gsas2-read-instprm.py <fixture> <fixture>.gsas2.json
+  it("is read by GSAS-II's reader with the same values, bank by bank", () => {
+    const fixture = fileURLToPath(new URL("../../testSupport/calibratedInstprm.fixture.instprm", import.meta.url));
+    if (process.env.MATERIA_WRITE_FIXTURES) writeFileSync(fixture, text);
+    expect(readFileSync(fixture, "utf8")).toBe(text);
+    const gsas2 = JSON.parse(readFileSync(`${fixture}.gsas2.json`, "utf8")) as { errors: Record<string, string>; banks: Record<string, Record<string, number>> };
+    expect(gsas2.errors).toEqual({});
+    expect(Object.keys(gsas2.banks).sort()).toEqual(["1", "2", "3", "4", "5"]);
+    for (const m of moved) {
+      const g = gsas2.banks[String(m.bank)]!;
+      const i = m.instrument;
+      expect([g.difC, g.difA, g.Zero, g.alpha, g["beta-0"], g["beta-1"], g["sig-0"], g["sig-1"], g["sig-2"], g.X, g.Y])
+        .toEqual([i.difC, i.difA, i.zero, i.alpha, i.beta0, i.beta1, i.sig0, i.sig1, i.sig2, i.gamX, i.gamY]);
+      expect(g.Bank).toBe(m.bank);
+    }
   });
 
   it("refuses a bank number given twice", () => {
