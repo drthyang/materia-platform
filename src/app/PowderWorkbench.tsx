@@ -90,7 +90,7 @@ import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
-import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
+import { fileProfileCardNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
 import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel, defaultUncovered } from "@/app/defaultInstruments";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
@@ -1317,7 +1317,7 @@ export function PowderWorkbench({
   const instAdvice = hasContent ? bankAdvice(instFile, instBank, dataBankRef(dataBank)) : null;
   // An instrument file whose profile is evaluated with its own program's function (app/tofWidthNote.ts):
   // one line on how, and a warning only where the file gives no peak width inside the data's range.
-  const instProfile = instrumentLoaded ? fileProfileNote(instrument, instBank) : null;
+  const instProfile = instrumentLoaded ? fileProfileCardNote(instrument, instBank) : null;
   const instUnused = instProfile ? null : unusedNote(instBank, session.mustrain);
   const instWidths = useMemo(
     () => tofWidthNote({ structure: session.structure, extraPhases: session.extraPhases, pattern, powderParams, powderBindings: session.powderBindings }),
