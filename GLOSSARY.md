@@ -121,3 +121,12 @@ The child structure built from the parent structure, a child group and its child
 **Moments fit**:
 The refinement of a magnetic model's moment amplitudes against a powder pattern with the nuclear model held. It runs in rounds: the moments with every nuclear row held, then the scale and the background with the moments held, until no moment moves by 0.1 of its esd (at most ten rounds), and it ends on a moments step; its esds include the uncertainty of the scale and the background. A moment and a nuclear row never refine in one step. One module runs it on every surface (`core/magnetic/momentsFit.ts`): the powder page's Refine moments, the Copilot's `refine_moments` and MCP's `refine_moments`. A fit that frees moments and nuclear rows together is a **joint fit**: not MATERIA's method, run only when asked for by name, and labelled.
 _Avoid_: co-refinement (for the moments fit), alternation, magnetic refinement (when the moments fit is meant)
+
+## Short-range PDF
+
+**Subgroup search**:
+The layer-by-layer search for the lower symmetry of a short-range PDF fit (THY-72; `core/diagnostics/subgroupSearch.ts`, on the PDF page through `app/pdfSubgroupSearch.ts`). Step 1 fits every single-irrep class that moves atoms, step 2 the coupled classes of pairs among step 1's top three irreps, step 3 a beam through the maximal subgroups of the accepted children; each against its parent by **ΔBIC** with the window's independent points N_ind = (rmax − rmin)·Qmax/π, behind a **gate** of five criteria. A child that fails the gate is listed "not accepted" with its reasons, never hidden. Engine only: no tool or page runs it yet.
+_Avoid_: greedy descent, auto-lowering
+
+**Gate** (subgroup search):
+The five criteria a child must meet to be accepted: ΔBIC ≤ −6; each primary order parameter's amplitude at least 3σ (σ the fit's esd × √(N_grid/N_ind)); at least 3 starts within 0.1 % of the best Rw; still preferred with rmax 2 Å lower and higher; no non-positive ADP and no bond-valence sum more than 15 % from its valence.

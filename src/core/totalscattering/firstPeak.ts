@@ -10,8 +10,10 @@
  *
  *  - The baseline slope: the least-squares slope through the origin of the
  *    points in the first BASELINE_SPAN Å of the data.
- *  - The first peak: the first local extremum of h(r) = G(r) + slope·r whose
- *    |h| reaches PEAK_FRACTION of the largest |h| at or below `rmax`.
+ *  - The first peak: the first local extremum of h(r) = G(r) − slope·r whose
+ *    |h| reaches PEAK_FRACTION of the largest |h| at or below `rmax` and
+ *    NOISE_MULTIPLE times the r.m.s. of h over the baseline span (the noise
+ *    and ripple there), whichever is larger.
  *  - Its edges: the half-height crossings on each side (steep flanks, so
  *    noise moves them little); "just below" is the peak less twice the lower
  *    half width, "just past" the peak plus twice the upper half width (a
@@ -21,8 +23,10 @@
 
 /** The span (Å) at the start of the data the baseline slope is read from. */
 export const BASELINE_SPAN = 0.3;
-/** A peak counts once |h| reaches this fraction of the largest |h| in range. */
-export const PEAK_FRACTION = 0.2;
+/** A peak counts once |h| reaches this fraction of the largest |h| in range … */
+export const PEAK_FRACTION = 0.1;
+/** … and this many times the r.m.s. of h over the baseline span. */
+export const NOISE_MULTIPLE = 3;
 
 export interface FirstPeak {
   /** The peak's position (Å). */
@@ -51,15 +55,22 @@ export function firstPeak(r: ArrayLike<number>, g: ArrayLike<number>, rmax = Inf
   const slope = sxx > 0 ? sxy / sxx : 0;
   const h = new Float64Array(n);
   let top = 0;
+  let base2 = 0;
+  let baseN = 0;
   for (let i = 0; i < n; i++) {
     h[i] = g[i]! - slope * r[i]!;
     if (r[i]! <= rmax) top = Math.max(top, Math.abs(h[i]!));
+    if (r[i]! <= r0 + BASELINE_SPAN) {
+      base2 += h[i]! * h[i]!;
+      baseN++;
+    }
   }
   if (!(top > 0)) return null;
+  const threshold = Math.max(PEAK_FRACTION * top, NOISE_MULTIPLE * Math.sqrt(base2 / Math.max(baseN, 1)));
   let k = -1;
   for (let i = 1; i < n - 1 && r[i]! <= rmax; i++) {
     const a = Math.abs(h[i]!);
-    if (a >= PEAK_FRACTION * top && a >= Math.abs(h[i - 1]!) && a >= Math.abs(h[i + 1]!) && Math.sign(h[i]!) === Math.sign(h[i - 1]!) && Math.sign(h[i]!) === Math.sign(h[i + 1]!)) {
+    if (a >= threshold && a >= Math.abs(h[i - 1]!) && a >= Math.abs(h[i + 1]!) && Math.sign(h[i]!) === Math.sign(h[i - 1]!) && Math.sign(h[i]!) === Math.sign(h[i + 1]!)) {
       k = i;
       break;
     }

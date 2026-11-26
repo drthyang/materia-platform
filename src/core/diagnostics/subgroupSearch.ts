@@ -466,7 +466,7 @@ async function evaluate(candidate: SearchCandidate, ref: ReferenceFits, ctx: Ste
         reason: `p = ${p} would exceed N_ind/4 = ${(rules.parameterCap * nInd).toFixed(1)}; rmax ≥ ${rmaxAllowing(p, window.rmin, host.qmax, rules).toFixed(2)} Å would allow it`,
       };
     }
-    if (dp <= 0) return { ...base, status: "not fitted", p, dp, heldByGuard: pc.heldByGuard, reason: "it frees no parameter beyond its parent's: nothing to compare" };
+    if (dp <= 0) return { ...base, status: "not fitted", p, dp, heldByGuard: pc.heldByGuard, reason: `it frees no parameter beyond its parent's${pc.heldByGuard.length > 0 ? ` once the correlation guard held ${pc.heldByGuard.join(", ")}` : ""}: nothing to compare` };
     return null;
   };
   const cap0 = capped(prepared);

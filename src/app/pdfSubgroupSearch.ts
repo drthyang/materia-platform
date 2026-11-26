@@ -95,12 +95,14 @@ const freeing = (m: PdfPageModel, free: (p: RefinementParameter) => boolean): Pd
 
 /**
  * The correlation guard on a free set (decision 2), one probe at the given
- * page's values: a row of each pair at or over the limit held (an ADP or the
- * scale before a mode, else the later row), and every row the data cannot
- * determine that is not a mode. A mode the data cannot determine stays free:
+ * page's values: one row of each pair at or over the limit is held, an ADP
+ * before a mode, a mode before the scale (never the scale for an ADP), else
+ * the later row; and every row the data cannot determine that is not a mode.
+ * Modes the data cannot determine are left alone, and so is a pair of them:
  * at the parent's geometry a symmetry-breaking mode is stationary (χ² even in
- * its amplitude), and the gate's amplitude test, not the guard, judges it.
- * Returns the page with the rows held and what was held, why.
+ * its amplitude), its correlations there are round-off, and the gate's
+ * amplitude test, not the guard, judges it. Returns the page with the rows
+ * held and what was held, why.
  */
 async function guarded(client: PdfCompute, m: PdfPageModel): Promise<{ readonly model: PdfPageModel; readonly held: string[] }> {
   const probe = await pdfProbe(client, m, PROBE_OPTIONS);
@@ -108,16 +110,20 @@ async function guarded(client: PdfCompute, m: PdfPageModel): Promise<{ readonly 
   const order = new Map(m.params.map((p, i) => [p.id, i] as const));
   const kind = new Map(m.params.map((p) => [p.id, p.kind] as const));
   const isMode = (id: string): boolean => kind.get(id) === "positionShift";
+  const undetermined = new Set(check.undetermined);
+  /** Which row of a pair to hold first: an ADP, then a mode, then anything else, the scale last. */
+  const rank = (id: string): number => (ADP_KINDS.has(kind.get(id) ?? "") ? 0 : isMode(id) ? 1 : kind.get(id) === "pdfScale" ? 3 : 2);
   const hold = new Set<string>();
   const held: string[] = [];
   for (const pair of check.correlated) {
     if (hold.has(pair.a) || hold.has(pair.b)) continue;
-    const pick = isMode(pair.a) !== isMode(pair.b) ? (isMode(pair.a) ? pair.b : pair.a) : order.get(pair.a)! > order.get(pair.b)! ? pair.a : pair.b;
+    if (isMode(pair.a) && isMode(pair.b) && (undetermined.has(pair.a) || undetermined.has(pair.b))) continue;
+    const pick = rank(pair.a) !== rank(pair.b) ? (rank(pair.a) < rank(pair.b) ? pair.a : pair.b) : order.get(pair.a)! > order.get(pair.b)! ? pair.a : pair.b;
     hold.add(pick);
     held.push(`${pick} (${pair.a} ↔ ${pair.b} ${pair.coefficient.toFixed(3)})`);
   }
   for (const id of check.undetermined) {
-    if (hold.has(id) || isMode(id)) continue;
+    if (hold.has(id) || isMode(id) || kind.get(id) === "pdfScale") continue;
     hold.add(id);
     held.push(`${id} (not determined by the data)`);
   }
