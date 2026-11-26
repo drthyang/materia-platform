@@ -8,8 +8,9 @@
  * reaches the Agent (core/diagnostics/canLines.ts holds the physics).
  */
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { StructureModel } from "@/core/crystal/types";
+import type { SavedCanLines } from "@/core/project/types";
 import type { PowderPattern, PowderXUnit } from "@/core/diffraction/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { resolveTies } from "@/core/refinement/constraints";
@@ -70,6 +71,15 @@ export interface CanLinesState {
   readonly phases: readonly CanPhaseLines[];
   /** The plot's can rows (empty while the toggle is off). */
   readonly ticks: readonly PhaseTicks[];
+  /** The view as a project saves it. */
+  readonly saved: SavedCanLines;
+  /** Put the view back as a project (or a History step) holds it; absent: off, every scale 1. Stable. */
+  readonly restore: (saved: SavedCanLines | undefined) => void;
+}
+
+/** The view a project holds, or the defaults (off, every scale 1) for one saved without it. */
+export function canLinesFromSaved(saved: SavedCanLines | undefined): { readonly on: boolean; readonly scales: Readonly<Record<string, number>> } {
+  return { on: saved?.on ?? false, scales: { ...(saved?.scales ?? {}) } };
 }
 
 const fmtScale = (s: number): string => s.toFixed(5);
@@ -101,8 +111,16 @@ export function useCanLines(page: CanLinesPage): CanLinesState {
     () => (on && phases.length > 0 ? canPhaseTicks(phases, (d) => convertAxisValue(d, "dSpacing", displayUnit, axis)) : []),
     [on, phases, displayUnit, axis],
   );
+  const restore = useCallback((saved: SavedCanLines | undefined) => {
+    const v = canLinesFromSaved(saved);
+    setOn(v.on);
+    setScales(v.scales);
+  }, []);
+  const saved = useMemo<SavedCanLines>(() => ({ on, scales }), [on, scales]);
   return {
     available,
+    saved,
+    restore,
     on: available && on,
     setOn,
     scales,

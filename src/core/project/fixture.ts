@@ -79,6 +79,7 @@ const POWDER_WORKSPACE: PowderWorkspace = {
     ],
   },
   fitRange: { min: 41, max: 47 },
+  canLines: { on: true, scales: { Al: 0.99629 } },
 };
 
 const SINGLE_CRYSTAL_WORKSPACE: SingleCrystalWorkspace = {

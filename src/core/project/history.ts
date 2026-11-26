@@ -98,7 +98,7 @@ const SHARED_FIELDS = [
 ] as const;
 
 /** Workspace fields that do not describe the model (left out of change detection). */
-const DISPLAY_ONLY = new Set(["displayUnit"]);
+const DISPLAY_ONLY = new Set(["displayUnit", "canLines"]);
 
 /** Readable names for settings changes, keyed by workspace field. */
 const FIELD_LABEL: Readonly<Record<string, string>> = {

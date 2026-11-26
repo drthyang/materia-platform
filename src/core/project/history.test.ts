@@ -39,6 +39,9 @@ describe("recordStep", () => {
     expect(same).toBe(h); // nothing changed → no step
     // A display-only change is not a model change either.
     expect(recordStep(h, { ...start, workspace: { ...powderWs, displayUnit: "dSpacing" }, kind: "edit" })).toBe(h);
+    // Nor is the Can lines view (its toggle and d-scales): no History step, as the axis unit.
+    expect(recordStep(h, { ...start, workspace: { ...powderWs, canLines: { on: true, scales: { Al: 0.99629 } } }, kind: "edit" })).toBe(h);
+    expect(describeChange(powderWs as unknown as Record<string, unknown>, { ...powderWs, canLines: { on: true } } as unknown as Record<string, unknown>)).not.toMatch(/can/i);
 
     h = recordStep(h, { ...withParams((p) => (p.id === firstId ? { ...p, fixed: !p.fixed } : p)), kind: "edit" });
     expect(h.steps).toHaveLength(2);

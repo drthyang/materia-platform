@@ -156,11 +156,24 @@ export interface PowderWorkspace {
   /** Residual peaks the user added by hand on the magnetic page (d-spacings, Å). */
   readonly manualPeaks?: readonly number[];
   /**
+   * The Can lines view (neutron data): the plot toggle and each can's d-scale,
+   * by the known-phase library's name ("V", "Al"). Display only: nothing is
+   * fitted. Absent ⇒ off, every scale 1 (files written before it open so).
+   */
+  readonly canLines?: SavedCanLines;
+  /**
    * The B-at-0 proposals the user applied (core/diagnostics/zeroAdp.ts): why a
    * B row is tied or held. The tie or value itself is in `refinement`, as any
    * other; a record its row no longer carries is ignored. Absent ⇒ none.
    */
   readonly zeroAdpFixes?: readonly ZeroAdpFix[];
+}
+
+/** The Can lines view as a project keeps it. */
+export interface SavedCanLines {
+  readonly on: boolean;
+  /** d-scales other than 1, by can phase; a can not listed is at 1. */
+  readonly scales?: Readonly<Record<string, number>>;
 }
 
 // ---------------------------------------------------------------------------

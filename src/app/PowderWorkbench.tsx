@@ -504,6 +504,7 @@ export function PowderWorkbench({
     structure, extraPhases: session.extraPhases, pattern, params: powderParams, bindings: pBindings, profile: session.powderProfile,
     rawText: session.rawData?.text, displayUnit: effectiveUnit, axis: axisCtx, wanted: plotMode === "validation",
   });
+  const restoreCanLines = can.restore;
 
   // Manually added residual peaks (clicked on the magnetic page's pattern):
   // stored as d-spacings; height/significance are sampled from the residual at
@@ -521,7 +522,8 @@ export function PowderWorkbench({
     setFitRange(viewRestore.fitRange);
     setDisplayUnit(viewRestore.displayUnit);
     setManualPeakD([...viewRestore.manualPeakD]);
-  }, [viewRestore]);
+    restoreCanLines(viewRestore.canLines);
+  }, [viewRestore, restoreCanLines]);
   const addManualPeak = useCallback((d: number): void => {
     if (!Number.isFinite(d) || d <= 0) return;
     setManualPeakD((list) => (list.some((v) => Math.abs(v - d) < 0.005) ? list : [...list, d]));
@@ -1182,7 +1184,7 @@ export function PowderWorkbench({
       ...(session.magnetic && session.magnetic.moments.length > 0 ? { mcif: exportMcif } : {}),
       csv: exportCsv,
       forMotif: { write: exportForMotif, choice: motifState },
-      projectWorkspace: () => powderWorkspaceFrom(session, powderResult, instrument, instrumentLoaded, { fitRange, displayUnit, manualPeakD }),
+      projectWorkspace: () => powderWorkspaceFrom(session, powderResult, instrument, instrumentLoaded, { fitRange, displayUnit, manualPeakD, canLines: can.saved }),
       fullprofBundle: () => exportBundle("fullprof"),
       gsas2Bundle: () => exportBundle("gsas2"),
     };

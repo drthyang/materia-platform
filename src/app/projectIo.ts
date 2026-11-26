@@ -37,6 +37,7 @@ import {
   type PowderWorkspace,
   type ProjectFile,
   type SingleCrystalProbe,
+  type SavedCanLines,
   type SingleCrystalWorkspace,
   type Technique,
   type Workspace,
@@ -131,6 +132,16 @@ export interface PowderViewState {
   readonly fitRange: FitWindow | null;
   readonly displayUnit: PowderXUnit | null;
   readonly manualPeakD: readonly number[];
+  /** The Can lines view; absent: off, every scale 1. */
+  readonly canLines?: SavedCanLines;
+}
+
+/** The Can lines view as saved: omitted while it is at its defaults (off, every scale 1), scales of 1 left out. */
+function savedCanLines(v: SavedCanLines | undefined): SavedCanLines | undefined {
+  if (!v) return undefined;
+  const scales = Object.fromEntries(Object.entries(v.scales ?? {}).filter(([, s]) => s !== 1));
+  if (!v.on && Object.keys(scales).length === 0) return undefined;
+  return { on: v.on, ...(Object.keys(scales).length > 0 ? { scales } : {}) };
 }
 
 export function powderWorkspaceFrom(
@@ -164,6 +175,7 @@ export function powderWorkspaceFrom(
     ...(view.fitRange ? { fitRange: view.fitRange } : {}),
     ...(view.displayUnit ? { displayUnit: view.displayUnit } : {}),
     ...(view.manualPeakD.length > 0 ? { manualPeaks: [...view.manualPeakD] } : {}),
+    ...(savedCanLines(view.canLines) ? { canLines: savedCanLines(view.canLines)! } : {}),
     // Only the fixes the rows still carry: an overridden one is not saved as the rule's.
     ...(session.zeroAdpFixes && session.zeroAdpFixes.length > 0 && activeZeroAdpFixes(session.powderParams, session.zeroAdpFixes).length > 0
       ? { zeroAdpFixes: activeZeroAdpFixes(session.powderParams, session.zeroAdpFixes).map((f) => ({ ...f })) }
@@ -225,6 +237,7 @@ export function sessionFromPowderWorkspace(ws: PowderWorkspace, structures: read
       fitRange: ws.fitRange ?? null,
       displayUnit: ws.displayUnit ?? null,
       manualPeakD: [...(ws.manualPeaks ?? [])],
+      ...(ws.canLines ? { canLines: { on: ws.canLines.on, ...(ws.canLines.scales ? { scales: { ...ws.canLines.scales } } : {}) } } : {}),
     },
   };
 }

@@ -16,6 +16,8 @@ import {
   singleCrystalWorkspaceFrom,
 } from "@/app/projectIo";
 import { parseProject, serializeProject } from "@/core/project/io";
+import { makeExamplePowderProject } from "@/core/project/fixture";
+import { canLinesFromSaved } from "@/app/ui/CanLines";
 import { buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
 import { buildPdfSpec } from "@/core/workflow/pdf";
 import type { PdfPattern } from "@/core/diffraction/types";
@@ -132,6 +134,47 @@ describe("powder capture / restore", () => {
     expect(back.session.extraPhases).toEqual([extra]);
     expect(back.session.magnetic).toEqual(magnetic);
     expect(back.view).toEqual({ fitRange: null, displayUnit: null, manualPeakD: [] });
+  });
+});
+
+describe("the Can lines view in a project", () => {
+  const view = { fitRange: null, displayUnit: null, manualPeakD: [] };
+
+  it("keeps the toggle and each can's d-scale through save → reopen", () => {
+    const session = newSession(structure, DEFAULT_INSTRUMENT);
+    const canLines = { on: true, scales: { V: 0.99864, Al: 0.99629 } };
+    const ws = powderWorkspaceFrom(session, null, DEFAULT_INSTRUMENT, false, { ...view, canLines });
+    const file = roundTrip(projectFileFor({ structures: [session.structure], workspace: ws, title: "t" }));
+    if (file.workspace.technique !== "powder") throw new Error("technique");
+    expect(file.workspace.canLines).toEqual(canLines);
+    const back = sessionFromPowderWorkspace(file.workspace, file.structures);
+    expect(back.view.canLines).toEqual(canLines);
+    expect(canLinesFromSaved(back.view.canLines)).toEqual(canLines);
+    // A scale back at 1 is not written; the toggle alone is.
+    const one = powderWorkspaceFrom(session, null, DEFAULT_INSTRUMENT, false, { ...view, canLines: { on: false, scales: { V: 1, Al: 0.996 } } });
+    expect(one.canLines).toEqual({ on: false, scales: { Al: 0.996 } });
+    expect(powderWorkspaceFrom(session, null, DEFAULT_INSTRUMENT, false, { ...view, canLines: { on: true, scales: { V: 1 } } }).canLines).toEqual({ on: true });
+  });
+
+  it("writes nothing at the defaults, and a project saved before the field opens with them", () => {
+    const session = newSession(structure, DEFAULT_INSTRUMENT);
+    expect("canLines" in powderWorkspaceFrom(session, null, DEFAULT_INSTRUMENT, false, { ...view, canLines: { on: false, scales: { V: 1, Al: 1 } } })).toBe(false);
+    // The fixture as a file written before the field: no canLines key.
+    const old = JSON.parse(serializeProject(makeExamplePowderProject()));
+    delete old.workspace.canLines;
+    const file = parseProject(JSON.stringify(old));
+    if (file.workspace.technique !== "powder") throw new Error("technique");
+    const back = sessionFromPowderWorkspace(file.workspace, file.structures);
+    expect(back.view.canLines).toBeUndefined();
+    expect(canLinesFromSaved(back.view.canLines)).toEqual({ on: false, scales: {} });
+  });
+
+  it("refuses a malformed view by name", () => {
+    const bad = JSON.parse(serializeProject(makeExamplePowderProject()));
+    bad.workspace.canLines = { on: "yes" };
+    expect(() => parseProject(JSON.stringify(bad))).toThrow(/workspace\.canLines\.on/);
+    bad.workspace.canLines = { on: true, scales: { Al: -1 } };
+    expect(() => parseProject(JSON.stringify(bad))).toThrow(/canLines\.scales\.Al/);
   });
 });
 

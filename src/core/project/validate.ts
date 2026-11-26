@@ -352,7 +352,20 @@ function checkPowderWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   opt(ws.fitRange, `${path}.fitRange`, checkWindow);
   opt(ws.displayUnit, `${path}.displayUnit`, oneOf(X_UNITS));
   if (ws.manualPeaks !== undefined && ws.manualPeaks !== null) each(ws.manualPeaks, `${path}.manualPeaks`, (d, p) => num(d, p));
+  opt(ws.canLines, `${path}.canLines`, checkCanLines);
   if (ws.zeroAdpFixes !== undefined && ws.zeroAdpFixes !== null) each(ws.zeroAdpFixes, `${path}.zeroAdpFixes`, checkZeroAdpFix);
+}
+
+/** The Can lines view: the toggle, and each can's d-scale (a positive number, by can phase). */
+function checkCanLines(v: unknown, path: string): void {
+  const c = rec(v, path);
+  bool(c.on, `${path}.on`);
+  if (c.scales !== undefined && c.scales !== null) {
+    const scales = rec(c.scales, `${path}.scales`);
+    for (const [k, s] of Object.entries(scales)) {
+      if (num(s, `${path}.scales.${k}`) <= 0) fail(`${path}.scales.${k}`, "a d-scale must be positive");
+    }
+  }
 }
 
 /** A B-at-0 fix the user applied (core/diagnostics/zeroAdp.ts): its row, the B it reached, rule A's leader or rule B's value, the source. */

@@ -94,6 +94,7 @@ own. Bindings must reference parameters present in the file; ids must be unique.
 | `fitRange?` | `{min, max}` | Refinement window in the pattern's native unit. Absent ⇒ whole pattern. |
 | `displayUnit?` | `PowderXUnit` | Display-only axis choice. |
 | `manualPeaks?` | number[] | Hand-picked residual peaks (d, Å) from the magnetic page. |
+| `canLines?` | `{on, scales?}` | The Can lines view (neutron data): `on` (boolean) the plot toggle; `scales` (`{[phase]: number}`, each > 0) each can's d-scale by the known-phase library's name (`V`, `Al`), only those other than 1. Display only, not a History step. Written only when the view is not at its defaults; absent ⇒ off, every scale 1 (files written before it open so). |
 | `zeroAdpFixes?` | `{parameterId, atom, reached, rule, leader?, value?, source, chosenBy?, reason?, alternatives?}[]` | The B-at-0 options applied: why a B row is tied (`rule` A, `leader`) or held (`rule` B, `value`), who chose it (`chosenBy` `agent-auto` for the Agent in auto mode; absent: the user), the Agent's `reason`, and the options not taken. The tie or the held value itself is in `refinement`, like any other; a record its row no longer carries is ignored. Absent ⇒ none (files written before it open unchanged). |
 
 ### `"singleCrystal"` — integrated intensities (F²)
