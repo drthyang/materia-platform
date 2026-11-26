@@ -295,6 +295,9 @@ Does a peak of your sample sit on a line of the vanadium or aluminium can
   page's own profile at that d), with the can line, its relative intensity
   among that can's lines, the separation in FWHM, and one line on what it
   means. **view →** opens the pattern there with the can rows on.
+- The toggle and the scales are saved with the project (not as History
+  steps, like the axis unit); a project saved before opens with them off
+  and at 1.
 - Nothing is fitted or excluded for you, and the Copilot does not see it.
   The toggle is absent on X-ray data.
 

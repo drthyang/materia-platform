@@ -14,9 +14,10 @@ release fixes bugs.
   relative strength, each can with a d-scale (a one-click cooled value when
   the data file states the sample temperature, from the tabulated thermal
   expansion), and the Validation view lists every sample reflection and
-  observed peak within one FWHM of a can line. Nothing is fitted or
-  excluded; nothing reaches the Copilot
-  ([report](docs/reports/2026-11-26-can-lines.md)).
+  observed peak within one FWHM of a can line. The toggle and the scales
+  are saved with the project (an optional `canLines` field; older projects
+  open with the defaults). Nothing is fitted or excluded; nothing reaches
+  the Copilot ([report](docs/reports/2026-11-26-can-lines.md)).
 - **One bank at a time.** A GSAS histogram with several banks and an
   instrument file with several banks each show a bank chooser on their card.
   The instrument opens on the data's bank; when the two do not belong
