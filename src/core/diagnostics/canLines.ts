@@ -35,8 +35,11 @@ import { synthesizePattern, type ProfileOptions, type ProfilePeak } from "@/core
 import type { PowderPattern, Radiation } from "@/core/diffraction/types";
 import { cellVolume } from "@/core/crystal/unitCell";
 import type { StructureModel } from "@/core/crystal/types";
-import { placePeaks, reflectionDRange } from "@/core/workflow/powder";
-import type { AppliedModel } from "@/core/workflow/apply";
+import { placePeaks, reflectionDRange, type PowderProfile } from "@/core/workflow/powder";
+import { applyParameters, type AppliedModel } from "@/core/workflow/apply";
+import { phaseBindingsFor } from "@/core/workflow/multiPhase";
+import { resolveTies } from "@/core/refinement/constraints";
+import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 
 /** One row of a thermal-expansion table: T (K), ΔL/L₂₉₃ (%), α (10⁻⁶ K⁻¹). */
 export interface ExpansionPoint {
@@ -173,6 +176,38 @@ export interface CanLineContext {
   readonly applied: AppliedModel;
   readonly options: ProfileOptions;
   readonly applyLorentz: boolean;
+}
+
+/** What a page holds that the lines are placed with. */
+export interface CanLinePage {
+  readonly structure: StructureModel;
+  readonly extraPhases: readonly StructureModel[];
+  readonly pattern: PowderPattern;
+  readonly parameters: readonly RefinementParameter[];
+  readonly bindings: readonly ParameterBinding[];
+  readonly profile: PowderProfile;
+}
+
+/**
+ * The page's context for the can lines: its primary phase with the current
+ * values applied (calibration, zero, widths, corrections), its profile and
+ * Lorentz setting. Null off neutron data, and on time of flight without a
+ * calibration and its back-to-back-exponential profile (no peak is placed).
+ */
+export function canLineContext(page: CanLinePage): CanLineContext | null {
+  if (!isNeutron(page.pattern.radiation)) return null;
+  const values: Record<string, number> = {};
+  for (const p of page.parameters) values[p.id] = p.value;
+  const resolved = resolveTies(page.parameters, values);
+  const bindings = page.extraPhases.length > 0 ? phaseBindingsFor(page.bindings, page.structure.id) : page.bindings;
+  const applied = applyParameters(page.structure, bindings, resolved);
+  if (page.pattern.xUnit === "tof" && (!applied.tof || page.profile.shape !== "tof")) return null;
+  return {
+    pattern: page.pattern,
+    applied,
+    options: { shape: page.profile.shape, ...(page.profile.eta !== undefined ? { eta: page.profile.eta } : {}) },
+    applyLorentz: page.profile.lorentz ?? true,
+  };
 }
 
 /** Neutron data only: constant wavelength or time of flight. */
@@ -354,25 +389,6 @@ export interface SampleOverlap {
   readonly separation: number;
 }
 
-/** An observed peak: its apex on the pattern's abscissa and its d, when the axis converts. */
-export interface ObservedPeakAt {
-  readonly x: number;
-  readonly d: number | null;
-}
-
-export interface ObservedOverlap {
-  readonly line: CanLine;
-  readonly peak: ObservedPeakAt;
-  readonly separation: number;
-  /** The sample's reflections within 1 FWHM of the peak. */
-  readonly sample: readonly SampleReflection[];
-}
-
-export interface CanOverlaps {
-  readonly sample: readonly SampleOverlap[];
-  readonly observed: readonly ObservedOverlap[];
-}
-
 /** Within one FWHM: the overlap rule. */
 export const OVERLAP_FWHM = 1;
 /**
@@ -381,14 +397,17 @@ export const OVERLAP_FWHM = 1;
  */
 const within = (sep: number): boolean => sep < OVERLAP_FWHM + 0.005;
 
+/** The strongest can lines first (per volume of metal, across the cans), then the closest. */
+const byStrength = (a: { line: CanLine; separation: number }, b: { line: CanLine; separation: number }): number =>
+  b.line.height - a.line.height || b.line.d - a.line.d || a.separation - b.separation;
+
 /**
- * Every sample reflection and every observed peak within one FWHM of a can
- * line (the FWHM of the page's profile at the can line): the strongest can
- * lines first, the closest first on each.
+ * Every sample reflection within one FWHM of a can line (the FWHM of the
+ * page's profile at the can line): the strongest can lines first, the
+ * closest first on each.
  */
-export function canOverlaps(ctx: CanLineContext, phases: readonly CanPhaseLines[], reflections: readonly SampleReflection[], observed: readonly ObservedPeakAt[]): CanOverlaps {
+export function canOverlaps(ctx: CanLineContext, phases: readonly CanPhaseLines[], reflections: readonly SampleReflection[]): SampleOverlap[] {
   const sample: SampleOverlap[] = [];
-  const out: ObservedOverlap[] = [];
   const byD = [...reflections].sort((a, b) => a.d - b.d);
   const apex = new Map<SampleReflection, number | null>();
   const apexOf = (r: SampleReflection): number | null => {
@@ -403,70 +422,49 @@ export function canOverlaps(ctx: CanLineContext, phases: readonly CanPhaseLines[
       const slope = p1 && p2 ? Math.abs(p2.center - p1.center) / (line.d * 1e-5) : NaN;
       const fwhmD = slope > 0 ? line.fwhm / slope : NaN;
       if (!Number.isFinite(fwhmD)) continue;
-      const near: SampleReflection[] = [];
       for (const r of byD) {
         if (r.d < line.d - 3 * fwhmD) continue;
         if (r.d > line.d + 3 * fwhmD) break;
-        near.push(r);
-      }
-      const at = near.map((r) => ({ r, x: apexOf(r) })).filter((q): q is { r: SampleReflection; x: number } => q.x !== null);
-      for (const q of at) {
-        const separation = Math.abs(q.x - line.x) / line.fwhm;
-        if (within(separation)) sample.push({ line, reflection: q.r, separation });
-      }
-      for (const pk of observed) {
-        const separation = Math.abs(pk.x - line.x) / line.fwhm;
-        if (!within(separation)) continue;
-        const under = at.filter((q) => within(Math.abs(q.x - pk.x) / line.fwhm)).map((q) => q.r);
-        out.push({ line, peak: pk, separation, sample: under });
+        const x = apexOf(r);
+        if (x === null) continue;
+        const separation = Math.abs(x - line.x) / line.fwhm;
+        if (within(separation)) sample.push({ line, reflection: r, separation });
       }
     }
   }
-  // The strongest can lines first (per volume of metal, across the cans), then the closest.
-  const order = (a: { line: CanLine; separation: number }, b: { line: CanLine; separation: number }): number =>
-    b.line.height - a.line.height || b.line.d - a.line.d || a.separation - b.separation;
-  return { sample: sample.sort(order), observed: out.sort(order) };
+  return sample.sort(byStrength);
+}
+
+/** An extra peak: intensity the model does not capture, at `x` on the pattern's abscissa (and its d). */
+export interface ExtraPeak {
+  readonly x: number;
+  readonly d: number;
+}
+
+/** An extra peak, and the can line it lines up with (the closest within one FWHM), if any. */
+export interface ExtraPeakMatch<P extends ExtraPeak = ExtraPeak> {
+  readonly peak: P;
+  readonly line: CanLine | null;
+  /** |x_peak − x_can| / FWHM at the can line; null without a line. */
+  readonly separation: number | null;
 }
 
 /**
- * The pattern's own peaks: local maxima the highest within ±`half` points and
- * `minSigma` σ above the lowest point of that window; each apex refined by a
- * parabola through ln y of the three highest points (exact for a Gaussian),
- * or through y when one of them is not positive. Excluded points (NaN) are
- * skipped. `d`, when given, is the d of every point.
+ * Each extra peak against the can lines at their d-scales: the can line whose
+ * apex is closest in FWHM of the page's profile at that line, when within one
+ * FWHM. In the peaks' order.
  */
-export function observedPeakApexes(x: readonly number[], y: readonly number[], sigma: readonly number[], d?: readonly number[] | null, { half = 4, minSigma = 5 } = {}): ObservedPeakAt[] {
-  const out: ObservedPeakAt[] = [];
-  const n = x.length;
-  for (let i = half; i < n - half; i++) {
-    const v = y[i]!;
-    if (!Number.isFinite(v)) continue;
-    let top = true;
-    let floor = Infinity;
-    for (let j = i - half; j <= i + half && top; j++) {
-      const w = y[j]!;
-      if (!Number.isFinite(w)) { top = false; break; }
-      if (j !== i && (w > v || (w === v && j < i))) top = false;
-      floor = Math.min(floor, w);
+export function matchExtraPeaks<P extends ExtraPeak>(phases: readonly CanPhaseLines[], peaks: readonly P[]): ExtraPeakMatch<P>[] {
+  return peaks.map((peak) => {
+    let best: { line: CanLine; separation: number } | null = null;
+    for (const phase of phases) {
+      for (const line of phase.lines) {
+        const separation = Math.abs(peak.x - line.x) / line.fwhm;
+        if (within(separation) && (!best || separation < best.separation)) best = { line, separation };
+      }
     }
-    const s = sigma[i]! > 0 ? sigma[i]! : Math.sqrt(Math.max(v, 1));
-    if (!top || v - floor < minSigma * s) continue;
-    const y0 = y[i - 1]!;
-    const y2 = y[i + 1]!;
-    const [a, b, c] = y0 > 0 && v > 0 && y2 > 0 ? [Math.log(y0), Math.log(v), Math.log(y2)] : [y0, v, y2];
-    const den = a - 2 * b + c;
-    // Vertex offset in steps (between −½ and ½ for a true local maximum).
-    let off = den < 0 ? (0.5 * (a - c)) / den : 0;
-    if (!(Math.abs(off) <= 1)) off = 0;
-    const xi = off >= 0 ? x[i]! + off * (x[i + 1]! - x[i]!) : x[i]! + off * (x[i]! - x[i - 1]!);
-    let di: number | null = null;
-    if (d && d.length === n) {
-      const dd = off >= 0 ? d[i]! + off * (d[i + 1]! - d[i]!) : d[i]! + off * (d[i]! - d[i - 1]!);
-      di = Number.isFinite(dd) && dd > 0 ? dd : null;
-    }
-    out.push({ x: xi, d: di });
-  }
-  return out;
+    return { peak, line: best?.line ?? null, separation: best?.separation ?? null };
+  });
 }
 
 /** How far a scale moves a phase's strongest line: in FWHM at that line, from its room-temperature place. */
@@ -492,13 +490,4 @@ export function sampleReading(o: SampleOverlap, { phase = true }: { readonly pha
   const where = o.separation <= 0.5 ? "sits under" : "overlaps";
   const of = phase ? `${o.reflection.phase}, ` : "";
   return `The ${o.line.phase} ${compactHkl(o.line.hkl)} line at ${o.line.d.toFixed(3)} Å ${where} the sample's ${compactHkl(o.reflection.hkl)} (${of}${o.reflection.d.toFixed(3)} Å): its intensity may include the can.`;
-}
-
-/** The plain reading of an observed peak near a can line. */
-export function observedReading(o: ObservedOverlap): string {
-  const at = o.peak.d !== null ? `at ${o.peak.d.toFixed(3)} Å` : "here";
-  const line = `${o.line.phase} ${compactHkl(o.line.hkl)} line`;
-  if (o.sample.length === 0) return `The observed peak ${at} is ${o.separation.toFixed(2)} FWHM from the ${line}, with no sample reflection within 1 FWHM: it may be the can's.`;
-  const names = o.sample.slice(0, 3).map((r) => compactHkl(r.hkl)).join(", ");
-  return `The observed peak ${at} is ${o.separation.toFixed(2)} FWHM from the ${line} and on the sample's ${names}${o.sample.length > 3 ? " …" : ""}: part of it may be the can's.`;
 }

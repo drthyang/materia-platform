@@ -497,12 +497,18 @@ export function PowderWorkbench({
     }
     return phases;
   }, [refinedPhases, structure, session.extraPhases, liveMagnetic, patternExtent, pattern.xUnit, effectiveUnit, axisCtx]);
-  // σ of every point as the engine weights it (data σ, else counting statistics).
-  const pointSigma = useMemo(() => pattern.points.map((p) => p.sigma ?? (p.yObs > 0 ? Math.sqrt(p.yObs) : 1)), [pattern]);
-  // Can lines (neutron data): the V and Al can's ticks beside the phase ticks, and the Validation view's section.
+  // Can lines (neutron data): the V and Al can's ticks beside the phase ticks, the extra peaks that line up
+  // with them, and the Validation view's card. The page is read as the Validation view reads it (QualityPanel).
+  const canJudged = useMemo<JudgedPage>(() => ({
+    structure, extraPhases: session.extraPhases, refinedPhases, pattern, parameters: powderParams, bindings: pBindings, profile: session.powderProfile,
+    magnetic: session.magnetic ?? null, result: powderResult, fitRange: fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null,
+    curves, d: curvesD ?? null, axis: axisCtx, observationCount: observationsIn(curves, fitRangeActive ? fitRange : null),
+    restraints: restraintReq.restraints ?? NO_RESTRAINTS, zeroAdp,
+    settings: { backgroundTerms: session.backgroundTerms, backgroundType: session.powderProfile.backgroundType ?? "chebyshev" },
+  }), [structure, session.extraPhases, refinedPhases, pattern, powderParams, pBindings, session.powderProfile, session.magnetic, powderResult, fitRangeActive, fitRange, curves, curvesD, axisCtx, restraintReq, zeroAdp, session.backgroundTerms]);
   const can = useCanLines({
-    structure, extraPhases: session.extraPhases, pattern, params: powderParams, bindings: pBindings, profile: session.powderProfile,
-    rawText: session.rawData?.text, displayUnit: effectiveUnit, axis: axisCtx, wanted: plotMode === "validation",
+    structure, extraPhases: session.extraPhases, pattern, parameters: powderParams, bindings: pBindings, profile: session.powderProfile,
+    judged: canJudged, rawText: session.rawData?.text, displayUnit: effectiveUnit, axis: axisCtx, wanted: plotMode === "validation",
   });
   const restoreCanLines = can.restore;
 
@@ -1688,10 +1694,6 @@ export function PowderWorkbench({
                     <CanLinesSection
                       can={can}
                       phaseTicks={phaseTicks}
-                      x={curves.x}
-                      yObs={curves.yObs}
-                      sigma={pointSigma}
-                      d={curvesD}
                       onLocateX={(x) => {
                         can.setOn(true);
                         setFocusPoint((f) => ({ x: toDisplayX(x), token: (f?.token ?? 0) + 1 }));
@@ -1721,6 +1723,7 @@ export function PowderWorkbench({
                       ariaLabel="Powder pattern: observed, calculated and difference"
                       fitRange={displayFitRange}
                       phases={can.ticks.length > 0 ? [...phaseTicks, ...can.ticks] : phaseTicks}
+                      {...(can.marks.length > 0 ? { diffMarks: can.marks } : {})}
                       focusFitToken={focusFitToken}
                       focusPeakToken={focusPeakToken}
                       focusPoint={focusPoint}

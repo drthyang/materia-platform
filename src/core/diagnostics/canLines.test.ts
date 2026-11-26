@@ -5,8 +5,7 @@ import {
   canLines,
   canOverlaps,
   expansionScale,
-  observedPeakApexes,
-  observedReading,
+  matchExtraPeaks,
   profileAt,
   sampleReading,
   scaleShift,
@@ -140,32 +139,26 @@ describe("can lines: the overlap table", () => {
 
   it("lists sample reflections 0.5 and 1 FWHM from a can line, not one 2 FWHM away, with the separations", () => {
     const planted = [0.5, 1, 2].map((k, i) => ({ d: dOfTwoTheta(l111.x + k * l111.fwhm), hkl: `${i + 1} 0 0`, phase: "S" }));
-    const out = canOverlaps(ctx, phases, planted, []);
-    const at111 = out.sample.filter((o) => o.line === l111);
+    const out = canOverlaps(ctx, phases, planted);
+    const at111 = out.filter((o) => o.line === l111);
     expect(at111.map((o) => o.reflection.hkl)).toEqual(["1 0 0", "2 0 0"]);
     expect(at111.map((o) => o.separation.toFixed(2))).toEqual(["0.50", "1.00"]);
-    expect(out.sample.every((o) => o.reflection.hkl !== "3 0 0")).toBe(true);
+    expect(out.every((o) => o.reflection.hkl !== "3 0 0")).toBe(true);
     expect(sampleReading(at111[0]!)).toBe(`The Al 111 line at ${l111.d.toFixed(3)} Å sits under the sample's 100 (S, ${planted[0]!.d.toFixed(3)} Å): its intensity may include the can.`);
     expect(sampleReading(at111[1]!)).toContain("overlaps the sample's 200");
   });
 
-  it("finds observed peaks 0.5 and 1 FWHM from can lines on a synthetic pattern, not one 2 FWHM away", () => {
-    // Gaussian peaks (FWHM 0.1°) at 0.5 FWHM above Al 111, 1 FWHM below Al 200, 2 FWHM above Al 220.
-    const centres = [l111.x + 0.5 * l111.fwhm, l200.x - l200.fwhm, l220.x + 2 * l220.fwhm];
-    const x = ctx.pattern.points.map((p) => p.x);
-    const g = 4 * Math.LN2 / (0.1 * 0.1);
-    const y = x.map((xv) => 5 + centres.reduce((s, c) => s + 1000 * Math.exp(-g * (xv - c) * (xv - c)), 0));
-    const sigma = y.map((v) => Math.sqrt(v));
-    const d = x.map(dOfTwoTheta);
-    const peaks = observedPeakApexes(x, y, sigma, d);
-    expect(peaks).toHaveLength(3);
-    peaks.forEach((p, i) => expect(p.x).toBeCloseTo(centres[i]!, 4));
-    const sampleNear200 = [{ d: l200.d, hkl: "4 0 0", phase: "S" }];
-    const out = canOverlaps(ctx, phases, sampleNear200, peaks);
-    expect(out.observed.map((o) => [o.line.hkl, o.separation.toFixed(2)])).toEqual([["1 1 1", "0.50"], ["2 0 0", "1.00"]]);
-    expect(observedReading(out.observed[0]!)).toBe(`The observed peak at ${peaks[0]!.d!.toFixed(3)} Å is 0.50 FWHM from the Al 111 line, with no sample reflection within 1 FWHM: it may be the can's.`);
-    // The sample's 400 sits on Al 200, 1 FWHM from the peak: on it.
-    expect(observedReading(out.observed[1]!)).toContain("and on the sample's 400: part of it may be the can's.");
+  it("matches an extra peak to the closest can line within 1 FWHM (0.5 and 1 FWHM matched, 2 FWHM not)", () => {
+    const peaks = [
+      { x: l111.x + 0.5 * l111.fwhm, d: 0 },
+      { x: l200.x - l200.fwhm, d: 0 },
+      { x: l220.x + 2 * l220.fwhm, d: 0 },
+    ];
+    const out = matchExtraPeaks(phases, peaks);
+    expect(out.map((m) => [m.line?.hkl ?? null, m.separation?.toFixed(2) ?? null])).toEqual([["1 1 1", "0.50"], ["2 0 0", "1.00"], [null, null]]);
+    // A d-scale moves the lines: Al × 0.99 takes 111 more than 1 FWHM away from the first peak.
+    const scaled = matchExtraPeaks(canLines(ctx, { Al: 0.99 }), peaks.slice(0, 1));
+    expect(scaled[0]!.line?.phase === "Al" && scaled[0]!.line.hkl === "1 1 1").toBe(false);
   });
 });
 

@@ -67,6 +67,11 @@ interface Props {
    * region, so the peak stands out on a dense pattern.
    */
   readonly foundStyle?: { readonly label: string; readonly color: string; readonly guides: boolean };
+  /**
+   * Small labels on the difference curve (display-unit x): the extra peaks that
+   * line up with a can line ("Al 311"), each a dot on the curve with its label above.
+   */
+  readonly diffMarks?: readonly { readonly x: number; readonly label: string; readonly color: string; readonly d: number }[];
   readonly showBackground?: boolean;
   /** Increment to zoom the view onto the active fit range (no-op without one). */
   readonly focusFitToken?: number;
@@ -258,6 +263,7 @@ export function WorkbenchPlot({
   phases,
   foundPeaks,
   foundStyle,
+  diffMarks,
   showBackground = true,
   focusFitToken = 0,
   focusPeakToken = 0,
@@ -963,6 +969,28 @@ export function WorkbenchPlot({
                   <rect x={px - 6} y={foundTop - 2} width={12} height={FOUND_H + 6} fill="transparent">
                     <title>{p.near ? `residual peak on ${p.near} (a misfit of that reflection) · d ${p.d.toFixed(3)} Å` : `${foundStyle?.label ?? "found"} peak · d ${p.d.toFixed(3)} Å`}</title>
                   </rect>
+                </g>
+              );
+            })}
+          </g>
+        )}
+
+        {/* Labels on the difference curve: an extra peak that lines up with a can line. */}
+        {diffMarks && diffMarks.length > 0 && (
+          <g pointerEvents="none">
+            {diffMarks.map((m, i) => {
+              if (m.x < vlo || m.x > vhi) return null;
+              const k = nearestIndex(xs, m.x);
+              if (k < 0) return null;
+              const px = sx(m.x);
+              const py = sdiff(curves.diff[k] ?? 0);
+              return (
+                <g key={i}>
+                  <circle cx={px} cy={py} r={3} fill={m.color} stroke={color.raised} strokeWidth={1} />
+                  <text x={px} y={Math.max(DIFF_Y - DIFF_A - 2, py - 7)} textAnchor="middle" fontSize={fsTick} fontFamily={mono} fill={m.color} stroke={color.raised} strokeWidth={3} paintOrder="stroke">
+                    {m.label}
+                  </text>
+                  <title>{`${m.label} · extra peak at d ${m.d.toFixed(3)} Å`}</title>
                 </g>
               );
             })}
