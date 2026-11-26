@@ -309,3 +309,75 @@ describe("symmetryLast", () => {
     ]) expect(symmetryLast.grade(run(said)), said).toMatchObject({ pass: false });
   });
 });
+
+describe("namesKIrrep", () => {
+  it("takes the engine's label for a line point, however its coordinate is written, and nothing else (THY-85)", async () => {
+    const { namesKIrrep } = await import("@/agent/evals/checks");
+    const run = (reply: string): EvalRun => ({ events: [{ kind: "reply", text: reply }] }) as unknown as EvalRun;
+    const check = namesKIrrep("Δ", ["0", "0", "1/2"], 2);
+    expect(check.name).toBe("names the k-point and irrep as the engine labels them: Δ (0, 0, 1/2) irrep 2");
+    expect(check.grade(run("P-4c2 is reached by Δ (0, 0, 1/2) irrep 2 of 4.")).pass).toBe(true);
+    expect(check.grade(run("The list gives Δ(0,0,½) irrep 2 (a,0,0,a,0,0) for it.")).pass).toBe(true);
+    expect(check.grade(run("The k-point is Δ at (0, 0, 0.5), and the irrep is irrep 2.")).pass).toBe(true);
+    // Another irrep, a sum of irreps, the coordinates without the line, or the line without its coordinates: not the label.
+    expect(check.grade(run("It is Δ (0, 0, 1/2) irrep 1 of 4.")).pass).toBe(false);
+    expect(check.grade(run("It is Δ (0, 0, 1/2) irreps 2⊕4.")).pass).toBe(false);
+    expect(check.grade(run("It is k = (0, 0, 1/2), irrep 2.")).pass).toBe(false);
+    expect(check.grade(run("It is the Δ line, irrep 2.")).pass).toBe(false);
+    expect(check.grade(run("It is the X point, (0, 0, 1), irrep 2.")).pass).toBe(false);
+    expect(check.grade(run("It is Δ (0, 0, 1/4) irrep 2.")).pass).toBe(false);
+  });
+});
+
+describe("namesIrreps", () => {
+  it("takes a coupled pair as the engine labels it, in one sentence, and never Δ (THY-85)", async () => {
+    const { namesIrreps } = await import("@/agent/evals/checks");
+    const run = (...replies: string[]): EvalRun => ({ events: replies.map((text) => ({ kind: "reply", text })) }) as unknown as EvalRun;
+    const check = namesIrreps(["X", 5], ["W", 1]);
+    expect(check.name).toBe("names the k-points and irreps as the engine labels them: X irrep 5 + W irrep 1");
+    for (const said of [
+      "P-42₁m is reached by X irrep 5 + W irrep 1, coupled.",
+      "The row reads X irrep 5 (0,0,a,-a,-a,a) + W irrep 1 (a,0,0,a,0,0).",
+      "It takes W irrep 1 of 4 together with X irrep 5 of 5.",
+      "Two irreps coupled: X irrep 5 and W irrep 1; the ΔRw of the fit is small.",
+    ]) expect(check.grade(run(said)).pass, said).toBe(true);
+    for (const said of [
+      // Only one of the pair, or each in its own sentence.
+      "It is reached by X irrep 5.",
+      "It is reached by W irrep 1 (a,0,0,a,0,0).",
+      "The first irrep is X irrep 5. The second is W irrep 1.",
+      // Another irrep number.
+      "It is reached by X irrep 3 + W irrep 1.",
+      "It is reached by X irrep 5 + W irrep 2.",
+      "It is reached by X irrep 55 + W irrep 1.",
+      // The coordinates without the point's name, or another point.
+      "It is reached by k = (0, 0, 1) irrep 5 + W irrep 1.",
+      "It is reached by Γ irrep 5 + W irrep 1.",
+    ]) expect(check.grade(run(said)).pass, said).toBe(false);
+    // Δ asserted anywhere, even beside the right pair, fails.
+    const PAIR = "It is reached by X irrep 5 + W irrep 1.";
+    for (const delta of [
+      "It is Δ (0, 0, 1/2) irrep 2.",
+      "The Δ line gives the doubled c.",
+      "Δ irrep 2 reaches it.",
+      // A hedge is not an exclusion.
+      "It is Δ or X, most likely X irrep 5 + W irrep 1.",
+      // A negation that is not next to Δ, or in another clause, does not take it back.
+      "Not X alone, but Δ (0, 0, 1/2).",
+      "It is not X irrep 3, it is Δ irrep 2.",
+    ]) expect(check.grade(run(PAIR, delta)), delta).toMatchObject({ pass: false });
+    expect(check.grade(run("It is Δ or X irrep 5 + W irrep 1.")).pass).toBe(false);
+    // Excluded once, then named as the answer later: fails.
+    expect(check.grade(run("It is not Δ (0, 0, 1/2): X irrep 5 + W irrep 1 reach it.", "On second thought, the answer is Δ (0, 0, 1/2) irrep 2."))).toMatchObject({ pass: false });
+    // Δ excluded by one of the fixed patterns, with the pair named: passes.
+    for (const excluded of [
+      "It is not Δ (0, 0, 1/2): X irrep 5 + W irrep 1 reach it together.",
+      "The row rules out Δ; X irrep 5 + W irrep 1 reach it.",
+      "The answer isn't Δ, it is X irrep 5 + W irrep 1.",
+      "It is X irrep 5 + W irrep 1, so the k-point is not the Δ line.",
+      "Excluded: Δ (0, 0, 1/2). It is reached by X irrep 5 + W irrep 1.",
+      "No Δ row reaches it; X irrep 5 + W irrep 1 do.",
+      "Δ (0, 0, 1/2) is ruled out; X irrep 5 + W irrep 1 reach it.",
+    ]) expect(check.grade(run(excluded)).pass, excluded).toBe(true);
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SCENARIOS, scenario } from "@/agent/evals/scenarios";
+import { LOWERING_FOLLOW_UPS, SCENARIOS, scenario } from "@/agent/evals/scenarios";
 import { regrade, runScenario, savedRun, transcript, type EvalResult, type SavedRun } from "@/agent/evals/harness";
 import { scriptedModel, type ScriptTurn } from "@/agent/evals/scripted";
 import { sentences } from "@/agent/evals/checks";
@@ -203,6 +203,48 @@ describe("the eval pages", () => {
     const silent = await replay("pdf-lower-symmetry", [{ calls: [PDF_SKILL, { name: "list_subgroups", input: { name: "P-42_1m", cell: "1×1×2" } }] }, { text: "That is the row." }]);
     expect(silent.run.events.filter((e) => e.kind === "user"), why(silent)).toHaveLength(1);
     expect(failing(silent), why(silent)).toContain("lowers the symmetry to P -4 21 m #113, in its own cell, 1×1×2");
+  }, 120_000);
+
+  it("answers a question after lowering with the method's defaults, and the run goes on (THY-85)", async () => {
+    const [before, after] = LOWERING_FOLLOW_UPS.map((f) => f.text);
+    const users = (r: EvalResult): string[] => r.run.events.filter((e) => e.kind === "user").map((e) => (e as { text: string }).text);
+    const good = REPLAYS["pdf-line-k-subgroup"]!.good;
+    const FIT_WINDOW = { name: "ask_user", input: { question: "Keep the method's fit window, 1.5–6 Å, or widen it before refining?", options: [{ label: "Keep it", message: "Keep the fit window." }, { label: "Widen it", message: "Widen the fit window." }] } };
+    // THY-73 run 1: lowered, then asked about the fit window, and the run ended there. The user's answer lets it refine.
+    const askedAfter = await replay("pdf-line-k-subgroup", [good[0]!, { ...good[1]!, calls: [...good[1]!.calls!, FIT_WINDOW] }, ...good.slice(2)]);
+    expect(users(askedAfter), why(askedAfter)).toEqual([scenario("pdf-line-k-subgroup").messages[0], after]);
+    expect(askedAfter.overrun, why(askedAfter)).toBe(0);
+    expect(failing(askedAfter), why(askedAfter)).toEqual([]);
+    // Asked before lowering and again after it: each answer once, in order.
+    const both = await replay("pdf-line-k-subgroup", [
+      good[0]!,
+      { text: "One row, P-4c2 #116, two classes. Lower to the default variant?" },
+      { ...good[1]!, calls: [...good[1]!.calls!, FIT_WINDOW] },
+      ...good.slice(2),
+    ]);
+    expect(users(both), why(both)).toEqual([scenario("pdf-line-k-subgroup").messages[0], before, after]);
+    expect(failing(both), why(both)).toEqual([]);
+    // A question in a reply after lowering counts too, and pdf-lower-symmetry answers it the same way.
+    const lowerGood = REPLAYS["pdf-lower-symmetry"]!.good;
+    const replied = await replay("pdf-lower-symmetry", [...lowerGood.slice(0, 2), { text: "Lowered. Should I keep the fit window at 1.5–6 Å?" }, ...lowerGood.slice(2)]);
+    expect(users(replied), why(replied)).toEqual([scenario("pdf-lower-symmetry").messages[0], after]);
+    expect(failing(replied), why(replied)).toEqual([]);
+    // A run that lowered and ended on an answer hears nothing more.
+    expect(users(await replay("pdf-line-k-subgroup", good))).toHaveLength(1);
+  }, 120_000);
+
+  it("catches a coupled pair named as the line point, or by another irrep (THY-85)", async () => {
+    const good = REPLAYS["pdf-coupled-k-subgroup"]!.good;
+    const NAMING = "names the k-points and irreps as the engine labels them: X irrep 5 + W irrep 1";
+    for (const last of [
+      "F-43m is lowered to P-42₁m #113 in its own 1×1×2 cell, reached by Δ (0, 0, 1/2) irrep 2; its modes are refined with the scale: Rw {{Rw}}.",
+      "F-43m is lowered to P-42₁m #113 in its own 1×1×2 cell, reached by X irrep 3 + W irrep 1; its modes are refined with the scale: Rw {{Rw}}.",
+    ]) {
+      // The good run, its naming sentence before lowering left out and its answer naming another k-point or irrep.
+      const r = await replay("pdf-coupled-k-subgroup", [good[0]!, { ...good[1]!, text: "Lowering to the row's default." }, ...good.slice(2, -1), { text: last }]);
+      expect(r.overrun, why(r)).toBe(0);
+      expect(failing(r), why(r)).toEqual([NAMING]);
+    }
   }, 120_000);
 
   it("does not take a denial for a proposal: \"Neither is evidence for a lower group\"", async () => {
