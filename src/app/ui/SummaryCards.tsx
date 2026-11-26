@@ -183,4 +183,4 @@ const warnChip: CSSProperties = {
 };
 
 /** A card marked for attention: the note palette, as the highlighted rows of the parameter card. */
-const highlightCard: CSSProperties = { background: color.noteBg, borderColor: color.noteBorder, boxShadow: `0 0 0 2px ${color.noteBorder}` };
+const highlightCard: CSSProperties = { background: color.noteBg, border: `1px solid ${color.noteBorder}`, boxShadow: `0 0 0 2px ${color.noteBorder}` };
