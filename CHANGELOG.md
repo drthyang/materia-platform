@@ -9,15 +9,20 @@ release fixes bugs.
 
 ### Added
 
-- **Can lines** (neutron powder, constant wavelength and time of flight): a
-  toggle beside the phase ticks draws the V and Al can lines at their
-  relative strength, each can with a d-scale (a one-click cooled value when
-  the data file states the sample temperature, from the tabulated thermal
-  expansion), and the Validation view lists every sample reflection and
-  observed peak within one FWHM of a can line. The toggle and the scales
-  are saved with the project (an optional `canLines` field; older projects
-  open with the defaults). Nothing is fitted or excluded; nothing reaches
-  the Copilot ([report](docs/reports/2026-11-26-can-lines.md)).
+- **Can lines** (neutron powder, constant wavelength and time of flight):
+  is an extra peak the fit does not capture a vanadium or aluminium can line?
+  - A toggle beside the phase ticks draws the V and Al can lines at their
+    relative strength, and labels the matching extra peaks on the difference
+    curve.
+  - The Validation view's card says in one line which of its extra peaks
+    (those of "What limits the fit") line up with a can line.
+  - Each can has a d-scale, with a one-click cooled value when the data file
+    states the sample temperature. The sample reflections the can lines sit
+    under are behind one collapsed line.
+  - The toggle and the scales are saved with the project (an optional
+    `canLines` field; older projects open with the defaults).
+  - Nothing is fitted or excluded; nothing reaches the Copilot
+    ([report](docs/reports/2026-11-26-can-lines.md)).
 - **One bank at a time.** A GSAS histogram with several banks and an
   instrument file with several banks each show a bank chooser on their card.
   The instrument opens on the data's bank; when the two do not belong

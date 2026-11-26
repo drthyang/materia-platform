@@ -1,7 +1,8 @@
 /**
  * Can lines: where a vanadium or aluminium sample can (or a cryostat's
- * aluminium shields) puts Bragg lines on a neutron powder pattern, and which of
- * the sample's reflections and observed peaks they overlap.
+ * aluminium shields) puts Bragg lines on a neutron powder pattern, whether an
+ * extra peak the fit does not capture lines up with one, and which of the
+ * sample's reflections they sit under.
  *
  * The can phases are data (CAN_PHASES): each names a phase of the known-phase
  * library (knownPhases.ts, room-temperature cells) and, optionally, a table of
@@ -17,8 +18,9 @@
  * by bisection on the calculated peak shape, so asymmetric shapes (FCJ, the
  * back-to-back exponentials of time of flight) are measured as drawn.
  *
- * Overlap: a sample reflection or an observed peak whose apex is within one
- * FWHM (at the can line's d) of a can line's apex.
+ * Match: an extra peak (the page's own, found elsewhere) or a sample
+ * reflection whose position is within one FWHM (at the can line's d) of a can
+ * line's apex.
  *
  * Intensities: the can phase's |F|² with the neutron coherent scattering
  * lengths (Al 3.449 fm, V −0.3824 fm), its multiplicity, and the page's
