@@ -58,6 +58,9 @@ export async function samplePosteriorTool(input: { continue?: boolean; steps?: n
   if (!port.samplePosterior) throw new Error("this page has no posterior sampler");
   const s = port.state();
   if (s.busy) throw new Error("a refinement is running — wait for it to finish");
+  // The powder page on a data bank its instrument file has no bank for (app/bankFollow.ts): held as refine is.
+  const held = (s as { readonly instrumentNotes?: { readonly refineHeld?: string } }).instrumentNotes?.refineHeld;
+  if (held) throw new Error(held);
   if (!s.result) throw new Error("refine first: the sampler starts at the refined values, and reads its widths against the refinement's esds");
   const free = s.parameters.filter((p) => !p.fixed && !p.expression);
   if (free.length === 0) throw new Error("no parameter is free: free the ones whose uncertainty you want (set_free), refine, then sample");

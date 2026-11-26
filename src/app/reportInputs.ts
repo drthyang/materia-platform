@@ -50,6 +50,8 @@ import type { PowderJudgment } from "@/app/reportJudgment";
 import type { FigureCurves, FigureTickRow, FobsFcalcPoint } from "@/core/export/reportFigures";
 import type { Session } from "@/app/powderSession";
 import { APP_VERSION } from "@/app/constants";
+import { defaultInstrumentInUse } from "@/app/defaultInstruments";
+import { bankCoverage, holdNote, startingPointWarning } from "@/app/bankFollow";
 import { minMax } from "@/core/math/extent";
 import { activeZeroAdpFixes, zeroAdpFixText, zeroAdpProposals, ZERO_ADP_BAYES } from "@/core/diagnostics/zeroAdp";
 import { zeroAdpFixLine, zeroAdpOpenLimitation } from "@/core/diagnostics/zeroAdpLines";
@@ -438,6 +440,14 @@ export function powderReportInput(o: {
     against: "the powder pattern",
   });
 
+  // A default instrument file shipped with the app (app/defaultInstruments.ts): the Instrument card's statement, in the instrument rows.
+  const defaultInstrument = defaultInstrumentInUse(session.rawInstrument, o.instrumentLoaded);
+  // A data bank the instrument file has no bank for (app/bankFollow.ts): held, or another bank's parameters as a starting point.
+  const coverage = bankCoverage(session, o.instrument, o.instrumentLoaded);
+  const bankRow = coverage
+    ? [{ label: "Instrument bank", value: coverage.startingPoint ? startingPointWarning(coverage.uncovered).report : holdNote(coverage.uncovered).line }]
+    : [];
+
   const stats: ReportStat[] = [
     { label: "wR", value: pct(o.wR), hint: "Weighted profile R over the fit window, w = 1/σ²" },
     ...(o.rExp !== null ? [{ label: "R exp", value: pct(o.rExp), hint: "Expected R: the statistical floor √((N − P) / Σ w y²)" }] : []),
@@ -454,6 +464,8 @@ export function powderReportInput(o: {
     { label: "Data file", value: session.rawData?.name ?? pattern.name },
     { label: "Probe", value: probeLabel(pattern.radiation) },
     { label: "Instrument", value: instrumentLabel(o.instrument, o.instrumentLoaded) + (session.rawInstrument ? ` · file ${session.rawInstrument.name}` : "") },
+    ...(defaultInstrument ? [{ label: "Instrument parameters", value: defaultInstrument.report }] : []),
+    ...bankRow,
     ...instrumentProfileRow(o.instrument, o.instrumentLoaded),
     { label: "Range", value: `${num(xmin, pattern.xUnit === "tof" ? 0 : 3)} – ${num(xmax, pattern.xUnit === "tof" ? 0 : 3)} ${unit} · ${pattern.points.length} points` },
     ...(o.fitRange ? [{ label: "Fit window", value: `${num(o.fitRange.min, 3)} – ${num(o.fitRange.max, 3)} (${o.xLabel}) · ${o.pointsInWindow} points` }] : []),

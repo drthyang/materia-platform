@@ -9,6 +9,41 @@ release fixes bugs.
 
 ### Added
 
+- **The instrument follows the data's bank.** With an instrument file of
+  several banks loaded (any file, the NOMAD default included), choosing
+  another data bank switches the instrument to the file's bank for it (by
+  bank number, checked against the data's DIFC within 3 %) in the same History
+  step, "Instrument bank N, following data bank N"; the old bank's refined
+  instrument rows are replaced by the new bank's file values, and the
+  Instrument card and the changed rows say "Instrument switched to bank N with
+  the data bank" until your next action. Undo takes the whole step back. For
+  a data bank the file has no bank for, the instrument stays and every fit
+  (Refine, Prefit, Rank and Refine moments, Sample) is off with the reason, a
+  button to load that bank's instrument file, and one override, "Use bank M's
+  parameters as a starting point", offered on the bank whose difC is closest
+  to the data's DIFC (any other on a chooser), which the Instrument card, the
+  Validation view, the report and a bundle's README then state (refine DIFC
+  and Zero, check the peak positions). A new data file follows too, in its
+  load step ("Loaded data …, bank N · instrument bank N"). The Copilot's
+  `get_state` names a default in use, a held Refine and a starting point, and
+  its fits are refused while Refine is held; on a TOF page without an
+  instrument it says peak positions need an instrument file. The Validation
+  view repeats the default's statement; a TOF page without an instrument says
+  "No instrument loaded"
+  ([report](docs/reports/2026-11-26-nomad-bank-follow.md)).
+- **Default NOMAD instrument parameters (run cycle 2023A).** When the loaded
+  time-of-flight data name NOMAD in their own header (`# Instrument: NOMAD`)
+  and no instrument is loaded, the Instrument card offers **Use default NOMAD
+  parameters (2023A)**: the facility's GSAS-II calibration file for that run
+  cycle, shipped with the app (`examples/instruments/nomad/`) and loaded only
+  on the click, as a file you load yourself (the bank chooser, the bank of
+  the data, the check against the data's DIFC, one History step, the text
+  saved in the project). While it is in use the card, the report and an
+  exported bundle's README say "Default NOMAD parameters (2023A calibration):
+  load the instrument file for your own run cycle."; loading your own
+  instrument file ends it. The file has five banks: no default is offered for
+  a data bank it does not cover
+  ([report](docs/reports/2026-11-21-nomad-default-instrument.md)).
 - **One bank at a time.** A GSAS histogram with several banks and an
   instrument file with several banks each show a bank chooser on their card.
   The instrument opens on the data's bank; when the two do not belong

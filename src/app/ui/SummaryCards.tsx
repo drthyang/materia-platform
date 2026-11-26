@@ -39,6 +39,8 @@ export interface SummaryCardData {
   /** Placeholder (nothing loaded): drops the status chip and renders the title
    *  as calm, lighter text so a clean start doesn't feel over-highlighted. */
   readonly muted?: boolean;
+  /** Marked for the user's attention (the Instrument card after it switched bank with the data, or on another bank's parameters). */
+  readonly highlight?: boolean;
 }
 
 export function SummaryCards({ cards }: { cards: readonly SummaryCardData[] }): JSX.Element {
@@ -61,7 +63,7 @@ function SummaryCard({ data }: { data: SummaryCardData }): JSX.Element {
   const showChipRow = showChip || badges.length > 0 || !!magnetic;
   const chipStyle = data.chipTone === "warn" ? warnChip : okChip;
   return (
-    <div data-agent-card={data.label.toLowerCase()} style={{ ...card, padding: space.inset, display: "flex", flexDirection: "column", gap: 7 }}>
+    <div data-agent-card={data.label.toLowerCase()} {...(data.highlight ? { "data-highlight": "true" } : {})} style={{ ...card, padding: space.inset, display: "flex", flexDirection: "column", gap: 7, ...(data.highlight ? highlightCard : {}) }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <span style={uppercaseLabel}>{data.label}</span>
         {data.help && <InfoBadge text={data.help} />}
@@ -180,3 +182,5 @@ const warnChip: CSSProperties = {
   color: color.warnInk,
 };
 
+/** A card marked for attention: the note palette, as the highlighted rows of the parameter card. */
+const highlightCard: CSSProperties = { background: color.noteBg, border: `1px solid ${color.noteBorder}`, boxShadow: `0 0 0 2px ${color.noteBorder}` };

@@ -111,6 +111,21 @@ export interface RawFile {
    * projects saved before the bank could be chosen.
    */
   readonly bank?: number;
+  /**
+   * Instrument files only: the file is a default shipped with the app (the id
+   * of its row in app/defaultInstruments.ts), not a file the user loaded. The
+   * text is stored all the same, so the project needs no bundle to reopen;
+   * the field brings back the statement that defaults are in use. Absent for
+   * a user's file and in projects saved before defaults existed.
+   */
+  readonly bundledDefault?: string;
+  /**
+   * Instrument files only: the data bank this file has no bank for, whose
+   * fit the user chose to start from the file's bank `bank` (the Instrument
+   * card's "Use bank M's parameters as a starting point"). Refine is held on
+   * such a data bank without it. Absent otherwise and in older projects.
+   */
+  readonly startingPointFor?: number;
 }
 
 // ---------------------------------------------------------------------------

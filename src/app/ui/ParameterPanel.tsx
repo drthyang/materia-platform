@@ -91,9 +91,16 @@ interface Props {
    * stay on screen over the page that is open.
    */
   readonly shown?: boolean;
+  /**
+   * Rows marked for the user's attention, with the line that says why (the
+   * powder page's instrument rows after the instrument switched bank with the
+   * data): the line over the list, the rows in the note palette, their group
+   * opened. The page clears it at the next action.
+   */
+  readonly highlight?: { readonly note: string; readonly rows: ReadonlySet<string> } | null;
 }
 
-export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, blockedReason, title, extraActions, groupControls, groupInfo, frameworkControls, notice, warnings, reveal, shown = true }: Props): JSX.Element {
+export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, blockedReason, title, extraActions, groupControls, groupInfo, frameworkControls, notice, warnings, reveal, shown = true, highlight = null }: Props): JSX.Element {
   // On a phone Prefit / Refine / Cancel leave the action bar for the fixed bar at the screen's bottom.
   const phone = useMediaQuery(RUN_BAR_QUERY);
   const run: RunActionsProps = { onRefine, onThorough, thoroughMode, prefitTitle, onCancel, busy, disabled, blockedReason };
@@ -119,6 +126,15 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
   if (openedFor !== loadKey) {
     setOpenedFor(loadKey);
     setOpen((o) => openOnLoad(params, o));
+  }
+  // The groups of highlighted rows open, so the rows are seen.
+  const [highlightOpened, setHighlightOpened] = useState<typeof highlight>(null);
+  if (highlight !== highlightOpened) {
+    setHighlightOpened(highlight);
+    if (highlight) {
+      const groupsOf = new Set(params.filter((p) => highlight.rows.has(p.id)).map((p) => parameterGroupOf(p.kind)));
+      setOpen((o) => ({ ...o, ...Object.fromEntries([...groupsOf].map((g) => [g, true])) }));
+    }
   }
   // A group the page asked to bring into view: opened, scrolled to, and marked.
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -197,6 +213,9 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
       </div>
       {frameworkControls && <div style={frameworkBar}>{frameworkControls}</div>}
       {notice}
+      {highlight && (
+        <div data-testid="parameters-highlight" role="status" style={highlightLine}>{highlight.note}</div>
+      )}
       <div style={{ ...colHeader }}>
         <span>Parameter</span>
         <span>Value</span>
@@ -237,7 +256,7 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
               )}
               {open[g.name] &&
                 g.rows.map((p) => (
-                  <ParamRow key={p.id} param={p} esd={esd?.[p.id] ?? p.esd} onChange={onChange} disabled={disabled} resolvedValue={resolved?.[p.id]} />
+                  <ParamRow key={p.id} param={p} esd={esd?.[p.id] ?? p.esd} onChange={onChange} disabled={disabled} resolvedValue={resolved?.[p.id]} highlighted={highlight?.rows.has(p.id) ?? false} />
                 ))}
             </div>
           );
@@ -252,7 +271,7 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
   );
 }
 
-function ParamRow({ param, esd, onChange, disabled, resolvedValue }: { param: RefinementParameter; esd?: number | undefined; onChange: (id: string, patch: Partial<RefinementParameter>) => void; disabled?: boolean | undefined; resolvedValue?: number | undefined }): JSX.Element {
+function ParamRow({ param, esd, onChange, disabled, resolvedValue, highlighted = false }: { param: RefinementParameter; esd?: number | undefined; onChange: (id: string, patch: Partial<RefinementParameter>) => void; disabled?: boolean | undefined; resolvedValue?: number | undefined; highlighted?: boolean }): JSX.Element {
   const locked = isLocked(param);
   const [buf, setBuf] = useState<string | null>(null);
   // A tied row shows what its tie evaluates to right now — the stored value is
@@ -271,7 +290,8 @@ function ParamRow({ param, esd, onChange, disabled, resolvedValue }: { param: Re
   const accent = !param.fixed && !locked ? color.primary : "transparent";
   return (
     <div
-      style={{ ...paramRow, borderLeft: `3px solid ${accent}`, cursor: locked || disabled ? "default" : "pointer" }}
+      {...(highlighted ? { "data-highlight": "true" } : {})}
+      style={{ ...paramRow, borderLeft: `3px solid ${accent}`, cursor: locked || disabled ? "default" : "pointer", ...(highlighted ? { background: color.noteBg, boxShadow: `inset 0 0 0 1px ${color.noteBorder}` } : {}) }}
       onClick={() => !locked && !disabled && onChange(param.id, { fixed: !param.fixed })}
       title={param.label}
     >
@@ -385,4 +405,5 @@ const okTone: CSSProperties = { background: color.okBg, border: `1px solid ${col
 const noteTone: CSSProperties = { background: color.noteBg, border: `1px solid ${color.noteBorder}`, color: color.noteInk };
 const banner: CSSProperties = { borderRadius: 8, padding: "6px 10px", fontSize: 12 };
 const hcell: CSSProperties = { padding: "1px 10px 1px 0", textAlign: "left", color: color.faint };
+const highlightLine: CSSProperties = { padding: `6px ${space.inset}`, fontSize: 12, lineHeight: 1.4, color: color.noteInk, background: color.noteBg, borderBottom: `1px solid ${color.noteBorder}` };
 const disabledStyle: CSSProperties = { opacity: 0.55, cursor: "not-allowed" };

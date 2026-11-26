@@ -58,7 +58,7 @@ export interface Session {
    *  into cross-check bundles as-is (the instrument model is lossy — it keeps
    *  difC/λ + a few width terms, not the full peak-shape profile). Undefined for
    *  the bundled demo and synthetic sessions. */
-  rawInstrument?: { name: string; text: string; bank?: number };
+  rawInstrument?: { name: string; text: string; bank?: number; bundledDefault?: string; startingPointFor?: number };
   /** The user's original data file, retained verbatim on load, shipped in bundles
    *  as the exact original alongside the portable re-serialized data. */
   rawData?: { name: string; text: string; bank?: number };

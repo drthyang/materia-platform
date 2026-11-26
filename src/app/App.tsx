@@ -40,8 +40,9 @@ import { detectDataFormat, type DetectedFormat } from "@/parsers/detectFormat";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import { parsePdfData } from "@/parsers/pdfData";
 import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
-import { instrumentBank, parseInstrumentFile } from "@/parsers/instrument";
-import { currentDataBank, dataBanksOf, dataBankRef, defaultDataBank, hasBankChoice, openingInstrumentBank } from "@/app/bankChoice";
+import { currentDataBank, dataBankRef, dataBanksOf, defaultDataBank } from "@/app/bankChoice";
+import { defaultInstrumentById, defaultStepLabel, defaultUncovered } from "@/app/defaultInstruments";
+import { bankCoverage, followDataBank, followNote, followStepLabel, loadFollowStepLabel, startingPointStepLabel, startingPointWarning, switchedRows, withStartingPoint } from "@/app/bankFollow";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { loadLocalDemoModule, localDemoAvailable } from "@/app/localDemoGate";
@@ -56,9 +57,9 @@ import { PdfWorkbench } from "@/app/PdfWorkbench";
 import { WorkbenchHeader, type Step, type ExportAction } from "@/app/ui/WorkbenchHeader";
 import { WorkbenchErrorBoundary } from "@/app/ui/WorkbenchErrorBoundary";
 import { color as theme, space } from "@/app/theme";
-import { newSession, loadedSession, bundledSession, emptySession, structureCarried, EMPTY_SOURCE } from "@/app/powderSession";
+import { newSession, loadedSession, bundledSession, emptySession, structureCarried, EMPTY_SOURCE, type Session } from "@/app/powderSession";
 import {
-  changed, emptyPage, snapshotOf, specInstrumentOf, withInstrument, withInstrumentConstants, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
+  changed, emptyPage, snapshotOf, specInstrumentOf, withInstrumentConstants, withInstrumentFile, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
 } from "@/app/powderPage";
 import type { EngineExportsRef, WorkbenchExports } from "@/app/workbenchEngine";
 import { FOR_MOTIF_LABEL } from "@/app/forMotif";
@@ -298,6 +299,8 @@ export function App(): JSX.Element {
   const [agentRecords, setAgentRecords] = useState<Readonly<Record<string, AgentRecord>>>({});
   const agentRecordsRef = useRef(agentRecords);
 
+  // The instrument's switch with the data bank (app/bankFollow.ts): its line and rows, marked for the session it made.
+  const [bankFollowMark, setBankFollowMark] = useState<{ readonly session: Session; readonly note: string; readonly rows: ReadonlySet<string> } | null>(null);
   const { structure } = session;
 
   // ── Step history ────────────────────────────────────────────────────────
@@ -1087,14 +1090,18 @@ export function App(): JSX.Element {
     setDemoActive(false);
     setScNuclearDataset(null);
     setPdfDataset(null);
-    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, raw.bank);
+    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, raw.bank, null);
     setDetection(fmt);
   }
 
   /**
    * Data card bank chooser: read another bank of the loaded GSAS histogram
-   * file. A re-load of the data, like a new file (one History step); the
-   * instrument stays as it is, and its card offers the matching bank.
+   * file. A re-load of the data, like a new file (one History step). An
+   * instrument file with several banks follows (app/bankFollow.ts): when it
+   * has the new data bank's bank, the instrument switches to it in the same
+   * step ("Instrument bank N, following data bank N"), and the card and the
+   * switched rows say so until the next action; when it has none, the
+   * instrument stays and Refine is held on the card.
    */
   function onDataBank(bank: number): void {
     const raw = session.rawData;
@@ -1102,10 +1109,49 @@ export function App(): JSX.Element {
     const fmt = detectDataFormat({ text: raw.text, filename: raw.name, instrument: instrumentLoaded ? instrument : undefined });
     if (fmt.dataType !== "powder") return;
     setDemoActive(false);
-    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, bank);
+    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, bank, "chooser");
   }
 
-  function applyPowder(text: string, filename: string, fmt: DetectedFormat, tag: string, askedBank?: number): void {
+  /**
+   * The Instrument card's "Use bank M's parameters as a starting point": on a
+   * data bank the instrument file has no bank for, the user takes bank M's
+   * parameters anyway (the card offers the bank whose difC is closest to the
+   * data's DIFC; app/bankFollow.ts withStartingPoint). Kept with the file
+   * (`startingPointFor`), so Refine runs and the card, the Validation view,
+   * the report and a bundle's README state it; one History step.
+   */
+  function onStartingPoint(bank: number): void {
+    const coverage = bankCoverage(session, instrument, instrumentLoaded);
+    if (!coverage || coverage.startingPoint) return;
+    const next = withStartingPoint(page, bank);
+    if (!next) return;
+    setPage(next);
+    const now = bankCoverage(next.session, next.instrument, next.instrumentLoaded);
+    if (now) setMessage(startingPointWarning(now.uncovered).line);
+    requestStep("edit", startingPointStepLabel(bank, coverage.uncovered.dataBank));
+  }
+
+  /**
+   * New data on the page with the instrument following its bank: `next` is
+   * the page with the data, and the result is it with the instrument on the
+   * data's bank when the file has it (app/bankFollow.ts), the step's label,
+   * and the highlight to show.
+   */
+  function followed(before: PowderPage, next: PowderPage, dataLabel: string, how: "chooser" | "load"): { page: PowderPage; label: string } {
+    const f = followDataBank(next);
+    if (!f) return { page: next, label: dataLabel };
+    setBankFollowMark({ session: f.page.session, note: followNote(f.bank), rows: new Set(switchedRows(before.session.powderParams, f.page.session.powderParams)) });
+    return { page: f.page, label: how === "chooser" ? followStepLabel(f.bank, f.dataBank) : loadFollowStepLabel(dataLabel, f.bank) };
+  }
+
+  /**
+   * Powder data on the page. `follow`: the instrument follows the data's bank
+   * (app/bankFollow.ts), for a new file ("load": the step is the load's,
+   * "… · instrument bank N") and for the Data card's chooser ("chooser":
+   * "Instrument bank N, following data bank N"); a re-read of the same bank
+   * in another unit leaves the instrument as it is.
+   */
+  function applyPowder(text: string, filename: string, fmt: DetectedFormat, tag: string, askedBank?: number, follow: "chooser" | "load" | null = "load"): void {
     const id = `${structure.id}-powder`;
     const isGsasCsv = /(^|,)\s*"?obs"?\s*,/i.test(text) && /calc/i.test(text);
     const isGsasHist = isGsasHistogram(text);
@@ -1115,7 +1161,14 @@ export function App(): JSX.Element {
     const banks = isGsasHist ? dataBanksOf(text) : null;
     const bank = banks && banks.length > 1 ? (banks.find((b) => b.bankNumber === askedBank) ?? defaultDataBank(banks)).bankNumber : undefined;
     const bankOpt = bank !== undefined ? { bank } : {};
-    requestStep("load", bank !== undefined ? `Loaded data ${filename}, bank ${bank}` : `Loaded data ${filename}`);
+    const dataLabel = bank !== undefined ? `Loaded data ${filename}, bank ${bank}` : `Loaded data ${filename}`;
+    // The instrument follows the data's bank (one step, its label says so).
+    const land = (next: PowderPage): PowderPage => {
+      const out = follow ? followed(page, next, dataLabel, follow) : { page: next, label: dataLabel };
+      requestStep("load", out.label);
+      setPage(out.page);
+      return out.page;
+    };
     const file = { name: filename, text, ...bankOpt };
     if (fmt.xUnit === "tof") {
       const overlay = isGsasCsv ? parseGsasCsvPattern(text, id, filename) : null;
@@ -1129,8 +1182,7 @@ export function App(): JSX.Element {
       // overlay), and without a TOF calibration (difC) peaks cannot be placed:
       // both stay view-only. A plain TOF pattern with a loaded TOF instrument is
       // refined with the back-to-back-exponential profile (withPattern).
-      const next = withPattern(page, parsed, file, overlay ? { calc: overlay.calc, background: overlay.background } : undefined);
-      setPage(next);
+      const next = land(withPattern(page, parsed, file, overlay ? { calc: overlay.calc, background: overlay.background } : undefined));
       if (next.session.powderProfile.shape !== "tof") {
         setMessage(
           overlay
@@ -1150,8 +1202,7 @@ export function App(): JSX.Element {
     // bundled demo's) doesn't apply, so the page goes back to the default
     // instrument (withPattern): loading a different dataset type switches the
     // workbench into the matching mode instead of staying view-only.
-    const next = withPattern(page, parsed, file);
-    setPage(next);
+    const next = land(withPattern(page, parsed, file));
     setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${next.session.powderParams.length} symmetry-allowed parameters${carriedNote(structureCarried(next.session))}. Scale auto-estimated — click “Refine”. ${fmt.note}`);
   }
 
@@ -1161,24 +1212,24 @@ export function App(): JSX.Element {
    * the page when the file has it, else the file's lowest-numbered bank, as
    * GSAS-II; the bank applied is kept with the file. One History step.
    */
-  function applyInstrument(name: string, text: string, askedBank?: number): void {
+  function applyInstrument(name: string, text: string, askedBank?: number, bundledDefault?: string): void {
     try {
-      const file = parseInstrumentFile(text);
-      const data = dataBankRef(currentDataBank(dataBanksOf(session.rawData?.text), session.rawData));
-      const chosen = (askedBank !== undefined ? instrumentBank(file, askedBank) : undefined) ?? openingInstrumentBank(file, data);
-      const parsed = chosen.parameters;
-      const multi = hasBankChoice(file);
+      const opts = { ...(askedBank !== undefined ? { bank: askedBank } : {}), ...(bundledDefault !== undefined ? { bundledDefault } : {}) };
       // The rows built again from the new instrument (withInstrument), so the
       // profile reflects it whichever of the files came first.
-      setPage((p) => withInstrument(p, parsed, { name, text, ...(multi ? { bank: chosen.bank! } : {}) }));
-      const which = multi ? ` bank ${chosen.bank} of ${file.banks.length}` : "";
+      const { page: next, bank: chosen, banks, multi } = withInstrumentFile(page, name, text, opts);
+      const parsed = chosen.parameters;
+      setPage(next);
+      const which = multi ? ` bank ${chosen.bank} of ${banks}` : "";
+      const fromDefault = defaultInstrumentById(bundledDefault);
+      const what = fromDefault ? `default ${fromDefault.instrument} (${fromDefault.cycle}) ` : "";
       setMessage(
         parsed.kind === "tof"
-          ? `Loaded TOF instrument${which}: difC=${parsed.difC.toFixed(2)}, Zero=${(parsed.zero ?? 0).toFixed(3)}. Profile re-seeded.`
-          : `Loaded CW instrument${which}: λ=${parsed.wavelength} Å. Profile re-seeded.`,
+          ? `Loaded ${what}TOF instrument${which}: difC=${parsed.difC.toFixed(2)}, Zero=${(parsed.zero ?? 0).toFixed(3)}. Profile re-seeded.`
+          : `Loaded ${what}CW instrument${which}: λ=${parsed.wavelength} Å. Profile re-seeded.`,
       );
       if (chosen.extras.reading) setMessage(`Instrument calibration line: ${chosen.extras.reading}.`);
-      requestStep("load", multi ? `Loaded instrument ${name}, bank ${chosen.bank}` : `Loaded instrument ${name}`);
+      requestStep("load", fromDefault ? defaultStepLabel(fromDefault, multi ? chosen.bank : null) : multi ? `Loaded instrument ${name}, bank ${chosen.bank}` : `Loaded instrument ${name}`);
     } catch (e) {
       setMessage(`Instrument parse failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -1188,11 +1239,30 @@ export function App(): JSX.Element {
     file.text().then((text) => applyInstrument(file.name, text));
   }
 
-  /** Instrument card bank chooser: apply another bank of the loaded instrument file. */
+  /** Instrument card bank chooser: apply another bank of the loaded instrument file (a default stays a default). */
   function onInstrumentBank(bank: number): void {
     const raw = session.rawInstrument;
     if (!raw || raw.bank === bank) return;
-    applyInstrument(raw.name, raw.text, bank);
+    applyInstrument(raw.name, raw.text, bank, raw.bundledDefault);
+  }
+
+  /**
+   * The Instrument card's "Use default … parameters": the bundled file of that
+   * instrument (app/defaultInstruments.ts), fetched now and loaded as a user's
+   * file is, with its id kept beside the text. Only on the click.
+   */
+  function onUseDefaultInstrument(id: string): void {
+    const d = defaultInstrumentById(id);
+    if (!d) return;
+    d.load().then(
+      (text) => {
+        // A data bank the file leaves out gets no other bank's parameters (the card offers nothing for it; this is the same rule).
+        const uncovered = defaultUncovered(d, text, dataBankRef(currentDataBank(dataBanksOf(session.rawData?.text), session.rawData)));
+        if (uncovered) setMessage(uncovered.line);
+        else applyInstrument(d.fileName, text, undefined, d.id);
+      },
+      (e: unknown) => setMessage(`The default instrument file could not be loaded: ${e instanceof Error ? e.message : String(e)}`),
+    );
   }
 
   /** An X-ray instrument's polarization and Kα₂ ratio, on the instrument and on
@@ -1364,6 +1434,10 @@ export function App(): JSX.Element {
         onLoadInstrument={onLoadInstrument}
         {...(session.rawData ? { onDataBank } : {})}
         onInstrumentBank={onInstrumentBank}
+        onUseDefaultInstrument={onUseDefaultInstrument}
+        onStartingPoint={onStartingPoint}
+        // The switch's highlight holds while the page is the one the switch made: the next action ends it.
+        bankFollow={bankFollowMark && bankFollowMark.session === session ? bankFollowMark : null}
         onInstrumentConstants={onInstrumentConstants}
         onLoadDemo={onLoadDemo}
         demos={demos}

@@ -90,8 +90,11 @@ import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
-import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
+import { fileProfileCardNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
+import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel, defaultUncovered, instrumentCardChip } from "@/app/defaultInstruments";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
+import { agentInstrumentNotes, bankCoverage, bundleInstrumentNote, holdNote, overrideLabel, startingPointWarning } from "@/app/bankFollow";
+import type { InstrumentNote } from "@/app/ui/PowderValidation";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { excludedPointMask } from "@/core/refinement/factors";
@@ -161,6 +164,12 @@ export interface PowderWorkbenchProps {
   onDataBank?: (bank: number) => void;
   /** Apply another bank of the loaded multi-bank instrument file (the Instrument card's chooser). */
   onInstrumentBank?: (bank: number) => void;
+  /** Load a default instrument file shipped with the app, by its id (the Instrument card's offer; app/defaultInstruments.ts). */
+  onUseDefaultInstrument?: (id: string) => void;
+  /** Take the held instrument bank's parameters as a starting point for a data bank the file has no bank for (app/bankFollow.ts). */
+  onStartingPoint?: (bank: number) => void;
+  /** The instrument just switched bank with the data (app/bankFollow.ts): the line and the rows to mark, until the next action. */
+  bankFollow?: { readonly note: string; readonly rows: ReadonlySet<string> } | null;
   /** Set an X-ray instrument's polarization and Kα₂ ratio (the shell owns the instrument). */
   onInstrumentConstants?: (update: InstrumentConstants) => void;
   /** Load a bundled demo (from the empty-state prompt). */
@@ -194,7 +203,7 @@ export function PowderWorkbench({
   page, setPage, ownStructure,
   client, active, step, onStep, setMessage, exportsRef,
   onLoadData, onLoadCif, onAddPhase, onAddStructure, onRemovePhase, onClearStructures, detection, onOverrideXUnit,
-  onLoadInstrument, onDataBank, onInstrumentBank, onInstrumentConstants, onLoadDemo, demos = [],
+  onLoadInstrument, onDataBank, onInstrumentBank, onUseDefaultInstrument, onStartingPoint, bankFollow = null, onInstrumentConstants, onLoadDemo, demos = [],
   onOpenProject, viewRestore, useGpu = true,
   stepHistory, agentLink,
 }: PowderWorkbenchProps): JSX.Element {
@@ -276,6 +285,20 @@ export function PowderWorkbench({
   // Clean, data-less start: the workbench renders its chrome (the Structure/Data/
   // Instrument cards + Load buttons) with an empty-state where the plot goes.
   const hasContent = powderSource !== EMPTY_SOURCE;
+  // A data bank the instrument file has no bank for (app/bankFollow.ts): Refine is held with the reason, until the
+  // user loads that bank's file or takes the held bank's parameters as a starting point, which then stands as a warning.
+  const instCoverage = useMemo(
+    () => (hasContent ? bankCoverage(session, instrument, instrumentLoaded) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the two files are what it reads of the session
+    [hasContent, session.rawData, session.rawInstrument, instrument, instrumentLoaded],
+  );
+  const instHold = instCoverage && !instCoverage.startingPoint ? holdNote(instCoverage.uncovered) : null;
+  // The override's chooser: the bank the user picked for this data bank, else the closest by difC.
+  const [startPick, setStartPick] = useState<{ readonly dataBank: number; readonly bank: number } | null>(null);
+  const startBank = !instHold || !instCoverage ? null
+    : startPick && startPick.dataBank === instCoverage.uncovered.dataBank && instHold.banks.some((b) => b.bank === startPick.bank) ? startPick.bank
+      : instHold.closest?.bank ?? null;
+  const instStartingPoint = instCoverage?.startingPoint ? startingPointWarning(instCoverage.uncovered) : null;
   // Data loaded before a structure: the placeholder model (no atoms).
   const noStructure = session.structure.sites.length === 0;
   // A freshly-loaded pattern is a new object; drop the window and axis choice.
@@ -696,6 +719,8 @@ export function PowderWorkbench({
   /** Flat co-refinement of the currently-freed parameters. Resolves to why it
    *  did not finish (cancelled, failed), or null when it did. */
   async function runPowder(): Promise<string | null> {
+    // A data bank the instrument file has no bank for: held until the user chooses (app/bankFollow.ts).
+    if (instHold) return instHold.line;
     // The starting point (freed parameters, edited values, settings) is a step
     // of its own, so going back lands before this refinement, not after it.
     stepHistory?.recordNow("edit");
@@ -757,6 +782,8 @@ export function PowderWorkbench({
    * token, so the chain keeps targeting the identical posterior.
    */
   async function runSample(continueRun: boolean, steps = SAMPLE_STEPS): Promise<SampleResult | string> {
+    // A data bank the instrument file has no bank for: held as Refine is (app/bankFollow.ts).
+    if (instHold) return instHold.line;
     setSampleBusy(true);
     const prior = continueRun ? sample : null;
     const total = (prior ? prior.result.resume.stepIndex : 0) + steps;
@@ -820,6 +847,7 @@ export function PowderWorkbench({
    * why it did not finish, or null when it did.
    */
   async function runThorough(): Promise<string | null> {
+    if (instHold) return instHold.line;
     // One engine, two faces: with no fit yet it's a "Prefit" (broad cold-start
     // search + Le Bail); once a fit exists it's a light "Escape min" nudge.
     const mode: "prefit" | "escape" = powderResult ? "escape" : "prefit";
@@ -1075,6 +1103,9 @@ export function PowderWorkbench({
       // The user's original files, retained verbatim on load — bundled as-is so
       // the instrument (whose model is lossy) and data are exactly what they gave.
       ...(session.rawInstrument ? { rawInstrument: session.rawInstrument } : {}),
+      // A default shipped with the app is not the user's calibration: the README says so.
+      // Another bank's parameters as a starting point: the README says that too.
+      ...(bundleInstrumentNote(session.rawInstrument, instrumentLoaded, instCoverage) ? { instrumentNote: bundleInstrumentNote(session.rawInstrument, instrumentLoaded, instCoverage)! } : {}),
       ...(session.rawData ? { rawData: session.rawData } : {}),
     };
     // The refined values are applied inside: `structure` is the model as loaded.
@@ -1130,6 +1161,10 @@ export function PowderWorkbench({
       source: session.rawData?.name ?? powderSource,
       restraints: restraintReq.restraints ?? [],
       zeroAdp,
+      ...(() => {
+        const notes = agentInstrumentNotes(session.rawInstrument, instrumentLoaded, instCoverage);
+        return notes ? { instrumentNotes: notes } : {};
+      })(),
     };
   };
 
@@ -1214,6 +1249,7 @@ export function PowderWorkbench({
       },
       samplePosterior: async ({ continue: continueRun, steps }) => {
         if (sampleBusy) return "a posterior run is already going";
+        if (instHold) return instHold.line;
         if (continueRun && !sample) return "there is no posterior run to continue: sample first";
         setPlotMode("posterior");
         return runSample(continueRun, steps);
@@ -1310,9 +1346,15 @@ export function PowderWorkbench({
   const instBankChoices = useMemo(() => instrumentBankOptions(instFile), [instFile]);
   const instBank = currentInstrumentBank(instFile, session.rawInstrument, instrument);
   const instAdvice = hasContent ? bankAdvice(instFile, instBank, dataBankRef(dataBank)) : null;
+  const instDefaultInUse = defaultInstrumentInUse(session.rawInstrument, instrumentLoaded);
+  const validationInstrumentNotes: readonly InstrumentNote[] = [
+    ...(instDefaultInUse ? [{ id: "default", line: instDefaultInUse.line, detail: instDefaultInUse.detail }] : []),
+    ...(instHold ? [{ id: "hold", line: instHold.line, detail: instHold.detail }] : []),
+    ...(instStartingPoint ? [{ id: "starting-point", line: instStartingPoint.line, detail: instStartingPoint.detail, highlight: true }] : []),
+  ];
   // An instrument file whose profile is evaluated with its own program's function (app/tofWidthNote.ts):
   // one line on how, and a warning only where the file gives no peak width inside the data's range.
-  const instProfile = instrumentLoaded ? fileProfileNote(instrument, instBank) : null;
+  const instProfile = instrumentLoaded ? fileProfileCardNote(instrument, instBank) : null;
   const instUnused = instProfile ? null : unusedNote(instBank, session.mustrain);
   const instWidths = useMemo(
     () => tofWidthNote({ structure: session.structure, extraPhases: session.extraPhases, pattern, powderParams, powderBindings: session.powderBindings }),
@@ -1322,8 +1364,76 @@ export function PowderWorkbench({
     () => tofNegativeGammaNote({ structure: session.structure, extraPhases: session.extraPhases, pattern, powderParams, powderBindings: session.powderBindings }),
     [session.structure, session.extraPhases, pattern, powderParams, session.powderBindings],
   );
-  const instControl = instBankChoices || instAdvice || instUnused || instProfile || instWidths || instGamma ? (
+  // A default instrument file shipped with the app (app/defaultInstruments.ts): offered when the data's own
+  // header names its instrument and no instrument is loaded, applied only on the click, and named while in use.
+  const instDefaultOffer = useMemo(
+    () => (hasContent ? defaultInstrumentOffer({ pattern, rawDataText, instrumentLoaded }) : null),
+    [hasContent, pattern, rawDataText, instrumentLoaded],
+  );
+  const instDefault = defaultInstrumentInUse(session.rawInstrument, instrumentLoaded);
+  // The default's text, fetched when it is first offered (a small chunk of its own), to see whether it has the data's bank.
+  const [instDefaultText, setInstDefaultText] = useState<{ readonly id: string; readonly text: string } | null>(null);
+  useEffect(() => {
+    if (!instDefaultOffer) return;
+    let live = true;
+    instDefaultOffer.load().then((text) => { if (live) setInstDefaultText({ id: instDefaultOffer.id, text }); }, () => undefined);
+    return () => { live = false; };
+  }, [instDefaultOffer]);
+  const instDefaultFile = instDefaultOffer && instDefaultText?.id === instDefaultOffer.id ? instDefaultText.text : null;
+  const instDefaultUncovered = instDefaultOffer && instDefaultFile !== null ? defaultUncovered(instDefaultOffer, instDefaultFile, dataBankRef(dataBank)) : null;
+  const instOfferControl = !instDefaultOffer || instDefaultFile === null || !onUseDefaultInstrument ? null : instDefaultUncovered ? (
+    <div data-testid="instrument-default-uncovered" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.warnInk }}>
+      <span>{instDefaultUncovered.line}</span>
+      <InfoBadge width={320} text={instDefaultUncovered.detail} />
+    </div>
+  ) : (
+    <div data-testid="instrument-default-offer" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small }}>
+      <button style={toolbarBtn} onClick={() => onUseDefaultInstrument(instDefaultOffer.id)}>{defaultOfferLabel(instDefaultOffer)}</button>
+      <InfoBadge width={320} text={defaultOfferDetail(instDefaultOffer)} />
+    </div>
+  );
+  const noteBox = { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.warnInk, padding: "4px 8px", borderRadius: 7, background: theme.noteBg, border: `1px solid ${theme.noteBorder}` } as const;
+  const instControl = bankFollow || instHold || instStartingPoint || instDefault || instBankChoices || instAdvice || instUnused || instProfile || instWidths || instGamma ? (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {bankFollow && (
+        <div data-testid="instrument-bank-followed" role="status" style={{ ...noteBox, color: theme.noteInk }}>
+          <span>{bankFollow.note}</span>
+        </div>
+      )}
+      {instHold && (
+        <div data-testid="instrument-bank-hold" style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: fz.small, color: theme.warnInk }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span>{instHold.line}</span>
+            <InfoBadge width={340} text={instHold.detail} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <label style={{ ...toolbarBtn, cursor: "pointer" }}>
+              {instHold.loadLabel}
+              <input type="file" accept=".instprm,.prm,.irf,text/plain" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onLoadInstrument(f); }} />
+            </label>
+            {onStartingPoint && startBank !== null && (
+              <>
+                <select data-testid="instrument-starting-bank" aria-label="Bank to start from" value={String(startBank)} onChange={(e) => setStartPick({ dataBank: instCoverage!.uncovered.dataBank, bank: Number(e.target.value) })} style={{ ...bgSelect, maxWidth: "100%" }}>
+                  {instHold.banks.map((b) => <option key={b.bank} value={b.bank}>{b.label}{b.bank === instHold.closest?.bank && b.difC !== undefined ? " (closest)" : ""}</option>)}
+                </select>
+                <button style={toolbarBtn} onClick={() => onStartingPoint(startBank)}>{overrideLabel(startBank)}</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      {instStartingPoint && (
+        <div data-testid="instrument-starting-point" style={noteBox}>
+          <span>{instStartingPoint.line}</span>
+          <InfoBadge width={340} text={instStartingPoint.detail} />
+        </div>
+      )}
+      {instDefault && (
+        <div data-testid="instrument-default-warning" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.warnInk }}>
+          <span>{instDefault.line}</span>
+          <InfoBadge width={320} text={instDefault.detail} />
+        </div>
+      )}
       {instBankChoices && (
         <BankChooser
           testId="instrument-bank"
@@ -1333,7 +1443,7 @@ export function PowderWorkbench({
           help="This instrument file holds several banks, and the page uses one at a time. It opens on the bank of the loaded data when the file has it, else on its first bank. Choosing another bank builds the profile rows again from that bank's values (one History step)."
         />
       )}
-      {instAdvice && (
+      {instAdvice && !instCoverage && (
         <div data-testid="instrument-bank-advice" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.warnInk }}>
           <span>{instAdvice.line}</span>
           {instAdvice.offer && onInstrumentBank && (
@@ -1470,10 +1580,13 @@ export function PowderWorkbench({
       help: "Loads instrument files from the major facilities — GSAS-II .instprm, GSAS .prm, FullProf .irf. If your file isn't recognized, contact the author.",
       loadLabel: "Load instrument…", accept: ".instprm,.prm,.irf,text/plain", onFile: onLoadInstrument,
       muted: !hasContent && !instrumentLoaded,
-      chip: instrumentLoaded ? "✓ loaded" : "default",
-      title: !hasContent && !instrumentLoaded ? "No instrument loaded" : instTitle,
-      meta: !hasContent && !instrumentLoaded ? "Load .instprm / .prm / .irf" : instMeta,
-      ...(instrumentLoaded && instControl ? { control: instControl } : {}),
+      chip: instrumentCardChip({ defaultInUse: !!instDefault, instrumentLoaded, tof: powderIsTof }),
+      ...(instDefault ? { chipTone: "warn" as const } : {}),
+      // A TOF page without an instrument has none: never the constant-wavelength placeholder's title and λ.
+      title: !instrumentLoaded && (!hasContent || powderIsTof) ? "No instrument loaded" : instDefault ? instDefault.title : instTitle,
+      meta: !instrumentLoaded && (!hasContent || powderIsTof) ? "Load .instprm / .prm / .irf" : instMeta,
+      ...(bankFollow || instStartingPoint ? { highlight: true } : {}),
+      ...(instrumentLoaded && instControl ? { control: instControl } : instOfferControl ? { control: instOfferControl } : {}),
     },
   ];
 
@@ -1632,7 +1745,7 @@ export function PowderWorkbench({
                       onAction={(a) => {
                         switch (a.kind) {
                           case "refine":
-                            if (!busy && !tofViewOnly) void runPowder();
+                            if (!busy && !tofViewOnly && !instHold) void runPowder();
                             break;
                           case "check":
                             if (a.action === "export-gsas2") exportBundle("gsas2");
@@ -1655,7 +1768,8 @@ export function PowderWorkbench({
                             break;
                         }
                       }}
-                      canRefine={!busy && !tofViewOnly}
+                      canRefine={!busy && !tofViewOnly && !instHold}
+                      instrumentNotes={validationInstrumentNotes}
                       fitRange={fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null}
                       refinedPhases={refinedPhases}
                       axis={axisCtx}
@@ -1684,7 +1798,7 @@ export function PowderWorkbench({
                       onRun={(continueRun) => void runSample(continueRun)}
                       onStop={stopSample}
                       hasRefined={powderResult !== null}
-                      blockedReason={lock.sample}
+                      blockedReason={lock.sample ?? instHold?.line ?? null}
                       labels={new Map(powderParams.map((p) => [p.id, p.label]))}
                     />
                   </div>
@@ -1786,7 +1900,8 @@ export function PowderWorkbench({
                 busy={busy}
                 result={powderResult}
                 disabled={tofViewOnly}
-                blockedReason={lock.refine}
+                blockedReason={lock.refine ?? instHold?.line ?? null}
+                highlight={bankFollow}
                 shown={active && step === 0}
                 warnings={occupancyWarnings}
                 notice={<ZeroAdpNotice proposals={zeroAdp.proposals} applied={zeroAdp.applied} busy={busy} onApply={applyZeroAdp} onRelease={releaseZeroAdp} result={powderResult} parameters={powderParams} />}
@@ -1875,7 +1990,8 @@ export function PowderWorkbench({
               {...(magneticFitChip ? { patternFitChip: magneticFitChip } : {})}
               {...(tofViewOnly ? {} : { onFocusFit: () => setFocusFitToken((t) => t + 1) })}
               focusFitToken={focusFitToken}
-              magneticFit={powderMagneticFit}
+              // Held on a data bank the instrument file has no bank for, as Refine is (app/bankFollow.ts).
+              {...(instHold ? { fitHeld: { line: instHold.line, detail: instHold.detail } } : { magneticFit: powderMagneticFit })}
               baselineAgreement={nuclearWr}
               nuclearValues={momentRoundRows}
               onMomentFit={takeMomentRoundRows}
@@ -1929,6 +2045,7 @@ function QualityPanel({
   onLocateX,
   onAction,
   canRefine,
+  instrumentNotes,
   fitRange,
   refinedPhases,
   axis,
@@ -1965,8 +2082,10 @@ function QualityPanel({
   onLocateReflection: (row: ReflectionObsCalc) => void;
   onLocateX: (x: number) => void;
   onAction: (action: ValidationAction) => void;
-  /** The page can refine now (no fit running, not a view-only pattern). */
+  /** The page can refine now (no fit running, not a view-only pattern, no data bank the instrument file lacks). */
   canRefine: boolean;
+  /** The Instrument card's statements on the instrument's standing, repeated over the verdict. */
+  instrumentNotes: readonly InstrumentNote[];
   /** Active fit window (pattern x-unit); reflections outside it are left out. */
   fitRange?: { min: number; max: number } | null;
   /** Every phase with the current values applied (primary first). */
@@ -2059,6 +2178,7 @@ function QualityPanel({
       onLocateX={onLocateX}
       onAction={onAction}
       canRefine={canRefine}
+      instrumentNotes={instrumentNotes}
       canExport
       openSections={openSections}
       onToggleSection={onToggleSection}

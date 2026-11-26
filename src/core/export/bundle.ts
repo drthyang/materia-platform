@@ -61,6 +61,8 @@ export interface BundleOptions {
    *  (every other line kept) instead of regenerating from the lossy instrument
    *  model; the untouched original always ships alongside. */
   readonly rawInstrument?: { readonly name: string; readonly text: string };
+  /** A statement on the instrument file's origin for the README, when it is not the user's own (a default shipped with the app). */
+  readonly instrumentNote?: string;
   /** The user's original data file (verbatim), shipped alongside the portable
    *  re-serialized data so the exact input travels with the bundle. */
   readonly rawData?: { readonly name: string; readonly text: string };
@@ -565,6 +567,7 @@ export function gsas2Bundle(structure: StructureModel, dataset: DiffractionDatas
     data: gsas2Readme({
       name, sc, dataName, instprmFile, instprmMode, rawInstrName, rawDataName, instNotes, instprmBank, sample,
       extraCifs: extraCifs.map((c) => c.cifFile), limits, background: background !== undefined, hklScale,
+      ...(opts.instrumentNote ? { instrumentNote: opts.instrumentNote } : {}),
       notExported: opts.notExported ?? [], magnetic: opts.magneticLabel !== undefined,
       refinementNote: opts.refinement?.specialDetails,
     }),
@@ -668,6 +671,7 @@ function fullprofReadme(r: {
       );
     }
   }
+  if (opts.instrumentNote) lines.push(``, `Instrument file: ${opts.instrumentNote}`);
   if (opts.notExported && opts.notExported.length) {
     lines.push(``, `Not carried by this file (re-add in FullProf if needed): ${opts.notExported.join(", ")}.`);
   }
@@ -696,6 +700,7 @@ function gsas2Readme(r: {
   background: boolean;
   hklScale: number;
   notExported: readonly string[];
+  instrumentNote?: string;
   magnetic: boolean;
   /** A statement about how the fit was run (the result's `methodNote`). */
   refinementNote?: string | undefined;
@@ -739,6 +744,7 @@ function gsas2Readme(r: {
   if (sc && r.hklScale !== 1) {
     lines.push(``, `Intensities in ${dataName} are multiplied by ${r.hklScale} to fit SHELX HKLF4's fixed F8.2 columns;`, `only the scale factor absorbs this.`);
   }
+  if (r.instrumentNote) lines.push(``, `Instrument file: ${r.instrumentNote}`);
   lines.push(``, `Refine first in GSAS-II: the histogram scale / phase fractions (not transferred).`);
   if (r.notExported.length) lines.push(``, `Not carried by these files (re-add in GSAS-II if needed): ${r.notExported.join(", ")}.`);
   if (r.magnetic) lines.push(``, `${name}.cif is a magnetic CIF: import it as a magnetic phase in GSAS-II.`);

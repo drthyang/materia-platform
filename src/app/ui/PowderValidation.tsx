@@ -66,6 +66,7 @@ import {
   th,
 } from "@/app/ui/ValidationParts";
 import { minMax } from "@/core/math/extent";
+import { ReflectionLimitError } from "@/core/diffraction/reflections";
 
 const AGREEMENT_INFO = "Rwp is judged against Rexp: their ratio is the GoF (Toby 2006). With the background subtracted (Rwp′, Rexp′) the same misfit is measured against the peaks alone. Durbin–Watson d ≈ 2 for uncorrelated residuals; below Q_D (Hill & Flack 1987) neighbouring points miss together — a profile misfit, and esds that are too small. R_Bragg and R_F come from the Rietveld split of I_obs, so overlapped reflections lean toward the model: compare phases with them, don't quote them as proof.";
 const STRIP_INFO = "Top: (y_obs − y_calc)/σ per point, the ±3σ band shaded. Bottom: the running χ² as a share of the total. Noise alone climbs as a straight ramp; steps are where the model misses, and the numbered steps are the rows of Worst peaks. Click the strip to open that spot in the Refinement view.";
@@ -120,6 +121,22 @@ export interface PowderValidationProps {
   /** The evidence sections open (the page holds them, so they survive a switch of view). */
   readonly openSections?: ReadonlySet<EvidenceSection>;
   readonly onToggleSection?: (section: EvidenceSection) => void;
+  /**
+   * What the Instrument card says of the instrument's standing, shown here too
+   * so a verdict is never read without it: a default shipped with the app, a
+   * data bank the file has no bank for (Refine held), another bank's
+   * parameters taken as a starting point.
+   */
+  readonly instrumentNotes?: readonly InstrumentNote[];
+}
+
+/** One line of the instrument's standing, with its reason behind "?". */
+export interface InstrumentNote {
+  readonly id: string;
+  readonly line: string;
+  readonly detail: string;
+  /** Marked like the Instrument card (another bank's parameters in use). */
+  readonly highlight?: boolean;
 }
 
 const SIGNATURE: Record<MisfitSignature, string> = {
@@ -130,6 +147,16 @@ const SIGNATURE: Record<MisfitSignature, string> = {
 
 function pct(v: number | undefined, digits = 2): string {
   return v === undefined || !Number.isFinite(v) ? "—" : `${(100 * v).toFixed(digits)}%`;
+}
+
+/** The reading, or null when the page's reflections pass the engine's limit (ReflectionLimitError); anything else is thrown. */
+export function withinReflectionLimit<T>(read: () => T): T | null {
+  try {
+    return read();
+  } catch (e) {
+    if (e instanceof ReflectionLimitError) return null;
+    throw e;
+  }
 }
 
 /** A tone as the shared status palette draws it. */
@@ -146,9 +173,11 @@ export function PowderValidationView(props: PowderValidationProps): JSX.Element 
   const worst = useMemo(() => worstReflections(reflections, validation.chi2, 8), [reflections, validation.chi2]);
 
   // The Agent's readings of the same page: diagnose_fit, and assess_refinement while a result describes the values.
-  const judged = useMemo(() => (page ? pageFitDiagnosis(page) : null), [page]);
+  // A calibration far from the data's (another bank's, on a data bank its file lacks) can ask for more
+  // reflections than the engine lists: the view then reads the curves alone, without the causes.
+  const judged = useMemo(() => (page ? withinReflectionLimit(() => pageFitDiagnosis(page)) : null), [page]);
   const current = result !== null && !parametersChangedSince(result, parameters);
-  const assessment = useMemo(() => (page && current ? pageAssessment(page) : null), [page, current]);
+  const assessment = useMemo(() => (page && current ? withinReflectionLimit(() => pageAssessment(page)) : null), [page, current]);
   const stagesDone = props.stagesDone;
   const causes = useMemo<CauseRow[]>(() => {
     if (!judged || !page) return [];
@@ -211,6 +240,17 @@ export function PowderValidationView(props: PowderValidationProps): JSX.Element 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {props.instrumentNotes?.map((n) => (
+        <div
+          key={n.id}
+          data-testid={`validation-instrument-${n.id}`}
+          role="note"
+          style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: color.warnInk, padding: "6px 10px", borderRadius: 8, border: `1px solid ${n.highlight ? color.noteBorder : color.warnBorder}`, background: n.highlight ? color.noteBg : color.warnBg }}
+        >
+          <span>{n.line}</span>
+          <InfoBadge width={320} text={n.detail} />
+        </div>
+      ))}
       <Verdict acceptance={acceptance} canRefine={props.canRefine ?? !!props.onAction} onAction={act} />
       <Causes
         causes={causes}

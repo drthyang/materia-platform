@@ -40,6 +40,8 @@ import {
   withMagneticRows, withValidUserTies, type Session,
 } from "@/app/powderSession";
 import { rowsForPhases } from "@/app/multiPhaseSpec";
+import { currentDataBank, dataBankRef, dataBanksOf, hasBankChoice, openingInstrumentBank } from "@/app/bankChoice";
+import { instrumentBank, parseInstrumentFile, type InstrumentBank } from "@/parsers/instrument";
 import { startingPowderParams } from "@/app/loadData";
 import { powderBindings } from "@/examples/synthetic";
 import type { PowderPattern } from "@/core/diffraction/types";
@@ -454,10 +456,24 @@ export interface LoadedFile {
   readonly text: string;
   /** The bank of a multi-bank file the page reads (an `.instprm` bank, a GSAS histogram's BANK); absent for a one-bank file. */
   readonly bank?: number;
+  /** The file is a default shipped with the app (app/defaultInstruments.ts), by its id; absent for a file the user loaded. */
+  readonly bundledDefault?: string;
+  /**
+   * Instrument files only: the data bank the user chose to start from this
+   * file's bank for, although the file has no bank of its own for it (the
+   * Instrument card's "Use bank M's parameters as a starting point",
+   * app/bankFollow.ts). Refine is held on such a bank without it.
+   */
+  readonly startingPointFor?: number;
 }
 
 /** The file as the session keeps it. */
-const kept = (file: LoadedFile): LoadedFile => ({ name: file.name, text: file.text, ...(file.bank !== undefined ? { bank: file.bank } : {}) });
+const kept = (file: LoadedFile): LoadedFile => ({
+  name: file.name, text: file.text,
+  ...(file.bank !== undefined ? { bank: file.bank } : {}),
+  ...(file.bundledDefault !== undefined ? { bundledDefault: file.bundledDefault } : {}),
+  ...(file.startingPointFor !== undefined ? { startingPointFor: file.startingPointFor } : {}),
+});
 
 /** GSAS-II's own calc and background, shown with a view-only TOF pattern. */
 export type PatternOverlay = NonNullable<Session["powderOverlay"]>;
@@ -683,6 +699,36 @@ export function withInstrument(p: PowderPage, instrument: InstrumentParameters, 
     powderBindings: keptBindings(spec.bindings, s.powderBindings),
     powderProfile: spec.profile,
   });
+}
+
+/** An instrument file read onto the page: the page, the bank applied, and whether the file has banks to choose between. */
+export interface InstrumentFileLoad {
+  readonly page: PowderPage;
+  readonly bank: InstrumentBank;
+  readonly banks: number;
+  readonly multi: boolean;
+}
+
+/**
+ * An instrument FILE on the page, as the Instrument card loads it: of a file
+ * with several banks, the bank asked for (the card's chooser), else the bank
+ * of the data on the page when the file has it (checked against the DIFC the
+ * data file states), else the file's lowest-numbered bank, as GSAS-II; the
+ * bank applied is kept with the file. A default shipped with the app goes
+ * through here like a user's file, with its id kept beside the text
+ * (`bundledDefault`). Throws what the reader throws.
+ */
+export function withInstrumentFile(p: PowderPage, name: string, text: string, opts: { readonly bank?: number; readonly bundledDefault?: string } = {}): InstrumentFileLoad {
+  const file = parseInstrumentFile(text);
+  const data = dataBankRef(currentDataBank(dataBanksOf(p.session.rawData?.text), p.session.rawData));
+  const chosen = (opts.bank !== undefined ? instrumentBank(file, opts.bank) : undefined) ?? openingInstrumentBank(file, data);
+  const multi = hasBankChoice(file);
+  const page = withInstrument(p, chosen.parameters, {
+    name, text,
+    ...(multi ? { bank: chosen.bank! } : {}),
+    ...(opts.bundledDefault !== undefined ? { bundledDefault: opts.bundledDefault } : {}),
+  });
+  return { page, bank: chosen, banks: file.banks.length, multi };
 }
 
 /**

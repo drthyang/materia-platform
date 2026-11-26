@@ -155,6 +155,7 @@ export function KSearchPanel({
   onFocusFit,
   focusFitToken = 0,
   magneticFit,
+  fitHeld,
   onApply,
   onContinue,
   allowRefineK = false,
@@ -199,6 +200,12 @@ export function KSearchPanel({
   focusFitToken?: number;
   /** The page's moments-only fit (magneticStep.ts): without it nothing is fitted. */
   magneticFit?: MagneticFit;
+  /**
+   * Why the page holds its fits now (the powder page on a data bank its
+   * instrument file has no bank for, app/bankFollow.ts): shown beside Rank and
+   * Refine moments, which then have no fit to run.
+   */
+  fitHeld?: { readonly line: string; readonly detail: string };
   /** Push the current magnetic model onto the session so the refinement plot
    *  shows the magnetic pattern + satellite ticks (null clears it). */
   onApply?: (magnetic: MagneticModel | null) => void;
@@ -1200,6 +1207,13 @@ export function KSearchPanel({
               const allowing = reps.map((r, i) => ({ r, i })).filter(({ i }) => (repMomentDims[i] ?? 0) > 0);
               const inOpen = allowing.filter(({ r }) => openIndices.has(r.index));
               return (
+                <>
+                {fitHeld && (
+                  <div data-testid="magnetic-fit-held" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: theme.warnInk, margin: "2px 0 4px" }}>
+                    <span>{fitHeld.line}</span>
+                    <InfoBadge width={340} text={fitHeld.detail} />
+                  </div>
+                )}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, rowGap: 6, flexWrap: "wrap", margin: "2px 0 8px" }}>
                   <button
                     style={{ ...btn, marginTop: 0, opacity: canFit && !rank.running && inOpen.length > 0 ? 1 : 0.5 }}
@@ -1207,7 +1221,7 @@ export function KSearchPanel({
                     onClick={() => void rankCandidates("open")}
                     title={canFit
                       ? "Refine the moments of every moment-allowing candidate in the open index sections against the data (nuclear model held fixed) and sort the rows by agreement"
-                      : "Load a dataset to rank candidates against it"}
+                      : fitHeld?.line ?? "Load a dataset to rank candidates against it"}
                   >
                     {rank.running ? `Ranking ${rank.done}/${rank.total}…` : `Rank ${inOpen.length} candidate${inOpen.length === 1 ? "" : "s"} against the data`}
                   </button>
@@ -1265,6 +1279,7 @@ export function KSearchPanel({
                     </span>
                   )}
                 </div>
+                </>
               );
             })()}
             {(() => {
@@ -1623,7 +1638,7 @@ let <b>Refine moments</b> fit them here against the pattern{magneticFit?.alterna
                 </div>
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 10, rowGap: 8, flexWrap: "wrap" }}>
-                <button style={{ ...btn, marginTop: 0, opacity: canRefine && !refining ? 1 : 0.5 }} onClick={runRefine} disabled={!canRefine || refining}>
+                <button style={{ ...btn, marginTop: 0, opacity: canRefine && !refining ? 1 : 0.5 }} onClick={runRefine} disabled={!canRefine || refining} {...(fitHeld ? { title: fitHeld.line } : {})}>
                   {refining ? (refineRound ? `Refining… round ${refineRound.round}` : "Refining…") : "Refine moments"}
                 </button>
                 {refining && magneticFit?.alternates && (

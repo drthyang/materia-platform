@@ -30,6 +30,25 @@ export const FULLPROF_UNCHECKED = "not yet checked against a FullProf run";
  * file's own program's function, or null when the instrument gives no profile
  * (the page's own refinable profile, described by bankChoice.unusedNote).
  */
+/** The GSAS-II line's two sentences: the Instrument card shows the first, and the second leads its "?" (fileProfileCardNote). */
+const GSAS2_HELD = "Profile as the file gives it, held.";
+const GSAS2_SAMPLE_ROWS = `Sample rows start at GSAS-II's defaults (Lorentzian microstrain ${GSAS2_NEW_PHASE_MUSTRAIN}, size ${GSAS2_NEW_PHASE_SIZE} µm), which a GSAS-II calibration assumes.`;
+
+/**
+ * The Instrument card's form of fileProfileNote: the GSAS-II line folded to
+ * its first sentence (and any "Not used"), the sample-row sentence moved to
+ * the start of the "?". The FullProf note is the same. fileProfileNote itself
+ * is unchanged: get_state and the report read it as it is.
+ */
+export function fileProfileCardNote(instrument: InstrumentParameters, bank: InstrumentBank | null): CardNote | null {
+  const note = fileProfileNote(instrument, bank);
+  if (!note || !note.line.startsWith(`${GSAS2_HELD} ${GSAS2_SAMPLE_ROWS}`)) return note;
+  return {
+    line: `${GSAS2_HELD}${note.line.slice(`${GSAS2_HELD} ${GSAS2_SAMPLE_ROWS}`.length)}`,
+    detail: `${GSAS2_SAMPLE_ROWS} ${note.detail}`,
+  };
+}
+
 export function fileProfileNote(instrument: InstrumentParameters, bank: InstrumentBank | null): CardNote | null {
   const file = tofFileProfileOf(instrument);
   if (!file) return null;
@@ -53,7 +72,7 @@ export function fileProfileNote(instrument: InstrumentParameters, bank: Instrume
   }
   const unread = e?.pdabc ? " Not used: the pdabc table." : "";
   return {
-    line: `Profile as the file gives it, held. Sample rows start at GSAS-II's defaults (Lorentzian microstrain ${GSAS2_NEW_PHASE_MUSTRAIN}, size ${GSAS2_NEW_PHASE_SIZE} µm), which a GSAS-II calibration assumes.${unread}`,
+    line: `${GSAS2_HELD} ${GSAS2_SAMPLE_ROWS}${unread}`,
     detail: [
       "Every profile term of the file is used as read, negative values included, with GSAS-II's functions of d: α = alpha/d, β = beta-0 + beta-1/d⁴ + beta-q/d², σ² = sig-0 + sig-1·d² + sig-2·d⁴ + sig-q·d, and the Lorentzian width γ = X·d + Y·d² + Z (a negative γ counts as none).",
       "The peak is GSAS-II's time-of-flight function: two back-to-back exponentials convolved with a pseudo-Voigt.",

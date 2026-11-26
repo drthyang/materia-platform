@@ -176,6 +176,43 @@ export interface BankAdvice {
   readonly offer?: BankOption;
 }
 
+/** The data's bank, which the instrument file has no bank for, and the bank whose parameters the page holds. */
+export interface UncoveredBank {
+  readonly dataBank: number;
+  /** The instrument bank on the page; null for a one-bank file that numbers none. */
+  readonly instrumentBank: number | null;
+  /** The banks the file has, by number. */
+  readonly fileBanks: readonly number[];
+  /** Each numbered bank of the file with its difC, when it has one (time of flight). */
+  readonly fileDifC: readonly { readonly bank: number; readonly difC?: number }[];
+  /** The data file's own DIFC for its bank, when it states one. */
+  readonly dataDifC?: number;
+  /** The held bank's difC, when it has one. */
+  readonly instrumentDifC?: number;
+}
+
+/**
+ * The data's bank when the instrument file has none for it (bankAdvice's
+ * "No instrument bank for data bank N"): no bank pairs with it by number and
+ * DIFC, and a one-bank file is caught only when the data's own DIFC says it
+ * is another bank's. Null when the file has the bank, or the data name none.
+ */
+export function uncoveredDataBank(file: InstrumentFile | null, current: InstrumentBank | null, data: DataBankRef | null): UncoveredBank | null {
+  if (!file || !current || !data) return null;
+  if (matchingInstrumentBank(file, data)) return null;
+  const curDifC = difCOf(current);
+  const off = data.difC !== undefined && curDifC !== undefined ? relDiff(curDifC, data.difC) : undefined;
+  if (file.banks.length === 1 && (off === undefined || off <= DIFC_TOLERANCE)) return null;
+  return {
+    dataBank: data.bank,
+    instrumentBank: current.bank,
+    fileBanks: file.banks.map((b) => b.bank).filter((n): n is number => n !== null),
+    fileDifC: file.banks.filter((b) => b.bank !== null).map((b) => ({ bank: b.bank!, ...(difCOf(b) !== undefined ? { difC: difCOf(b)! } : {}) })),
+    ...(data.difC !== undefined ? { dataDifC: data.difC } : {}),
+    ...(curDifC !== undefined ? { instrumentDifC: curDifC } : {}),
+  };
+}
+
 /**
  * Whether the instrument on the page belongs to the data's bank. Null when it
  * does, or when the data name no bank. Never switches anything: the card
@@ -200,7 +237,7 @@ export function bankAdvice(file: InstrumentFile | null, current: InstrumentBank 
     };
   }
   // A one-bank instrument file for data that state no DIFC: nothing to check it against.
-  if (file.banks.length === 1 && (off === undefined || off <= DIFC_TOLERANCE)) return null;
+  if (!uncoveredDataBank(file, current, data)) return null;
   const banks = file.banks.map((b) => b.bank).filter((n): n is number => n !== null);
   return {
     line: `No instrument bank for data bank ${data.bank}: ${curName} is not its calibration.`,
