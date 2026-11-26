@@ -39,6 +39,7 @@ import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine } from "@/core/refinement/engine";
+import { ModelDomainError } from "@/core/refinement/types";
 import { readCorrelations, type CorrelatedPair } from "@/core/diagnostics/correlationGuard";
 import { buildPowderSpec, GSAS2_NEW_PHASE_MUSTRAIN, GSAS2_NEW_PHASE_SIZE, tofFileProfileOf } from "@/app/powderSpec";
 import { applyParameters } from "@/core/workflow/apply";
@@ -136,6 +137,8 @@ export interface TofCalibrationResult {
   readonly flags: readonly string[];
   /** The final rows (for a plot or a report). */
   readonly parameters: readonly RefinementParameter[];
+  /** The calculated pattern at the final rows, point by point (empty when not calibrated). */
+  readonly yCalc: readonly number[];
 }
 
 const B_PER_U = 8 * Math.PI * Math.PI;
@@ -170,8 +173,16 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
     const free = new Set(ids.filter(has));
     const rows = params.map((p) => ({ ...p, fixed: !(p.kind === "scale" || p.kind === "background" || free.has(p.id)) }));
     const before = Object.fromEntries(rows.map((p) => [p.id, p.value]));
-    const result = refine(buildPowderProblem(structure, pattern, rows, spec.bindings, spec.profile, [], window),
-      probe ? { maxIterations: 0, correlationThreshold: 0.5, maxReportedCorrelations: 64 } : { maxIterations: 40, correlationThreshold: 0.8, maxReportedCorrelations: 64 });
+    let result: RefinementResult;
+    try {
+      result = refine(buildPowderProblem(structure, pattern, rows, spec.bindings, spec.profile, [], window),
+        probe ? { maxIterations: 0, correlationThreshold: 0.5, maxReportedCorrelations: 64 } : { maxIterations: 40, correlationThreshold: 0.8, maxReportedCorrelations: 64 });
+    } catch (e) {
+      // A step the profile cannot take (σ² ≤ 0 inside the window): nothing moves, the step is failed.
+      if (!(e instanceof ModelDomainError)) throw e;
+      if (!probe) steps.push({ name, cycle, free: [...free], status: "failed", wR: NaN, gof: NaN, maxShiftEsd: 0, correlations: [] });
+      return { status: "failed", parameters: {}, esd: {}, agreement: {} as RefinementResult["agreement"], history: [], message: e.message };
+    }
     if (probe) return result;
     params = rows.map((p) => (result.parameters[p.id] !== undefined ? { ...p, value: result.parameters[p.id]!, esd: result.esd[p.id] ?? 0 } : p));
     let maxShiftEsd = 0;
@@ -197,7 +208,7 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
     flags.push(`Not calibrated: the fit range holds ${reflections} of the standard's reflections, fewer than ${MIN_REFLECTIONS}.`);
     return {
       status: "uncovered", instrument: start, terms: {}, uiso: {}, difA: { refined: false }, steps, settled: false,
-      reflections, window, wR: NaN, gof: NaN, flags, parameters: params, guardStops, separable: false, finalCorrelations: [],
+      reflections, window, wR: NaN, gof: NaN, flags, parameters: params, guardStops, separable: false, finalCorrelations: [], yCalc: [],
     };
   }
 
@@ -207,6 +218,8 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
   const oneCurve = new Set([ROW.difC, ROW.Zero, ROW.difA]);
   const guardPairs = (ids: readonly string[]): { pairs: readonly CorrelatedPair[]; undetermined: readonly string[] } => {
     const probe = run("probe", 0, ids, true);
+    // A probe the profile cannot be evaluated at tells nothing: every candidate counts as undetermined.
+    if (probe.status === "failed" && Object.keys(probe.parameters).length === 0) return { pairs: [], undetermined: [...ids] };
     const rowsNow = params.map((p) => ({ ...p, fixed: !(p.kind === "scale" || p.kind === "background" || ids.includes(p.id)) }));
     const check = readCorrelations(probe, rowsNow);
     const pairs = check.correlated.filter((c) => (input.difAGuard ?? "pairwise") === "pairwise" || !(oneCurve.has(c.a) && oneCurve.has(c.b)));
@@ -234,21 +247,33 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
     const kept = added.filter((id) => !hold.has(id));
     if (kept.length === 0) return;
     instrumentRows.push(...kept);
-    runHolding(name, 0);
+    if (!runHolding(name, 0)) {
+      for (const id of kept) {
+        instrumentRows.splice(instrumentRows.indexOf(id), 1);
+        const why = `${termOf(id)} held at ${startValue[id]}: refined with ${name.replace(/^\+ /, "")}, the profile left its valid range (${steps[steps.length - 1]?.name ?? ""} failed).`;
+        flags.push(why);
+        guardStops.push({ term: termOf(id), why });
+      }
+    }
   };
-  // A profile term that ends on its bound is one the bank does not determine (a rise time far
-  // shorter than the Gaussian width, say): back to the step's start, held at the file's value.
-  const runHolding = (name: string, cycle: number): void => {
+  // A term that ends on its bound is one the bank does not determine (a rise time far shorter
+  // than the Gaussian width, say): back to the step's start, the term held at its value there.
+  const runHolding = (name: string, cycle: number): boolean => {
     for (;;) {
       const saved = params;
       const result = run(name, cycle, instrumentRows);
+      if (result.status === "failed" && result.message !== undefined && Object.keys(result.parameters).length === 0) return false;
       const railed = (result.diagnostics?.atBounds ?? []).map((b) => b.parameterId).filter((id) => instrumentRows.includes(id));
-      if (railed.length === 0) return;
+      if (railed.length === 0) return true;
       steps.pop();
-      params = saved.map((p) => (railed.includes(p.id) ? { ...p, value: startValue[p.id]! } : p));
+      // Back to the values before the step (a valid profile), the railed terms held there.
+      params = saved;
       for (const id of railed) {
         instrumentRows.splice(instrumentRows.indexOf(id), 1);
-        flags.push(`${termOf(id)} held at ${startValue[id]}: refined, it ran to its bound (the bank does not determine it).`);
+        const held = params.find((p) => p.id === id)!.value;
+        const why = `${termOf(id)} held at ${held}: refined, it ran to its bound (the bank does not determine it).`;
+        flags.push(why);
+        guardStops.push({ term: termOf(id), why });
       }
     }
   };
@@ -267,7 +292,10 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
   if (uisoRows.length > 0) run("U_iso (instrument held)", 0, uisoRows);
   let settled = false;
   for (let cycle = 1; cycle <= MAX_CYCLES && !settled; cycle++) {
-    runHolding("instrument (U_iso held)", cycle);
+    if (!runHolding("instrument (U_iso held)", cycle)) {
+      flags.push("Stopped: a refinement of the instrument's terms left the profile's valid range (σ² ≤ 0 inside the window).");
+      break;
+    }
     let worst = steps[steps.length - 1]!.maxShiftEsd;
     if (uisoRows.length > 0) {
       run("U_iso (instrument held)", cycle, uisoRows);
@@ -291,7 +319,7 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
   if (difC.esd / difC.value > LOW_STATISTICS_DIFC) flags.push(`Low statistics: difC's relative esd ${(1e6 * difC.esd / difC.value).toFixed(0)} ppm is above ${(1e6 * LOW_STATISTICS_DIFC).toFixed(0)} ppm.`);
   const uiso: Record<string, { value: number; esd: number }> = {};
   for (const p of params.filter((q) => q.kind === "bIso")) uiso[p.label.replace(/ B$/, "")] = { value: p.value / B_PER_U, esd: (esd[p.id] ?? 0) / B_PER_U };
-  const last = steps[steps.length - 1]!;
+  const last = [...steps].reverse().find((q) => Number.isFinite(q.wR)) ?? steps[steps.length - 1]!;
   const instrument: TofInstrument = {
     ...start,
     difC: difC.value,
@@ -310,6 +338,7 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
   return {
     status: "calibrated", instrument, terms, uiso, difA: { refined: difARefined }, guardStops, separable: finalPairs.length === 0, finalCorrelations: finalPairs,
     steps, settled, reflections, window, wR: last.wR, gof: last.gof, flags, parameters: params,
+    yCalc: [...buildPowderProblem(structure, pattern, params, spec.bindings, spec.profile).calculate(Object.fromEntries(params.map((p) => [p.id, p.value])))],
   };
 }
 
