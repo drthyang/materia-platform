@@ -1,6 +1,6 @@
 # Plan: Rietveld refinement over several banks (DRAFT)
 
-> **Status: all questions decided (section 0, 2026-11-26/27). Nothing here is built.** Linear
+> **Status: all questions decided (section 0, 2026-11-26). Nothing here is built.** Linear
 > THY-89. Each numbered QUESTION is a choice for the owner; my recommendation
 > is given with it and all of them are collected in [section 13](#13-the-questions-collected).
 >
@@ -51,7 +51,7 @@ subset. Every bank has a weight factor, editable in the first delivery.
   held, the others' difC free" is an explicit choice. The cell is never freed
   together with every difC.
 - **Q4:** microstrain and size shared, one value per phase.
-- **Q5 Absorption (owner, 2026-11-27):** the NOMAD reduced data are
+- **Q5 Absorption (owner, 2026-11-26):** the NOMAD reduced data are
   corrected for sample absorption in reduction. So there is no absorption term
   in the fit, and the report says the data were corrected in reduction (not
   that "no absorption correction was applied"). A shared-μR correction for data
