@@ -84,6 +84,17 @@ export interface PowderLiveState {
   readonly restraints: readonly LinearRestraint[];
   /** The B-at-0 rule (core/diagnostics/zeroAdp.ts): a proposal for each B the fit left on its lower bound, and the fixes applied. */
   readonly zeroAdp?: { readonly proposals: readonly ZeroAdpProposal[]; readonly applied: readonly ZeroAdpFix[] };
+  /**
+   * The instrument's standing as the Instrument card states it (app/bankFollow.ts):
+   * a default shipped with the app, Refine held on a data bank the instrument
+   * file has no bank for, another bank's parameters taken as a starting point.
+   * Absent when there is nothing to say.
+   */
+  readonly instrumentNotes?: {
+    readonly defaultParameters?: string;
+    readonly refineHeld?: string;
+    readonly startingPoint?: string;
+  };
 }
 
 /** What the powder page lets the Agent do. Each call is the page's own handler. */

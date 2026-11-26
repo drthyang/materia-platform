@@ -464,7 +464,7 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
     });
   },
   refine: refinePlan<PowderAgentPort>({
-    refuse: (s) => (s.viewOnly ? "this pattern is view-only (a TOF pattern without a TOF profile); load its instrument file to refine it" : null),
+    refuse: (s) => (s.viewOnly ? "this pattern is view-only (a TOF pattern without a TOF profile); load its instrument file to refine it" : s.instrumentNotes?.refineHeld ?? null),
     fits: (s, free) => {
       const caution = k0RefineCaution(s);
       return `Refine ${free} free parameter${free === 1 ? "" : "s"}${caution ? ` · ${caution}` : ""}`;
@@ -592,8 +592,9 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
             ...(s.instrument.asymmetry
               ? { asymmetry: `S/L ${s.instrument.asymmetry.sl}, H/L ${s.instrument.asymmetry.hl} in the file — ${s.settings.corrections.asymmetry ? "on" : "off until set_corrections switches it on, which seeds it from these"}` }
               : {}),
+            ...instrumentNotesView(s),
           }
-        : { kind: "time of flight", difC: s.instrument.difC, difA: s.instrument.difA ?? 0, zero: s.instrument.zero ?? 0, note: "TOF = difC·d + difA·d² + zero; set_fit_range and find_unexplained_peaks convert for you", ...fileProfileView(s) }
+        : { kind: "time of flight", difC: s.instrument.difC, difA: s.instrument.difA ?? 0, zero: s.instrument.zero ?? 0, note: "TOF = difC·d + difA·d² + zero; set_fit_range and find_unexplained_peaks convert for you", ...fileProfileView(s), ...instrumentNotesView(s) }
       : "none loaded (default CW, λ = 1.54 Å)",
     settings: {
       ...s.settings,
@@ -624,6 +625,17 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
 }
 
 // ── analysis helpers ────────────────────────────────────────────────────────
+
+/** The Instrument card's statements on the instrument's standing (app/bankFollow.ts), each one line; nothing when there are none. */
+function instrumentNotesView(s: PowderLiveState): Record<string, unknown> {
+  const n = s.instrumentNotes;
+  if (!n) return {};
+  return {
+    ...(n.defaultParameters ? { defaultParameters: n.defaultParameters } : {}),
+    ...(n.refineHeld ? { refineHeld: n.refineHeld } : {}),
+    ...(n.startingPoint ? { startingPoint: n.startingPoint } : {}),
+  };
+}
 
 /** The Instrument card's lines on a TOF profile the instrument file gives where a width is invalid or a Lorentzian width negative inside the data's range (app/tofWidthNote.ts); nothing otherwise. */
 function fileWidthView(s: PowderLiveState): Record<string, unknown> {

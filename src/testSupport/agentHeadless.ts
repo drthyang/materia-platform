@@ -5,6 +5,7 @@
  * records in memory, and an executor that has read the pages' methods.
  */
 
+import { agentInstrumentNotes, bankCoverage } from "@/app/bankFollow";
 import { AgentExecutor, type ActivityEntry, type AgentHost } from "@/agent/executor";
 import type { CardDecision } from "@/agent/cardOptions";
 import type { AgentReport } from "@/agent/report";
@@ -116,6 +117,11 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       source: "test",
       restraints: restraintRequest(s).restraints ?? [],
       zeroAdp: zeroAdpOf(held),
+      // The Instrument card's statements, as the app's page gives them (app/bankFollow.ts).
+      ...(() => {
+        const notes = agentInstrumentNotes(s.rawInstrument, held.instrumentLoaded, bankCoverage(s, held.instrument, held.instrumentLoaded));
+        return notes ? { instrumentNotes: notes } : {};
+      })(),
     };
   };
   /** The posterior run to continue: its closure keeps the problem it sampled, as the page's. */

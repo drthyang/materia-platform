@@ -198,7 +198,7 @@ describe("the standing statement while the default is in use", () => {
     const page = await clicked(dataPage(3));
     const w = defaultInstrumentInUse(page.session.rawInstrument, page.instrumentLoaded)!;
     expect(w.line).toBe("Default NOMAD parameters (2023A calibration): load the instrument file for your own run cycle.");
-    expect(w.title).toBe("NOMAD · default 2023A");
+    expect(w.title).toBe("TOF · NOMAD · default 2023A");
     expect(w.detail).toContain("The calibration changes between run cycles");
     expect(w.detail).toContain("shifts peak positions and changes peak widths");
     expect(w.detail).toContain("first look");

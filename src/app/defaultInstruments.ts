@@ -104,12 +104,14 @@ export function defaultUncovered(d: DefaultInstrument, fileText: string, data: D
 
 /** The standing statement while a default is in use: one line, and the reason behind "?". */
 export interface DefaultInstrumentWarning {
-  /** The Instrument card's title: "NOMAD · default 2023A". */
+  /** The Instrument card's title: "TOF · NOMAD · default 2023A". */
   readonly title: string;
   readonly line: string;
   readonly detail: string;
   /** The same statement for the report's instrument rows and an exported bundle's README: the line and its reason. */
   readonly report: string;
+  /** The line get_state gives the Copilot (agent/powderTools.ts). */
+  readonly agent: string;
 }
 
 /** A default whose table row is gone still gets a statement: the file was not the user's own. */
@@ -119,7 +121,8 @@ export function defaultInstrumentWarning(id: string): DefaultInstrumentWarning {
   const why = "The calibration changes between run cycles, and a wrong one shifts peak positions and changes peak widths: results from this fit are a first look, not checked against the instrument's calibration for this measurement.";
   return {
     report: `${what}, the facility's file shipped with MATERIA, not a file loaded for this measurement: load the instrument file for your own run cycle. ${why}`,
-    title: d ? `${d.instrument} · default ${d.cycle}` : "Default parameters",
+    agent: `${what}: the facility's file shipped with the app, not a calibration of this measurement; peak positions and widths are a first look until the user loads the instrument file for their own run cycle.`,
+    title: d ? `TOF · ${d.instrument} · default ${d.cycle}` : "TOF · default parameters",
     line: `${what}: load the instrument file for your own run cycle.`,
     detail: `These are the facility's instrument parameters for ${d ? `run cycle ${d.cycle}` : "one run cycle"}, shipped with the app, not a calibration of your measurement. The calibration changes between run cycles; a wrong one shifts peak positions and changes peak widths, and a fit can hide that in the cell, the zero and the sample broadening. Use the default for a first look, and load the instrument file from your own run cycle before you report a result. This line goes when you load your own file.`,
   };

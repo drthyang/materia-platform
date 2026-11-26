@@ -42,6 +42,7 @@ import { parsePdfData } from "@/parsers/pdfData";
 import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
 import { currentDataBank, dataBankRef, dataBanksOf, defaultDataBank } from "@/app/bankChoice";
 import { defaultInstrumentById, defaultStepLabel, defaultUncovered } from "@/app/defaultInstruments";
+import { bankCoverage, followDataBank, followNote, followStepLabel, startingPointStepLabel, startingPointWarning, switchedRows } from "@/app/bankFollow";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { loadLocalDemoModule, localDemoAvailable } from "@/app/localDemoGate";
@@ -56,7 +57,7 @@ import { PdfWorkbench } from "@/app/PdfWorkbench";
 import { WorkbenchHeader, type Step, type ExportAction } from "@/app/ui/WorkbenchHeader";
 import { WorkbenchErrorBoundary } from "@/app/ui/WorkbenchErrorBoundary";
 import { color as theme, space } from "@/app/theme";
-import { newSession, loadedSession, bundledSession, emptySession, structureCarried, EMPTY_SOURCE } from "@/app/powderSession";
+import { newSession, loadedSession, bundledSession, emptySession, structureCarried, EMPTY_SOURCE, type Session } from "@/app/powderSession";
 import {
   changed, emptyPage, snapshotOf, specInstrumentOf, withInstrumentConstants, withInstrumentFile, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
 } from "@/app/powderPage";
@@ -298,6 +299,8 @@ export function App(): JSX.Element {
   const [agentRecords, setAgentRecords] = useState<Readonly<Record<string, AgentRecord>>>({});
   const agentRecordsRef = useRef(agentRecords);
 
+  // The instrument's switch with the data bank (app/bankFollow.ts): its line and rows, marked for the session it made.
+  const [bankFollowMark, setBankFollowMark] = useState<{ readonly session: Session; readonly note: string; readonly rows: ReadonlySet<string> } | null>(null);
   const { structure } = session;
 
   // ── Step history ────────────────────────────────────────────────────────
@@ -1093,8 +1096,12 @@ export function App(): JSX.Element {
 
   /**
    * Data card bank chooser: read another bank of the loaded GSAS histogram
-   * file. A re-load of the data, like a new file (one History step); the
-   * instrument stays as it is, and its card offers the matching bank.
+   * file. A re-load of the data, like a new file (one History step). An
+   * instrument file with several banks follows (app/bankFollow.ts): when it
+   * has the new data bank's bank, the instrument switches to it in the same
+   * step ("Instrument bank N, following data bank N"), and the card and the
+   * switched rows say so until the next action; when it has none, the
+   * instrument stays and Refine is held on the card.
    */
   function onDataBank(bank: number): void {
     const raw = session.rawData;
@@ -1102,10 +1109,39 @@ export function App(): JSX.Element {
     const fmt = detectDataFormat({ text: raw.text, filename: raw.name, instrument: instrumentLoaded ? instrument : undefined });
     if (fmt.dataType !== "powder") return;
     setDemoActive(false);
-    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, bank);
+    applyPowder(raw.text, raw.name, fmt, `[${fmt.source}/${fmt.confidence}]`, bank, true);
   }
 
-  function applyPowder(text: string, filename: string, fmt: DetectedFormat, tag: string, askedBank?: number): void {
+  /**
+   * The Instrument card's "Use bank M's parameters as a starting point": on a
+   * data bank the instrument file has no bank for, the user takes the held
+   * bank's parameters anyway. Kept with the file (`startingPointFor`), so
+   * Refine runs and the card, the Validation view and the report state it;
+   * one History step. Nothing else on the page changes.
+   */
+  function onStartingPoint(): void {
+    const coverage = bankCoverage(session, instrument, instrumentLoaded);
+    const raw = session.rawInstrument;
+    if (!coverage || coverage.startingPoint || !raw) return;
+    setPage((p) => ({ ...p, session: { ...p.session, rawInstrument: { ...raw, startingPointFor: coverage.uncovered.dataBank } } }));
+    setMessage(startingPointWarning(coverage.uncovered).line);
+    requestStep("edit", startingPointStepLabel(coverage.uncovered));
+  }
+
+  /**
+   * New data on the page with the instrument following its bank: `next` is
+   * the page with the data, and the result is it with the instrument on the
+   * data's bank when the file has it (app/bankFollow.ts), the step's label,
+   * and the highlight to show.
+   */
+  function followed(before: PowderPage, next: PowderPage, dataLabel: string): { page: PowderPage; label: string } {
+    const f = followDataBank(next);
+    if (!f) return { page: next, label: dataLabel };
+    setBankFollowMark({ session: f.page.session, note: followNote(f.bank), rows: new Set(switchedRows(before.session.powderParams, f.page.session.powderParams)) });
+    return { page: f.page, label: followStepLabel(f.bank, f.dataBank) };
+  }
+
+  function applyPowder(text: string, filename: string, fmt: DetectedFormat, tag: string, askedBank?: number, follow = false): void {
     const id = `${structure.id}-powder`;
     const isGsasCsv = /(^|,)\s*"?obs"?\s*,/i.test(text) && /calc/i.test(text);
     const isGsasHist = isGsasHistogram(text);
@@ -1115,7 +1151,14 @@ export function App(): JSX.Element {
     const banks = isGsasHist ? dataBanksOf(text) : null;
     const bank = banks && banks.length > 1 ? (banks.find((b) => b.bankNumber === askedBank) ?? defaultDataBank(banks)).bankNumber : undefined;
     const bankOpt = bank !== undefined ? { bank } : {};
-    requestStep("load", bank !== undefined ? `Loaded data ${filename}, bank ${bank}` : `Loaded data ${filename}`);
+    const dataLabel = bank !== undefined ? `Loaded data ${filename}, bank ${bank}` : `Loaded data ${filename}`;
+    // The data bank chooser: the instrument follows the new bank (one step, its label says so).
+    const land = (next: PowderPage): PowderPage => {
+      const out = follow ? followed(page, next, dataLabel) : { page: next, label: dataLabel };
+      requestStep("load", out.label);
+      setPage(out.page);
+      return out.page;
+    };
     const file = { name: filename, text, ...bankOpt };
     if (fmt.xUnit === "tof") {
       const overlay = isGsasCsv ? parseGsasCsvPattern(text, id, filename) : null;
@@ -1129,8 +1172,7 @@ export function App(): JSX.Element {
       // overlay), and without a TOF calibration (difC) peaks cannot be placed:
       // both stay view-only. A plain TOF pattern with a loaded TOF instrument is
       // refined with the back-to-back-exponential profile (withPattern).
-      const next = withPattern(page, parsed, file, overlay ? { calc: overlay.calc, background: overlay.background } : undefined);
-      setPage(next);
+      const next = land(withPattern(page, parsed, file, overlay ? { calc: overlay.calc, background: overlay.background } : undefined));
       if (next.session.powderProfile.shape !== "tof") {
         setMessage(
           overlay
@@ -1150,8 +1192,7 @@ export function App(): JSX.Element {
     // bundled demo's) doesn't apply, so the page goes back to the default
     // instrument (withPattern): loading a different dataset type switches the
     // workbench into the matching mode instead of staying view-only.
-    const next = withPattern(page, parsed, file);
-    setPage(next);
+    const next = land(withPattern(page, parsed, file));
     setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${next.session.powderParams.length} symmetry-allowed parameters${carriedNote(structureCarried(next.session))}. Scale auto-estimated — click “Refine”. ${fmt.note}`);
   }
 
@@ -1384,6 +1425,9 @@ export function App(): JSX.Element {
         {...(session.rawData ? { onDataBank } : {})}
         onInstrumentBank={onInstrumentBank}
         onUseDefaultInstrument={onUseDefaultInstrument}
+        onStartingPoint={onStartingPoint}
+        // The switch's highlight holds while the page is the one the switch made: the next action ends it.
+        bankFollow={bankFollowMark && bankFollowMark.session === session ? bankFollowMark : null}
         onInstrumentConstants={onInstrumentConstants}
         onLoadDemo={onLoadDemo}
         demos={demos}

@@ -120,6 +120,22 @@ export interface PowderValidationProps {
   /** The evidence sections open (the page holds them, so they survive a switch of view). */
   readonly openSections?: ReadonlySet<EvidenceSection>;
   readonly onToggleSection?: (section: EvidenceSection) => void;
+  /**
+   * What the Instrument card says of the instrument's standing, shown here too
+   * so a verdict is never read without it: a default shipped with the app, a
+   * data bank the file has no bank for (Refine held), another bank's
+   * parameters taken as a starting point.
+   */
+  readonly instrumentNotes?: readonly InstrumentNote[];
+}
+
+/** One line of the instrument's standing, with its reason behind "?". */
+export interface InstrumentNote {
+  readonly id: string;
+  readonly line: string;
+  readonly detail: string;
+  /** Marked like the Instrument card (another bank's parameters in use). */
+  readonly highlight?: boolean;
 }
 
 const SIGNATURE: Record<MisfitSignature, string> = {
@@ -211,6 +227,17 @@ export function PowderValidationView(props: PowderValidationProps): JSX.Element 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {props.instrumentNotes?.map((n) => (
+        <div
+          key={n.id}
+          data-testid={`validation-instrument-${n.id}`}
+          role="note"
+          style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: color.warnInk, padding: "6px 10px", borderRadius: 8, border: `1px solid ${n.highlight ? color.noteBorder : color.warnBorder}`, background: n.highlight ? color.noteBg : color.warnBg }}
+        >
+          <span>{n.line}</span>
+          <InfoBadge width={320} text={n.detail} />
+        </div>
+      ))}
       <Verdict acceptance={acceptance} canRefine={props.canRefine ?? !!props.onAction} onAction={act} />
       <Causes
         causes={causes}

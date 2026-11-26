@@ -458,6 +458,13 @@ export interface LoadedFile {
   readonly bank?: number;
   /** The file is a default shipped with the app (app/defaultInstruments.ts), by its id; absent for a file the user loaded. */
   readonly bundledDefault?: string;
+  /**
+   * Instrument files only: the data bank the user chose to start from this
+   * file's bank for, although the file has no bank of its own for it (the
+   * Instrument card's "Use bank M's parameters as a starting point",
+   * app/bankFollow.ts). Refine is held on such a bank without it.
+   */
+  readonly startingPointFor?: number;
 }
 
 /** The file as the session keeps it. */
@@ -465,6 +472,7 @@ const kept = (file: LoadedFile): LoadedFile => ({
   name: file.name, text: file.text,
   ...(file.bank !== undefined ? { bank: file.bank } : {}),
   ...(file.bundledDefault !== undefined ? { bundledDefault: file.bundledDefault } : {}),
+  ...(file.startingPointFor !== undefined ? { startingPointFor: file.startingPointFor } : {}),
 });
 
 /** GSAS-II's own calc and background, shown with a view-only TOF pattern. */
