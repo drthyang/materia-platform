@@ -17,15 +17,20 @@ release fixes bugs.
   instrument rows are replaced by the new bank's file values, and the
   Instrument card and the changed rows say "Instrument switched to bank N with
   the data bank" until your next action. Undo takes the whole step back. For
-  a data bank the file has no bank for, the instrument stays and **Refine** is
-  off with the reason, a button to load that bank's instrument file, and one
-  override, "Use bank M's parameters as a starting point", which the
-  Instrument card, the Validation view and the report then state (refine DIFC
-  and Zero, check the peak positions). The Copilot's `get_state` names a
-  default in use, a held Refine and a starting point, and its `refine` is
-  refused while Refine is held. The Validation view repeats the default's
-  statement; a TOF page without an instrument says "No instrument loaded"
-  ([report](docs/reports/2026-11-27-nomad-bank-follow.md)).
+  a data bank the file has no bank for, the instrument stays and every fit
+  (Refine, Prefit, Rank and Refine moments, Sample) is off with the reason, a
+  button to load that bank's instrument file, and one override, "Use bank M's
+  parameters as a starting point", offered on the bank whose difC is closest
+  to the data's DIFC (any other on a chooser), which the Instrument card, the
+  Validation view, the report and a bundle's README then state (refine DIFC
+  and Zero, check the peak positions). A new data file follows too, in its
+  load step ("Loaded data …, bank N · instrument bank N"). The Copilot's
+  `get_state` names a default in use, a held Refine and a starting point, and
+  its fits are refused while Refine is held; on a TOF page without an
+  instrument it says peak positions need an instrument file. The Validation
+  view repeats the default's statement; a TOF page without an instrument says
+  "No instrument loaded"
+  ([report](docs/reports/2026-11-26-nomad-bank-follow.md)).
 - **Default NOMAD instrument parameters (run cycle 2023A).** When the loaded
   time-of-flight data name NOMAD in their own header (`# Instrument: NOMAD`)
   and no instrument is loaded, the Instrument card offers **Use default NOMAD

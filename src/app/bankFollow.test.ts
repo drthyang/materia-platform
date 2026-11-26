@@ -219,7 +219,7 @@ describe("a data bank the instrument file has no bank for", () => {
   });
 });
 
-describe("follow-up of 2026-11-27: a new file, the closest bank, the magnetic step and the posterior, the TOF line, the bundle", () => {
+describe("the follow-up: a new file, the closest bank, the magnetic step and the posterior, the TOF line, the bundle", () => {
   const six = (): PowderPage => toDataBank(refined(withDefault(5)), 6);
 
   it("(a) a new data file follows too: its opening bank takes the file's bank for it, in the load's own step", () => {

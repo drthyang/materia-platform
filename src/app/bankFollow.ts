@@ -1,5 +1,5 @@
 /**
- * The instrument follows the data's bank (owner, 2026-11-27): with an
+ * The instrument follows the data's bank (owner, 2026-11-26): with an
  * instrument file of several banks on the page, a change of the data's bank
  * switches the instrument to the file's bank for it (by number, checked
  * against the DIFC the data file states, bankChoice.matchingInstrumentBank),

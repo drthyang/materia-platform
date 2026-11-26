@@ -323,11 +323,9 @@ approximate, however plausible its output looks.
   Lorentzian part and no size term on time of flight.
 - A joint refinement of several banks: a multi-bank data file and a multi-bank
   instrument file are read one bank at a time, chosen on their cards. The
-  instrument follows a change of the data's bank on the Data card; loading a
-  new data file keeps the instrument's bank (the card offers the matching one).
-  A data bank the instrument file lacks holds Refine until you load its file
-  or take another bank's parameters as a starting point; the magnetic page's
-  moments fit is not held.
+  instrument follows the data's bank (the Data card's chooser and a new data
+  file). A data bank the instrument file lacks holds every fit until you load
+  its file or take another bank's parameters as a starting point.
 - Default instrument parameters for an instrument other than NOMAD, or for a
   NOMAD run cycle other than 2023A. The one default shipped is the facility's
   2023A calibration; it is not a calibration of your measurement, covers five

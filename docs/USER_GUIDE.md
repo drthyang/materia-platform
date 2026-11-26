@@ -171,21 +171,25 @@ does not cover (the lowest-angle bank, the sixth in a NOMAD GSAS file) the
 card says so and offers nothing.
 
 **The instrument follows the data's bank.** With an instrument file of several
-banks loaded (yours or the default), choosing another bank on the **Data** card
-also switches the instrument to the file's bank for it, by bank number checked
+banks loaded (yours or the default), choosing another bank on the **Data** card,
+or loading new data, also switches the instrument to the file's bank for it, by bank number checked
 against the DIFC the data file states. The instrument rows take the new bank's
 values from the file, replacing what a fit had refined for the old bank. The
 Instrument card and the changed rows are marked "Instrument switched to bank N
 with the data bank" until your next action, and the History step reads
-"Instrument bank N, following data bank N"; **Back** undoes the data bank and
-the instrument bank together. When the file has no bank for the data's bank,
-nothing is switched and **Refine** is off: another bank's calibration places
-the peaks at the wrong positions. Load that bank's instrument file (the card's
-**Load instrument for bank N…**), choose a data bank the file covers, or click
-**Use bank M's parameters as a starting point**. Refining is then allowed, and
-the Instrument card, the Validation view and the report say that the
-parameters are another bank's: refine DIFC and Zero, and check the peak
-positions.
+"Instrument bank N, following data bank N" (for new data, the load's own step
+names the instrument bank); **Back** undoes the data bank and the instrument
+bank together. When the file has no bank for the data's bank, nothing is
+switched and every fit is off (**Refine**, **Prefit**, the magnetic step's
+**Rank** and **Refine moments**, the posterior's **Sample**): another bank's
+calibration places the peaks at the wrong positions. Load that bank's
+instrument file (the card's **Load instrument for bank N…**), choose a data bank
+the file covers, or start from another bank's parameters: the card's list opens
+on the bank whose difC is closest to the data's DIFC, with the difference in
+percent, and **Use bank M's parameters as a starting point** puts that bank on
+the page. Refining is then allowed, and the Instrument card, the Validation
+view, the report and an exported bundle's README say that the parameters are
+another bank's: refine DIFC and Zero, and check the peak positions.
 
 1. Click **Refine**. The curve updates as the fit runs, and **Cancel** stops it.
 2. Free the next parameter group and click **Refine** again. Use this order:
