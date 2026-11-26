@@ -34,6 +34,8 @@ export interface DetailProps {
   readonly busy: boolean;
   /** The row being activated (its key), while the work runs. */
   readonly activating: string | null;
+  /** The row whose Activate changed nothing last (its key), and why. */
+  readonly failed?: { readonly key: string; readonly why: string } | null;
   readonly canActivate: (a: PickerAction) => boolean;
   readonly onActivate: (row: SubgroupRow) => void;
   readonly onPickVariant: (row: SubgroupRow) => void;
@@ -188,6 +190,8 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
   const block = activateBlock(row, { busy: p.busy, modesInForce: p.modesInForce, canActivate: p.canActivate(row.action) });
   const isActive = p.activeKey === row.key;
   const running = p.activating === row.key;
+  const lastFailed = p.failed ?? null;
+  const failedHere = lastFailed && group.variants.some((v) => v.key === lastFailed.key) ? lastFailed : null;
   const name = shortName(row.name);
   const others = group.variants.filter((v) => v !== row);
   const activateText = running ? "working…" : isActive ? "Active ✓" : block === "active" ? "✕ clear first" : block === "strain" ? "Strain only: nothing to refine" : block === "busy" ? "A fit is running" : block === "elsewhere" ? "Not offered here" : `Activate ${name}`;
@@ -335,6 +339,11 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
         >
           {activateText}
         </button>
+        {failedHere ? (
+          <p role="alert" style={{ margin: "6px 0 0", fontSize: fz.micro, color: color.warnInk, lineHeight: 1.4 }}>
+            ⚠ Not activated, nothing changed: {failedHere.why}
+          </p>
+        ) : null}
       </div>
     </div>
   );

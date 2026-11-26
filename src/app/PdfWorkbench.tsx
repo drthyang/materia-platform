@@ -1236,13 +1236,13 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   sameCell={sameCell}
                   operations={structure.spaceGroup.operations}
                   structure={structure}
-                  onActivateSameCell={(node) => void activate({ kind: "sameCell", node })}
-                  onActivateSupercell={(choice) => void activate({ kind: "supercell", choice })}
+                  onActivateSameCell={(node) => activate({ kind: "sameCell", node })}
+                  onActivateSupercell={(choice) => activate({ kind: "supercell", choice })}
                   modes={modes}
                   modeCount={modeSet ? modeSet.modes.length : null}
                   busy={busy}
-                  onActivateMode={(term, sub) => void activate({ kind: "irrep", term, sub })}
-                  onActivateSubgroup={(node) => void activate({ kind: "subgroup", node })}
+                  onActivateMode={(term, sub) => activate({ kind: "irrep", term, sub })}
+                  onActivateSubgroup={(node) => activate({ kind: "subgroup", node })}
                   onClear={clearModes}
                   onOpenModel={() => setViewTab("model3d")}
                   onBound={onSubgroupBound}
