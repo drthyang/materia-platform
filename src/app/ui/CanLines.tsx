@@ -20,7 +20,7 @@
  * Agent (core/diagnostics/canLines.ts holds the physics).
  */
 
-import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { SavedCanLines } from "@/core/project/types";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import type { BackgroundExcess } from "@/core/diagnostics/backgroundTerms";
@@ -306,13 +306,16 @@ export function CanLinesSection({
   const matched = extra?.filter((m) => m.line) ?? [];
   const others = extra?.filter((m) => !m.line) ?? [];
   const view = (x: number): ReactNode => (onLocateX ? <button type="button" style={{ ...linkButton, padding: "0 0 0 4px" }} onClick={() => onLocateX(x)}>view →</button> : null);
+  // Each peak kept on one line; the list wraps between peaks.
   const list = (ms: readonly ExtraPeakMatch<BackgroundExcess>[], withLine: boolean): ReactNode => ms.map((m, i) => (
-    <span key={`${m.peak.x}`} style={{ whiteSpace: "nowrap" }}>
+    <Fragment key={`${m.peak.x}`}>
       {i > 0 ? ", " : ""}
-      <span style={{ fontFamily: mono }}>{peakD(m)}</span>
-      {withLine && m.line ? <> (<Dot c={canColor(m.line.phase)} />{canName({ line: m.line })})</> : null}
-      {view(m.peak.x)}
-    </span>
+      <span style={{ whiteSpace: "nowrap" }}>
+        <span style={{ fontFamily: mono }}>{peakD(m)}</span>
+        {withLine && m.line ? <> (<Dot c={canColor(m.line.phase)} />{canName({ line: m.line })})</> : null}
+        {view(m.peak.x)}
+      </span>
+    </Fragment>
   ));
   const cans = [...new Set((under ?? []).map((o) => o.line.phase))];
   const n = under?.length ?? 0;
