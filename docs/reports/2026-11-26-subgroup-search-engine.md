@@ -431,4 +431,11 @@ what the search finds, and need a yes or a different rule:
 
 ## Checks
 
-CHECKS
+At d6fb0cb (this report's commit adds no code):
+
+- `npm run build`: passes.
+- `npm run lint`: passes.
+- `npm test` (without `MATERIA_DATA_DIR`): 426 files and 3783 tests pass,
+  39 files and 342 tests skipped, 192 s. The parked local-data tests skip
+  without the data.
+- The dump: identical to `main` e5cfca0, as above.
