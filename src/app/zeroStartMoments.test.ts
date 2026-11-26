@@ -114,7 +114,7 @@ describe("Refine moments from a zero start: kick, then test (independent MnWO4, 
       // The Copilot's view of the chosen model says why the row has no esd.
       const chosen = magneticView(step.handle.state()).chosen as { parameters: string[]; momentsFit: string };
       expect(chosen.parameters).toContain(`${ids.y} = 0 (held at 0: not required by the data)`);
-      expect(chosen.momentsFit).toContain("; the esds include the scale and the background");
+      expect(chosen.momentsFit).toContain(`; the esds include the scale and the background. ${ids.y} started at 0, where the fit cannot move it; kicked to 0.1 µB, it is not required by the data (Δχ² `);
       console.log(`[zero-start] b1 seed ${seed}: ${Object.values(ids).map((id) => `${labels[id]} ${v.resolvedAmps[id]!.toFixed(3)}${rounds.esd[id] === undefined ? "" : `(${rounds.esd[id]!.toFixed(3)})`}`).join(", ")} · the kicked fit put My at ${z.kickedValues[ids.y]!.toFixed(3)}: Δχ² ${z.deltaChi2!.toFixed(2)}, F ${z.f!.toFixed(2)} ≤ ${z.fCritical!.toFixed(2)}`);
     }, 60_000);
   }

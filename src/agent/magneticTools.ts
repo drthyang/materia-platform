@@ -176,7 +176,7 @@ export function magneticView(s: MagneticPanelState): Record<string, unknown> {
           parameters: s.selected.parameters.map((p) => `${p.id} = ${sig(p.value, 4)}${esdText(s.selected!.fitRounds?.esd[p.id])}${amplitudeStatus(s.selected!.fitRounds, p.id)}${p.tiedTo ? ` (= ${p.tiedTo})` : ""}`),
           moments: s.selected.moments.map((m) => `${m.site}${m.orbit ? `#${m.orbit}` : ""}: ${sig(m.muB, 3)} µB`),
           ...(s.selected.fitAgreement !== null ? { momentsFitWR: pct(s.selected.fitAgreement) } : {}),
-          ...(s.selected.fitRounds ? { momentsFit: `${roundsText(s.selected.fitRounds)}${s.selected.fitRounds.esdIncludes ? "; the esds include the scale and the background" : s.selected.fitRounds.undetermined ? "; the esds are of the moments alone (a direction among the moments is not determined)" : "; the esds are of the moments alone (the data do not separate them from the scale and the background)"}${(s.selected.fitRounds.notes ?? []).map((n) => ` ${n}`).join("")}` } : {}),
+          ...(s.selected.fitRounds ? { momentsFit: `${roundsText(s.selected.fitRounds)}${s.selected.fitRounds.esdIncludes ? "; the esds include the scale and the background" : s.selected.fitRounds.undetermined ? "; the esds are of the moments alone (a direction among the moments is not determined)" : "; the esds are of the moments alone (the data do not separate them from the scale and the background)"}${(s.selected.fitRounds.notes ?? []).length > 0 ? `. ${s.selected.fitRounds.notes!.join(" ")}` : ""}` } : {}),
         },
       }
       : {}),
