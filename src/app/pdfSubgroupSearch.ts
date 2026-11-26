@@ -97,7 +97,8 @@ const freeing = (m: PdfPageModel, free: (p: RefinementParameter) => boolean): Pd
  * The correlation guard on a free set (decision 2), one probe at the given
  * page's values: one row of each pair at or over the limit is held, an ADP
  * before a mode, a mode before the scale (never the scale for an ADP), else
- * the later row; and every row the data cannot determine that is not a mode.
+ * the later row; and, for each combination the data cannot determine that no
+ * mode takes part in, the row (not the scale) that carries most of it.
  * Modes the data cannot determine are left alone, and so is a pair of them:
  * at the parent's geometry a symmetry-breaking mode is stationary (χ² even in
  * its amplitude), its correlations there are round-off, and the gate's
@@ -122,10 +123,15 @@ async function guarded(client: PdfCompute, m: PdfPageModel): Promise<{ readonly 
     hold.add(pick);
     held.push(`${pick} (${pair.a} ↔ ${pair.b} ${pair.coefficient.toFixed(3)})`);
   }
-  for (const id of check.undetermined) {
-    if (hold.has(id) || isMode(id) || kind.get(id) === "pdfScale") continue;
-    hold.add(id);
-    held.push(`${id} (not determined by the data)`);
+  // A combination the data cannot determine: when a mode takes part in it, it is the mode's stationarity (left to the
+  // gate); otherwise the non-mode row that carries most of it is held, one row per such combination.
+  for (const direction of probe.diagnostics?.nullDirections ?? []) {
+    const parts = Object.entries(direction);
+    if (parts.some(([id, c]) => isMode(id) && Math.abs(c) >= 0.1)) continue;
+    const pick = parts.filter(([id]) => !hold.has(id) && kind.get(id) !== "pdfScale").sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0]?.[0];
+    if (pick === undefined) continue;
+    hold.add(pick);
+    held.push(`${pick} (not determined by the data)`);
   }
   return { model: hold.size === 0 ? m : { ...m, params: m.params.map((p) => (hold.has(p.id) ? { ...p, fixed: true } : p)) }, held };
 }
