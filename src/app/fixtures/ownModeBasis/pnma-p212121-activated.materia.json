@@ -1,0 +1,780 @@
+{
+  "schemaVersion": 2,
+  "metadata": {
+    "title": "pnma-p212121-activated (saved on v0.5.1 main 8003787)",
+    "createdAt": "2026-11-26T00:00:00.000Z",
+    "modifiedAt": "2026-11-26T00:00:00.000Z",
+    "appVersion": "0.5.1"
+  },
+  "structures": [
+    {
+      "id": "b2-Pnma",
+      "name": "Pnma",
+      "cell": {"a": 5.5, "b": 7.6, "c": 5.3, "alpha": 90, "beta": 90, "gamma": 90},
+      "spaceGroup": {
+        "number": 62,
+        "hermannMauguin": "P n m a",
+        "operations": [
+          {"rotation": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "translation": [0, 0, 0], "xyz": "x,y,z"},
+          {"rotation": [[-1, 0, 0], [0, -1, 0], [0, 0, 1]], "translation": [0.5, 0, 0.5], "xyz": "-x+1/2,-y,z+1/2"},
+          {"rotation": [[1, 0, 0], [0, -1, 0], [0, 0, -1]], "translation": [0.5, 0.5, 0.5], "xyz": "x+1/2,-y+1/2,-z+1/2"},
+          {"rotation": [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], "translation": [0, 0.5, 0], "xyz": "-x,y+1/2,-z"},
+          {"rotation": [[-1, 0, 0], [0, -1, 0], [0, 0, -1]], "translation": [0, 0, 0], "xyz": "-x,-y,-z"},
+          {"rotation": [[1, 0, 0], [0, 1, 0], [0, 0, -1]], "translation": [0.5, 0, 0.5], "xyz": "x+1/2,y,-z+1/2"},
+          {"rotation": [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], "translation": [0.5, 0.5, 0.5], "xyz": "-x+1/2,y+1/2,z+1/2"},
+          {"rotation": [[1, 0, 0], [0, -1, 0], [0, 0, 1]], "translation": [0, 0.5, 0], "xyz": "x,-y+1/2,z"}
+        ]
+      },
+      "sites": [
+        {"label": "A", "element": "Gd", "position": [0.06, 0.25, 0.49], "occupancy": 1, "adp": {"kind": "isotropic", "bIso": 0.5}},
+        {"label": "B", "element": "Fe", "position": [0, 0, 0.5], "occupancy": 1, "adp": {"kind": "isotropic", "bIso": 0.5}},
+        {"label": "X", "element": "O", "position": [0.3, 0.05, 0.7], "occupancy": 1, "adp": {"kind": "isotropic", "bIso": 0.5}}
+      ]
+    }
+  ],
+  "workspace": {
+    "technique": "pdf",
+    "pattern": {
+      "id": "gofr-b2-Pnma",
+      "name": "b2-Pnma synthetic G(r)",
+      "scatteringType": "neutron",
+      "points": [
+        {"r": 1.5, "gObs": -1.358291},
+        {"r": 1.55, "gObs": -1.396551},
+        {"r": 1.6, "gObs": -1.413539},
+        {"r": 1.65, "gObs": -1.365454},
+        {"r": 1.7, "gObs": -1.160126},
+        {"r": 1.75, "gObs": -0.662607},
+        {"r": 1.8, "gObs": 0.227991},
+        {"r": 1.85, "gObs": 1.433088},
+        {"r": 1.9, "gObs": 2.601156},
+        {"r": 1.95, "gObs": 3.232513},
+        {"r": 2, "gObs": 3.008791},
+        {"r": 2.05, "gObs": 2.049655},
+        {"r": 2.1, "gObs": 0.832769},
+        {"r": 2.15, "gObs": -0.15272},
+        {"r": 2.2, "gObs": -0.699657},
+        {"r": 2.25, "gObs": -0.912111},
+        {"r": 2.3, "gObs": -1.025094},
+        {"r": 2.35, "gObs": -1.200962},
+        {"r": 2.4, "gObs": -1.442961},
+        {"r": 2.45, "gObs": -1.644677},
+        {"r": 2.5, "gObs": -1.695938},
+        {"r": 2.55, "gObs": -1.554227},
+        {"r": 2.6, "gObs": -1.249371},
+        {"r": 2.6500000000000004, "gObs": -0.848881},
+        {"r": 2.7, "gObs": -0.434311},
+        {"r": 2.75, "gObs": -0.110146},
+        {"r": 2.8, "gObs": -0.000867},
+        {"r": 2.85, "gObs": -0.183197},
+        {"r": 2.9000000000000004, "gObs": -0.600064},
+        {"r": 2.95, "gObs": -1.06953},
+        {"r": 3, "gObs": -1.406979},
+        {"r": 3.05, "gObs": -1.547821},
+        {"r": 3.1, "gObs": -1.568634},
+        {"r": 3.1500000000000004, "gObs": -1.611166},
+        {"r": 3.2, "gObs": -1.778579},
+        {"r": 3.25, "gObs": -2.074059},
+        {"r": 3.3, "gObs": -2.417464},
+        {"r": 3.35, "gObs": -2.714834},
+        {"r": 3.4000000000000004, "gObs": -2.912106},
+        {"r": 3.45, "gObs": -2.989246},
+        {"r": 3.5, "gObs": -2.911051},
+        {"r": 3.5500000000000003, "gObs": -2.583058},
+        {"r": 3.6, "gObs": -1.856797},
+        {"r": 3.65, "gObs": -0.605495},
+        {"r": 3.7, "gObs": 1.154336},
+        {"r": 3.75, "gObs": 3.172463},
+        {"r": 3.8000000000000003, "gObs": 4.991615},
+        {"r": 3.85, "gObs": 6.116916},
+        {"r": 3.9000000000000004, "gObs": 6.251768},
+        {"r": 3.95, "gObs": 5.445602},
+        {"r": 4, "gObs": 4.037161},
+        {"r": 4.050000000000001, "gObs": 2.443011},
+        {"r": 4.1, "gObs": 0.969669},
+        {"r": 4.15, "gObs": -0.232895},
+        {"r": 4.2, "gObs": -1.112587},
+        {"r": 4.25, "gObs": -1.645525},
+        {"r": 4.300000000000001, "gObs": -1.802043},
+        {"r": 4.35, "gObs": -1.55139},
+        {"r": 4.4, "gObs": -0.899419},
+        {"r": 4.45, "gObs": 0.059067},
+        {"r": 4.5, "gObs": 1.10677},
+        {"r": 4.550000000000001, "gObs": 1.921736},
+        {"r": 4.6, "gObs": 2.172437},
+        {"r": 4.65, "gObs": 1.682476},
+        {"r": 4.7, "gObs": 0.567097},
+        {"r": 4.75, "gObs": -0.797101},
+        {"r": 4.800000000000001, "gObs": -1.976077},
+        {"r": 4.85, "gObs": -2.682197},
+        {"r": 4.9, "gObs": -2.827834},
+        {"r": 4.95, "gObs": -2.472714},
+        {"r": 5, "gObs": -1.784777},
+        {"r": 5.050000000000001, "gObs": -1.005066},
+        {"r": 5.1, "gObs": -0.334495},
+        {"r": 5.15, "gObs": 0.198193},
+        {"r": 5.2, "gObs": 0.718487},
+        {"r": 5.25, "gObs": 1.331993},
+        {"r": 5.300000000000001, "gObs": 1.996706},
+        {"r": 5.35, "gObs": 2.56845},
+        {"r": 5.4, "gObs": 2.921084},
+        {"r": 5.45, "gObs": 3.018271},
+        {"r": 5.5, "gObs": 2.946686},
+        {"r": 5.55, "gObs": 2.917443},
+        {"r": 5.6000000000000005, "gObs": 3.139439},
+        {"r": 5.65, "gObs": 3.569334},
+        {"r": 5.7, "gObs": 3.80041},
+        {"r": 5.75, "gObs": 3.325135},
+        {"r": 5.8, "gObs": 1.989771},
+        {"r": 5.8500000000000005, "gObs": 0.178327},
+        {"r": 5.9, "gObs": -1.461066},
+        {"r": 5.95, "gObs": -2.449577},
+        {"r": 6, "gObs": -2.691616},
+        {"r": 6.05, "gObs": -2.408852},
+        {"r": 6.1000000000000005, "gObs": -1.959529},
+        {"r": 6.15, "gObs": -1.659197},
+        {"r": 6.2, "gObs": -1.642759},
+        {"r": 6.25, "gObs": -1.82314},
+        {"r": 6.300000000000001, "gObs": -1.978116},
+        {"r": 6.3500000000000005, "gObs": -1.908437},
+        {"r": 6.4, "gObs": -1.563223},
+        {"r": 6.45, "gObs": -1.049042},
+        {"r": 6.5, "gObs": -0.51994},
+        {"r": 6.550000000000001, "gObs": -0.06701},
+        {"r": 6.6000000000000005, "gObs": 0.26495},
+        {"r": 6.65, "gObs": 0.382975},
+        {"r": 6.7, "gObs": 0.148606},
+        {"r": 6.75, "gObs": -0.480501},
+        {"r": 6.800000000000001, "gObs": -1.332451},
+        {"r": 6.8500000000000005, "gObs": -2.081553},
+        {"r": 6.9, "gObs": -2.451952},
+        {"r": 6.95, "gObs": -2.387158},
+        {"r": 7, "gObs": -2.04648},
+        {"r": 7.050000000000001, "gObs": -1.65648},
+        {"r": 7.1000000000000005, "gObs": -1.372105},
+        {"r": 7.15, "gObs": -1.255851},
+        {"r": 7.2, "gObs": -1.327356},
+        {"r": 7.25, "gObs": -1.56637},
+        {"r": 7.300000000000001, "gObs": -1.852455},
+        {"r": 7.3500000000000005, "gObs": -1.94993},
+        {"r": 7.4, "gObs": -1.609276},
+        {"r": 7.45, "gObs": -0.717846},
+        {"r": 7.5, "gObs": 0.596989},
+        {"r": 7.550000000000001, "gObs": 1.949145},
+        {"r": 7.6000000000000005, "gObs": 2.807255},
+        {"r": 7.65, "gObs": 2.768633},
+        {"r": 7.7, "gObs": 1.82984},
+        {"r": 7.75, "gObs": 0.391175},
+        {"r": 7.800000000000001, "gObs": -1.014276},
+        {"r": 7.8500000000000005, "gObs": -1.992675},
+        {"r": 7.9, "gObs": -2.368932},
+        {"r": 7.95, "gObs": -2.136535},
+        {"r": 8, "gObs": -1.406629}
+      ],
+      "qdamp": 0.03
+    },
+    "refinement": {
+      "parameters": [
+        {"id": "pdfScale", "label": "PDF scale", "kind": "pdfScale", "value": 1.0000000045436614, "initialValue": 1, "min": 0, "fixed": false},
+        {"id": "qdamp", "label": "Qdamp", "kind": "qdamp", "value": 0.03, "initialValue": 0.03, "min": 0, "max": 0.5, "fixed": true},
+        {"id": "qbroad", "label": "Qbroad", "kind": "qbroad", "value": 0, "initialValue": 0, "min": 0, "max": 0.5, "fixed": true},
+        {"id": "delta1", "label": "δ1 (corr. motion)", "kind": "delta1", "value": 0, "initialValue": 0, "min": 0, "max": 5, "fixed": true},
+        {"id": "delta2", "label": "δ2 (corr. motion)", "kind": "delta2", "value": 0, "initialValue": 0, "min": 0, "max": 10, "fixed": true},
+        {"id": "spdiameter", "label": "particle Ø (Å)", "kind": "spdiameter", "value": 0, "initialValue": 0, "min": 0, "fixed": true},
+        {"id": "sratio", "label": "sratio (r < rcut)", "kind": "sratio", "value": 1, "initialValue": 1, "min": 0.1, "max": 1, "fixed": true},
+        {"id": "rcut", "label": "rcut (Å)", "kind": "rcut", "value": 0, "initialValue": 0, "min": 0, "fixed": true},
+        {"id": "cell_a", "label": "a (Å)", "kind": "cellLength", "value": 5.5, "initialValue": 5.5, "fixed": false},
+        {"id": "cell_b", "label": "b (Å)", "kind": "cellLength", "value": 7.6, "initialValue": 7.6, "fixed": false},
+        {"id": "cell_c", "label": "c (Å)", "kind": "cellLength", "value": 5.3, "initialValue": 5.3, "fixed": false},
+        {"id": "B_A", "label": "A B", "kind": "bIso", "value": 0.5, "initialValue": 0.5, "min": 0, "max": 10, "fixed": true},
+        {"id": "B_B", "label": "B B", "kind": "bIso", "value": 0.5, "initialValue": 0.5, "min": 0, "max": 10, "fixed": true},
+        {"id": "B_Xa", "label": "Xa B", "kind": "bIso", "value": 0.5, "initialValue": 0.5, "min": 0, "max": 10, "fixed": true},
+        {"id": "B_Xb", "label": "Xb B", "kind": "bIso", "value": 0.5, "initialValue": 0.5, "min": 0, "max": 10, "fixed": true},
+        {"id": "occ_A", "label": "A occ", "kind": "occupancy", "value": 1, "initialValue": 1, "min": 0, "max": 1, "fixed": true},
+        {"id": "occ_B", "label": "B occ", "kind": "occupancy", "value": 1, "initialValue": 1, "min": 0, "max": 1, "fixed": true},
+        {"id": "occ_Xa", "label": "Xa occ", "kind": "occupancy", "value": 1, "initialValue": 1, "min": 0, "max": 1, "fixed": true},
+        {"id": "occ_Xb", "label": "Xb occ", "kind": "occupancy", "value": 1, "initialValue": 1, "min": 0, "max": 1, "fixed": true},
+        {"id": "mode_1", "label": "Γ2 → P 21 21 21", "kind": "positionShift", "value": 0.05, "initialValue": 0.05, "fixed": false},
+        {"id": "mode_2", "label": "mode 2 @ Γ (A)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+        {"id": "mode_3", "label": "mode 3 @ Γ (A)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+        {"id": "mode_4", "label": "mode 4 @ Γ (A)", "kind": "positionShift", "value": 0.009, "initialValue": 0, "fixed": true},
+        {"id": "mode_5", "label": "mode 5 @ Γ (B)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+        {"id": "mode_6", "label": "mode 6 @ Γ (B)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+        {"id": "mode_7", "label": "mode 7 @ Γ (Xa)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+        {"id": "mode_8", "label": "mode 8 @ Γ (Xa)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+        {"id": "mode_9", "label": "mode 9 @ Γ (Xa)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true}
+      ],
+      "bindings": [
+        {"parameterId": "pdfScale", "kind": "pdfScale", "targetId": "gofr-b2-Pnma"},
+        {"parameterId": "qdamp", "kind": "qdamp", "targetId": "gofr-b2-Pnma"},
+        {"parameterId": "qbroad", "kind": "qbroad", "targetId": "gofr-b2-Pnma"},
+        {"parameterId": "delta1", "kind": "delta1", "targetId": "gofr-b2-Pnma"},
+        {"parameterId": "delta2", "kind": "delta2", "targetId": "gofr-b2-Pnma"},
+        {"parameterId": "spdiameter", "kind": "spdiameter", "targetId": "gofr-b2-Pnma"},
+        {"parameterId": "sratio", "kind": "sratio", "targetId": "gofr-b2-Pnma"},
+        {"parameterId": "rcut", "kind": "rcut", "targetId": "gofr-b2-Pnma"},
+        {"parameterId": "cell_a", "kind": "cellLength", "targetId": "b2-Pnma", "targetKey": "a"},
+        {"parameterId": "cell_b", "kind": "cellLength", "targetId": "b2-Pnma", "targetKey": "b"},
+        {"parameterId": "cell_c", "kind": "cellLength", "targetId": "b2-Pnma", "targetKey": "c"},
+        {"parameterId": "B_A", "kind": "bIso", "targetId": "b2-Pnma", "targetKey": "A"},
+        {"parameterId": "B_B", "kind": "bIso", "targetId": "b2-Pnma", "targetKey": "B"},
+        {"parameterId": "B_Xa", "kind": "bIso", "targetId": "b2-Pnma", "targetKey": "Xa"},
+        {"parameterId": "B_Xb", "kind": "bIso", "targetId": "b2-Pnma", "targetKey": "Xb"},
+        {"parameterId": "occ_A", "kind": "occupancy", "targetId": "b2-Pnma", "targetKey": "A"},
+        {"parameterId": "occ_B", "kind": "occupancy", "targetId": "b2-Pnma", "targetKey": "B"},
+        {"parameterId": "occ_Xa", "kind": "occupancy", "targetId": "b2-Pnma", "targetKey": "Xa"},
+        {"parameterId": "occ_Xb", "kind": "occupancy", "targetId": "b2-Pnma", "targetKey": "Xb"},
+        {
+          "parameterId": "mode_1",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "A",
+          "axis": [-0.04317924991795776, 0.033221177801955826, -0.034956339140805266]
+        },
+        {
+          "parameterId": "mode_1",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "B",
+          "axis": [0.009660369059040785, -0.00881069693177695, 0.043441111989895635]
+        },
+        {
+          "parameterId": "mode_1",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xa",
+          "axis": [0.016759440429458487, -0.012205240435089441, -0.004242386424545184]
+        },
+        {
+          "parameterId": "mode_1",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xb",
+          "axis": [0.016759440429458487, -0.012205240435089441, -0.004242386424545184]
+        },
+        {
+          "parameterId": "mode_2",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "A",
+          "axis": [0.06583235894270051, 0.021789672463781804, -0.02292775966438432]
+        },
+        {
+          "parameterId": "mode_2",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "B",
+          "axis": [-0.025048292952931622, -0.0057789101116627025, 0.028492897132219176]
+        },
+        {
+          "parameterId": "mode_2",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xa",
+          "axis": [-0.02039203299488445, -0.008005381176059553, -0.0027825687339174264]
+        },
+        {
+          "parameterId": "mode_2",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xb",
+          "axis": [-0.02039203299488445, -0.008005381176059553, -0.0027825687339174264]
+        },
+        {
+          "parameterId": "mode_3",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "A",
+          "axis": [5.883381052094744e-18, 0.04083815195507773, 0.040669791648367946]
+        },
+        {
+          "parameterId": "mode_3",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "B",
+          "axis": [0.005506254576007278, -0.016245627979950515, -0.0505413615105971]
+        },
+        {
+          "parameterId": "mode_3",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xa",
+          "axis": [-0.002753127288003639, -0.012296261987563601, 0.004935784931114576]
+        },
+        {
+          "parameterId": "mode_3",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xb",
+          "axis": [-0.002753127288003639, -0.012296261987563601, 0.004935784931114576]
+        },
+        {
+          "parameterId": "mode_4",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "A",
+          "axis": [-2.577031742660471e-17, 4.317622861368335e-18, 0.05721287912725926]
+        },
+        {
+          "parameterId": "mode_4",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "B",
+          "axis": [-0.008049731759162503, 0.003849118176264436, 0.0349979954466799]
+        },
+        {
+          "parameterId": "mode_4",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xa",
+          "axis": [0.004024865879581258, -0.0019245590881322287, -0.04610543728696958]
+        },
+        {
+          "parameterId": "mode_4",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xb",
+          "axis": [0.004024865879581258, -0.0019245590881322287, -0.04610543728696958]
+        },
+        {
+          "parameterId": "mode_5",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "B",
+          "axis": [0.07336545765123387, 0.0008287235544106885, 0.011641164196066605]
+        },
+        {
+          "parameterId": "mode_5",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xa",
+          "axis": [-0.036682728825616934, -0.0004143617772053449, -0.005820582098033302]
+        },
+        {
+          "parameterId": "mode_5",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xb",
+          "axis": [-0.036682728825616934, -0.0004143617772053449, -0.005820582098033302]
+        },
+        {
+          "parameterId": "mode_6",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "B",
+          "axis": [-4.636575979260163e-18, 0.05343916196296809, -0.007822550078487657]
+        },
+        {
+          "parameterId": "mode_6",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xa",
+          "axis": [1.2645207216164083e-18, -0.026719580981484047, 0.0039112750392438275]
+        },
+        {
+          "parameterId": "mode_6",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xb",
+          "axis": [1.2645207216164083e-18, -0.026719580981484047, 0.0039112750392438275]
+        },
+        {
+          "parameterId": "mode_7",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xa",
+          "axis": [0.0642824346533225, 1.1077896079681405e-18, 8.686862542543521e-19]
+        },
+        {
+          "parameterId": "mode_7",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xb",
+          "axis": [-0.0642824346533225, 1.1077896079681405e-18, 8.686862542543521e-19]
+        },
+        {
+          "parameterId": "mode_8",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xa",
+          "axis": [-3.5326656244312595e-18, 0.04652018297279919, 6.455972280772101e-19]
+        },
+        {
+          "parameterId": "mode_8",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xb",
+          "axis": [4.3396621595277734e-18, -0.04652018297279918, 6.455972280772101e-19]
+        },
+        {
+          "parameterId": "mode_9",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xa",
+          "axis": [-7.701388208496006e-19, -9.328874098991571e-18, 0.06670818690439129]
+        },
+        {
+          "parameterId": "mode_9",
+          "kind": "positionShift",
+          "targetId": "b2-Pnma",
+          "targetKey": "Xb",
+          "axis": [7.102188963109436e-18, -3.631794781652799e-18, -0.06670818690439127]
+        }
+      ]
+    },
+    "fitRange": {"min": 1.5, "max": 8},
+    "positionMode": "irreps",
+    "distortionModes": {
+      "set": {
+        "parentized": {
+          "id": "b2-Pnma",
+          "name": "Pnma",
+          "cell": {"a": 5.5, "b": 7.6, "c": 5.3, "alpha": 90, "beta": 90, "gamma": 90},
+          "spaceGroup": {
+            "operations": [
+              {"rotation": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "translation": [0, 0, 0], "xyz": "x,y,z"},
+              {"rotation": [[-1, 0, 0], [0, -1, 0], [0, 0, 1]], "translation": [0.5, 0, 0.5], "xyz": "-x+1/2,-y,z+1/2"},
+              {"rotation": [[1, 0, 0], [0, -1, 0], [0, 0, -1]], "translation": [0.5, 0.5, 0.5], "xyz": "x+1/2,-y+1/2,-z+1/2"},
+              {"rotation": [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], "translation": [0, 0.5, 0], "xyz": "-x,y+1/2,-z"}
+            ]
+          },
+          "sites": [
+            {"label": "A", "element": "Gd", "position": [0.06, 0.25, 0.49], "occupancy": 1, "adp": {"kind": "isotropic", "bIso": 0.5}},
+            {"label": "B", "element": "Fe", "position": [0, 0, 0.5], "occupancy": 1, "adp": {"kind": "isotropic", "bIso": 0.5}},
+            {"label": "Xa", "element": "O", "position": [0.3, 0.05, 0.7], "occupancy": 1, "adp": {"kind": "isotropic", "bIso": 0.5}},
+            {"label": "Xb", "element": "O", "position": [0.7, 0.95, 0.30000000000000004], "occupancy": 1, "adp": {"kind": "isotropic", "bIso": 0.5}}
+          ]
+        },
+        "originShift": [0, 0, 0],
+        "parameters": [
+          {"id": "mode_1", "label": "Γ2 → P 21 21 21", "kind": "positionShift", "value": 0.05, "initialValue": 0.05, "fixed": false},
+          {"id": "mode_2", "label": "mode 2 @ Γ (A)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+          {"id": "mode_3", "label": "mode 3 @ Γ (A)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+          {"id": "mode_4", "label": "mode 4 @ Γ (A)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+          {"id": "mode_5", "label": "mode 5 @ Γ (B)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+          {"id": "mode_6", "label": "mode 6 @ Γ (B)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+          {"id": "mode_7", "label": "mode 7 @ Γ (Xa)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+          {"id": "mode_8", "label": "mode 8 @ Γ (Xa)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true},
+          {"id": "mode_9", "label": "mode 9 @ Γ (Xa)", "kind": "positionShift", "value": 0, "initialValue": 0, "fixed": true}
+        ],
+        "bindings": [
+          {
+            "parameterId": "mode_1",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "A",
+            "axis": [-0.04317924991795776, 0.033221177801955826, -0.034956339140805266]
+          },
+          {
+            "parameterId": "mode_1",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "B",
+            "axis": [0.009660369059040785, -0.00881069693177695, 0.043441111989895635]
+          },
+          {
+            "parameterId": "mode_1",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xa",
+            "axis": [0.016759440429458487, -0.012205240435089441, -0.004242386424545184]
+          },
+          {
+            "parameterId": "mode_1",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xb",
+            "axis": [0.016759440429458487, -0.012205240435089441, -0.004242386424545184]
+          },
+          {
+            "parameterId": "mode_2",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "A",
+            "axis": [0.06583235894270051, 0.021789672463781804, -0.02292775966438432]
+          },
+          {
+            "parameterId": "mode_2",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "B",
+            "axis": [-0.025048292952931622, -0.0057789101116627025, 0.028492897132219176]
+          },
+          {
+            "parameterId": "mode_2",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xa",
+            "axis": [-0.02039203299488445, -0.008005381176059553, -0.0027825687339174264]
+          },
+          {
+            "parameterId": "mode_2",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xb",
+            "axis": [-0.02039203299488445, -0.008005381176059553, -0.0027825687339174264]
+          },
+          {
+            "parameterId": "mode_3",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "A",
+            "axis": [5.883381052094744e-18, 0.04083815195507773, 0.040669791648367946]
+          },
+          {
+            "parameterId": "mode_3",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "B",
+            "axis": [0.005506254576007278, -0.016245627979950515, -0.0505413615105971]
+          },
+          {
+            "parameterId": "mode_3",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xa",
+            "axis": [-0.002753127288003639, -0.012296261987563601, 0.004935784931114576]
+          },
+          {
+            "parameterId": "mode_3",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xb",
+            "axis": [-0.002753127288003639, -0.012296261987563601, 0.004935784931114576]
+          },
+          {
+            "parameterId": "mode_4",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "A",
+            "axis": [-2.577031742660471e-17, 4.317622861368335e-18, 0.05721287912725926]
+          },
+          {
+            "parameterId": "mode_4",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "B",
+            "axis": [-0.008049731759162503, 0.003849118176264436, 0.0349979954466799]
+          },
+          {
+            "parameterId": "mode_4",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xa",
+            "axis": [0.004024865879581258, -0.0019245590881322287, -0.04610543728696958]
+          },
+          {
+            "parameterId": "mode_4",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xb",
+            "axis": [0.004024865879581258, -0.0019245590881322287, -0.04610543728696958]
+          },
+          {
+            "parameterId": "mode_5",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "B",
+            "axis": [0.07336545765123387, 0.0008287235544106885, 0.011641164196066605]
+          },
+          {
+            "parameterId": "mode_5",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xa",
+            "axis": [-0.036682728825616934, -0.0004143617772053449, -0.005820582098033302]
+          },
+          {
+            "parameterId": "mode_5",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xb",
+            "axis": [-0.036682728825616934, -0.0004143617772053449, -0.005820582098033302]
+          },
+          {
+            "parameterId": "mode_6",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "B",
+            "axis": [-4.636575979260163e-18, 0.05343916196296809, -0.007822550078487657]
+          },
+          {
+            "parameterId": "mode_6",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xa",
+            "axis": [1.2645207216164083e-18, -0.026719580981484047, 0.0039112750392438275]
+          },
+          {
+            "parameterId": "mode_6",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xb",
+            "axis": [1.2645207216164083e-18, -0.026719580981484047, 0.0039112750392438275]
+          },
+          {
+            "parameterId": "mode_7",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xa",
+            "axis": [0.0642824346533225, 1.1077896079681405e-18, 8.686862542543521e-19]
+          },
+          {
+            "parameterId": "mode_7",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xb",
+            "axis": [-0.0642824346533225, 1.1077896079681405e-18, 8.686862542543521e-19]
+          },
+          {
+            "parameterId": "mode_8",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xa",
+            "axis": [-3.5326656244312595e-18, 0.04652018297279919, 6.455972280772101e-19]
+          },
+          {
+            "parameterId": "mode_8",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xb",
+            "axis": [4.3396621595277734e-18, -0.04652018297279918, 6.455972280772101e-19]
+          },
+          {
+            "parameterId": "mode_9",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xa",
+            "axis": [-7.701388208496006e-19, -9.328874098991571e-18, 0.06670818690439129]
+          },
+          {
+            "parameterId": "mode_9",
+            "kind": "positionShift",
+            "targetId": "b2-Pnma",
+            "targetKey": "Xb",
+            "axis": [7.102188963109436e-18, -3.631794781652799e-18, -0.06670818690439127]
+          }
+        ],
+        "modes": [
+          {
+            "id": "mode_1",
+            "label": "Γ2 → P 21 21 21",
+            "star": "Γ",
+            "observedAmplitude": 0,
+            "axes": [
+              {"siteLabel": "A", "axis": [-0.04317924991795776, 0.033221177801955826, -0.034956339140805266]},
+              {"siteLabel": "B", "axis": [0.009660369059040785, -0.00881069693177695, 0.043441111989895635]},
+              {"siteLabel": "Xa", "axis": [0.016759440429458487, -0.012205240435089441, -0.004242386424545184]},
+              {"siteLabel": "Xb", "axis": [0.016759440429458487, -0.012205240435089441, -0.004242386424545184]}
+            ],
+            "active": true
+          },
+          {
+            "id": "mode_2",
+            "label": "mode 2 @ Γ (A)",
+            "star": "Γ",
+            "observedAmplitude": 0,
+            "axes": [
+              {"siteLabel": "A", "axis": [0.06583235894270051, 0.021789672463781804, -0.02292775966438432]},
+              {"siteLabel": "B", "axis": [-0.025048292952931622, -0.0057789101116627025, 0.028492897132219176]},
+              {"siteLabel": "Xa", "axis": [-0.02039203299488445, -0.008005381176059553, -0.0027825687339174264]},
+              {"siteLabel": "Xb", "axis": [-0.02039203299488445, -0.008005381176059553, -0.0027825687339174264]}
+            ],
+            "active": false
+          },
+          {
+            "id": "mode_3",
+            "label": "mode 3 @ Γ (A)",
+            "star": "Γ",
+            "observedAmplitude": 0,
+            "axes": [
+              {"siteLabel": "A", "axis": [5.883381052094744e-18, 0.04083815195507773, 0.040669791648367946]},
+              {"siteLabel": "B", "axis": [0.005506254576007278, -0.016245627979950515, -0.0505413615105971]},
+              {"siteLabel": "Xa", "axis": [-0.002753127288003639, -0.012296261987563601, 0.004935784931114576]},
+              {"siteLabel": "Xb", "axis": [-0.002753127288003639, -0.012296261987563601, 0.004935784931114576]}
+            ],
+            "active": false
+          },
+          {
+            "id": "mode_4",
+            "label": "mode 4 @ Γ (A)",
+            "star": "Γ",
+            "observedAmplitude": 0,
+            "axes": [
+              {"siteLabel": "A", "axis": [-2.577031742660471e-17, 4.317622861368335e-18, 0.05721287912725926]},
+              {"siteLabel": "B", "axis": [-0.008049731759162503, 0.003849118176264436, 0.0349979954466799]},
+              {"siteLabel": "Xa", "axis": [0.004024865879581258, -0.0019245590881322287, -0.04610543728696958]},
+              {"siteLabel": "Xb", "axis": [0.004024865879581258, -0.0019245590881322287, -0.04610543728696958]}
+            ],
+            "active": false
+          },
+          {
+            "id": "mode_5",
+            "label": "mode 5 @ Γ (B)",
+            "star": "Γ",
+            "observedAmplitude": 0,
+            "axes": [
+              {"siteLabel": "B", "axis": [0.07336545765123387, 0.0008287235544106885, 0.011641164196066605]},
+              {"siteLabel": "Xa", "axis": [-0.036682728825616934, -0.0004143617772053449, -0.005820582098033302]},
+              {"siteLabel": "Xb", "axis": [-0.036682728825616934, -0.0004143617772053449, -0.005820582098033302]}
+            ],
+            "active": false
+          },
+          {
+            "id": "mode_6",
+            "label": "mode 6 @ Γ (B)",
+            "star": "Γ",
+            "observedAmplitude": 0,
+            "axes": [
+              {"siteLabel": "B", "axis": [-4.636575979260163e-18, 0.05343916196296809, -0.007822550078487657]},
+              {"siteLabel": "Xa", "axis": [1.2645207216164083e-18, -0.026719580981484047, 0.0039112750392438275]},
+              {"siteLabel": "Xb", "axis": [1.2645207216164083e-18, -0.026719580981484047, 0.0039112750392438275]}
+            ],
+            "active": false
+          },
+          {
+            "id": "mode_7",
+            "label": "mode 7 @ Γ (Xa)",
+            "star": "Γ",
+            "observedAmplitude": 0,
+            "axes": [
+              {"siteLabel": "Xa", "axis": [0.0642824346533225, 1.1077896079681405e-18, 8.686862542543521e-19]},
+              {"siteLabel": "Xb", "axis": [-0.0642824346533225, 1.1077896079681405e-18, 8.686862542543521e-19]}
+            ],
+            "active": false
+          },
+          {
+            "id": "mode_8",
+            "label": "mode 8 @ Γ (Xa)",
+            "star": "Γ",
+            "observedAmplitude": 0,
+            "axes": [
+              {"siteLabel": "Xa", "axis": [-3.5326656244312595e-18, 0.04652018297279919, 6.455972280772101e-19]},
+              {"siteLabel": "Xb", "axis": [4.3396621595277734e-18, -0.04652018297279918, 6.455972280772101e-19]}
+            ],
+            "active": false
+          },
+          {
+            "id": "mode_9",
+            "label": "mode 9 @ Γ (Xa)",
+            "star": "Γ",
+            "observedAmplitude": 0,
+            "axes": [
+              {"siteLabel": "Xa", "axis": [-7.701388208496006e-19, -9.328874098991571e-18, 0.06670818690439129]},
+              {"siteLabel": "Xb", "axis": [7.102188963109436e-18, -3.631794781652799e-18, -0.06670818690439127]}
+            ],
+            "active": false
+          }
+        ],
+        "totalAmplitude": 0,
+        "unpaired": [],
+        "acousticExcluded": 3
+      },
+      "parentName": "Γ2 → P 21 21 21",
+      "fromActivation": true
+    },
+    "boxcar": {
+      "plan": {"width": 5, "step": 1, "direction": "up", "randomStart": false, "restarts": 4}
+    }
+  }
+}

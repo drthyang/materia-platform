@@ -650,11 +650,6 @@ Conventions are pinned in
   conventional child cell. ISODISTORT's A_s and A_p are shown beside it. The
   parameter's unit changes after the agent validation freeze
   ([ADR 0003](./adr/0003-isodistort-as-the-single-convention-system.md)).
-- The `build_symmetry_modes` tool (and the Γ activation) projects out a
-  rigid translation along any direction every site allows. For a non-polar
-  group whose sites all share one such direction, that removes a genuine
-  mode. The decentring activations keep it. The fix waits on the validation
-  freeze.
 - Multi-dataset co-refinement from the UI or the agent tools.
 - Magnetic PDF in the `refine_pdf_boxcar` and `sample_posterior` agent tools.
   The PDF page's Boxcar and Posterior views handle it.
@@ -667,6 +662,11 @@ Conventions are pinned in
   parent cell alone, so the magnetic G(r) is wrong.
 - A PDF refinement of a Pnma child with many modes free can run away instead
   of converging. Free the leading modes first and the others a few at a time.
+- A same-cell Activate saved before the symmetry-mode gauge fix (CHANGELOG,
+  Unreleased) reopens with the mode set it was saved with. Where every site of the child allows a direction that one
+  of the child's symmetry operations does not fix (an inversion or a mirror,
+  for example), that set lacks up to 3 modes.
+  Activate the row again for the full set.
 
 ## Input and output
 

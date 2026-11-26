@@ -61,7 +61,7 @@ export function irrepModeSet(
       active: opts.free?.(i) ?? false,
     };
   });
-  const built = buildSymmetryModes(realised.structure, { seeds, gauge: "polar" });
+  const built = buildSymmetryModes(realised.structure, { seeds, gaugeBasis: "rotations" });
   const byLabel = new Map(basis.modes.map((m, i) => [m.label, i] as const));
   const modes: DistortionMode[] = built.modes.map((mode) => {
     const i = byLabel.get(mode.label);

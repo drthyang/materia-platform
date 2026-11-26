@@ -177,7 +177,7 @@ export function activateIsotropySubgroup(parent: StructureModel, term: Displaciv
     { axes: fieldSeedAxes(child, field), label, star },
     ...irrepModeSeeds(parent, child, stabilizer, modeTerms(parent)),
   ];
-  const built = buildSymmetryModes(child, { seeds, gauge: "polar" });
+  const built = buildSymmetryModes(child, { seeds, gaugeBasis: "rotations" });
   return { child, identity, modeSet: { ...built, amplitudeCells: amplitudeCells(parent, child) } };
 }
 
@@ -214,6 +214,6 @@ export function lowerToSubgroup(parent: StructureModel, subOps: readonly Symmetr
     ...(order ? [{ axes: fieldSeedAxes(child, order.field), label: `${order.irreps.join(" + ")} → ${name}` }] : []),
     ...irrepModeSeeds(parent, child, subOps, terms),
   ];
-  const built = buildSymmetryModes(child, { seeds, gauge: "polar" });
+  const built = buildSymmetryModes(child, { seeds, gaugeBasis: "rotations" });
   return { child, modeSet: { ...built, amplitudeCells: amplitudeCells(parent, child) }, order };
 }

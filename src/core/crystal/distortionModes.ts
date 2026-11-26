@@ -459,12 +459,14 @@ export function buildDistortionModes(parent: StructureModel, child: StructureMod
  *
  * ACOUSTIC EXCLUSION: a uniform (rigid) translation of the whole structure is
  * exactly unobservable in any scattering quantity — G(r) sees only interatomic
- * vectors and |F|² is origin-invariant — so when a lattice-axis translation
- * lies fully inside the symmetry-allowed space (every site free to follow), it
- * is an exact null direction of the fit. Refining it stalls the engine with a
- * ±1.00 correlation. Such combinations are projected OUT of the catalog here
- * (`acousticExcluded` counts them); when a symmetry-pinned site anchors the
- * origin, no translation is in-span and nothing is excluded. The per-coordinate
+ * vectors and |F|² is origin-invariant — so when the group allows one (a polar
+ * group: a direction every rotation fixes, so every atom can follow), it is an
+ * exact null direction of the fit. Refining it stalls the engine with a ±1.00
+ * correlation. Such combinations are projected OUT of the catalog here
+ * (`acousticExcluded` counts them); a non-polar group has none. A direction
+ * every site allows but some rotation does not fix is NOT one: moving each
+ * orbit representative along it moves the orbits' other atoms along its
+ * images, a genuine distortion, kept. The per-coordinate
  * parameterization cannot make this distinction — a genuine advantage of the
  * mode basis. (The child-decomposition path `buildDistortionModes` is left
  * as-is: its frozen order parameter is an observed, observable displacement.)
@@ -483,15 +485,23 @@ export function buildSymmetryModes(
   opts?: {
     readonly seeds?: readonly SymmetryModeSeed[];
     /**
-     * Which rigid translations are projected out. "sites" (the default, kept
-     * for the frozen tool output): every direction each site's own symmetry
-     * allows. "polar": only the directions every rotation of the group fixes
-     * — the translations that are a null direction of the fit. They differ for
-     * a non-polar group whose sites all allow one common direction (P2₁3 with
-     * every site on a 3-fold: [111] is allowed at each site, but moving each
-     * site along it moves the orbits apart, a genuine distortion).
+     * How the basis of the projected-out translations is computed. The space
+     * is always the same: the directions every rotation of the group fixes
+     * (its polar directions), the only rigid translations that are a null
+     * direction of the fit. This picks a floating-point basis of it:
+     * "rotations" computes it from the rotations; "sites" (the default) takes
+     * the intersection of the sites' allowed spans where that intersection
+     * IS the polar space, the basis the same-cell subgroup routes, the
+     * Positions → Irreps toggle and build_symmetry_modes have always used, so
+     * their results stay bit-identical, and the rotations' basis where the
+     * intersection is larger. It is larger where every site allows a
+     * direction some rotation does not fix (P2₁3 with every site on a
+     * 3-fold: [111] is allowed at each site, but moving each site along it
+     * moves the orbits apart, a genuine distortion; P2₁ with every site
+     * general: a and c); until 2026-11-26 the default projected that whole
+     * intersection out and lost those modes.
      */
-    readonly gauge?: "sites" | "polar";
+    readonly gaugeBasis?: "sites" | "rotations";
   },
 ): DistortionModeSet {
   const M = orthogonalizationMatrix(structure.cell);
@@ -533,36 +543,44 @@ export function buildSymmetryModes(
   });
   const zero = (): GlobalVec => ({ frac: sites.map(() => [0, 0, 0] as Vec3) });
 
-  // Acoustic gauge modes: a rigid translation of the whole structure along ANY
-  // direction — not only a lattice axis — is an exact scattering null, and it
-  // lies inside the parameter space exactly when the direction is in EVERY
-  // site's allowed span (a symmetry-pinned site anchors the origin and kills
-  // it). The gauge subspace is therefore the INTERSECTION of the per-site
-  // spans, computed in Cartesian as the null space of Q = Σ_sites (I − P_s)
-  // (P_s = orthogonal projector onto site s's allowed span): Q·v = 0 ⇔ v is
-  // allowed at every site. Testing only the coordinate axes would miss oblique
-  // gauges — e.g. every site on a [111] 3-fold (rhombohedral GeTe): the common
-  // direction is [111], not x/y/z.
+  // Acoustic gauge modes: a rigid translation of the WHOLE structure — every
+  // atom of every orbit moved by the same vector t — is an exact scattering
+  // null. Moving each orbit representative by t moves the orbit's other atoms
+  // by R·t, so it is a rigid translation only when every rotation R fixes t:
+  // the gauge is the space of the group's polar directions, the null space of
+  // Q = Σ_R (R − I)ᵀ(R − I) in Cartesian. A direction every site allows but
+  // some rotation does not fix (P2₁3, every site on a 3-fold: [111]) is a
+  // genuine distortion and stays in the catalog.
+  //
+  // The basis of that space (gaugeBasis): the default takes it from the
+  // intersection of the per-site allowed spans, the null space of
+  // Q = Σ_sites (I − P_s) (P_s = orthogonal projector onto site s's allowed
+  // span; a pinned site contributes I and anchors the origin), whenever that
+  // intersection has the polar space's dimension. It always contains the
+  // polar space (a direction every rotation fixes is allowed at every site),
+  // so equal dimensions mean the same space, and this keeps the basis these
+  // routes have always had. Where it is larger, the rotations' basis is used.
+  // Testing only the coordinate axes would miss oblique gauges — e.g. every
+  // site on a [111] 3-fold (rhombohedral GeTe): the common direction is
+  // [111], not x/y/z.
   const gauge: GlobalVec[] = [];
   {
-    // Per-site projector complements, over ALL sites (a pinned site contributes
-    // I − 0 = I, forcing an empty intersection — the origin is anchored).
-    const Q: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-    const polar = opts?.gauge === "polar";
-    // "polar": Q = Σ_R (R − I)ᵀ(R − I) in Cartesian, null on the vectors every rotation fixes.
-    if (polar) {
+    // The rotations' Q: Σ_R (R − I)ᵀ(R − I), with R the Cartesian rotation M·R·M⁻¹.
+    const polarQ: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    {
       const Minv0 = inverse(M);
       for (const op of ops) {
         const Rc = [0, 1, 2].map((i) => [0, 1, 2].map((j) => {
-          // Cartesian rotation M·R·M⁻¹.
           let v = 0;
           for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) v += M[i]![a]! * op.rotation[a]![b]! * Minv0[b]![j]!;
           return v - (i === j ? 1 : 0);
         }));
-        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let a = 0; a < 3; a++) Q[i]![j] = Q[i]![j]! + Rc[a]![i]! * Rc[a]![j]!;
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let a = 0; a < 3; a++) polarQ[i]![j] = polarQ[i]![j]! + Rc[a]![i]! * Rc[a]![j]!;
       }
     }
-    for (const s of polar ? [] : structure.sites) {
+    // The sites' Q: per-site projector complements, over ALL sites.
+    const sitesQ: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (const s of opts?.gaugeBasis === "rotations" ? [] : structure.sites) {
       const basis = allowedPositionShifts(ops, s.position).basis;
       const bC = basis.map((b) => mulVec(M, b));
       // P = B·(BᵀB)⁻¹·Bᵀ via the small Gram solve; complement added to Q.
@@ -599,45 +617,53 @@ export function buildSymmetryModes(
         }
       }
       for (let i = 0; i < 3; i++) {
-        for (let j = 0; j < 3; j++) Q[i]![j] = Q[i]![j]! + (i === j ? 1 : 0) - P[i]![j]!;
+        for (let j = 0; j < 3; j++) sitesQ[i]![j] = sitesQ[i]![j]! + (i === j ? 1 : 0) - P[i]![j]!;
       }
     }
-    // Null space of the symmetric PSD 3×3 Q by row reduction (entries are sums
-    // of projectors, O(1) — an absolute pivot tolerance is safe).
-    const R = Q.map((r) => [...r]);
-    const pivotCols: number[] = [];
-    let rr = 0;
-    for (let c = 0; c < 3 && rr < 3; c++) {
-      let best = rr;
-      for (let i = rr + 1; i < 3; i++) if (Math.abs(R[i]![c]!) > Math.abs(R[best]![c]!)) best = i;
-      if (Math.abs(R[best]![c]!) < 1e-9) continue;
-      [R[rr], R[best]] = [R[best]!, R[rr]!];
-      const d = R[rr]![c]!;
-      for (let k = 0; k < 3; k++) R[rr]![k] = R[rr]![k]! / d;
-      for (let i = 0; i < 3; i++) {
-        if (i === rr) continue;
-        const f = R[i]![c]!;
-        for (let k = 0; k < 3; k++) R[i]![k] = R[i]![k]! - f * R[rr]![k]!;
-      }
-      pivotCols.push(c);
-      rr++;
-    }
+    // Null space of a symmetric PSD 3×3 Q by row reduction (entries are sums
+    // of projectors or of (R − I)ᵀ(R − I), O(1) — an absolute pivot tolerance
+    // is safe), as orthonormal uniform shifts of the retained sites.
     const Minv = inverse(M);
-    for (let c = 0; c < 3; c++) {
-      if (pivotCols.includes(c)) continue;
-      // Free column c → null vector: v_c = 1, v_pivot = −R[row][c].
-      const vC: [number, number, number] = [0, 0, 0];
-      vC[c] = 1;
-      pivotCols.forEach((pc, row) => {
-        vC[pc] = -R[row]![c]!;
-      });
-      // Uniform fractional shift realizing the Cartesian translation vC.
-      const tFrac = mulVec(Minv, vC);
-      let t: GlobalVec = { frac: sites.map(() => [...tFrac] as Vec3) };
-      for (const u of gauge) t = minus(t, u, dot(t, u));
-      const n = Math.sqrt(cartNormSq(t));
-      if (n > 1e-8) gauge.push(scaled(t, 1 / n));
-    }
+    const nullShifts = (Qm: readonly (readonly number[])[]): GlobalVec[] => {
+      const out: GlobalVec[] = [];
+      const R = Qm.map((r) => [...r]);
+      const pivotCols: number[] = [];
+      let rr = 0;
+      for (let c = 0; c < 3 && rr < 3; c++) {
+        let best = rr;
+        for (let i = rr + 1; i < 3; i++) if (Math.abs(R[i]![c]!) > Math.abs(R[best]![c]!)) best = i;
+        if (Math.abs(R[best]![c]!) < 1e-9) continue;
+        [R[rr], R[best]] = [R[best]!, R[rr]!];
+        const d = R[rr]![c]!;
+        for (let k = 0; k < 3; k++) R[rr]![k] = R[rr]![k]! / d;
+        for (let i = 0; i < 3; i++) {
+          if (i === rr) continue;
+          const f = R[i]![c]!;
+          for (let k = 0; k < 3; k++) R[i]![k] = R[i]![k]! - f * R[rr]![k]!;
+        }
+        pivotCols.push(c);
+        rr++;
+      }
+      for (let c = 0; c < 3; c++) {
+        if (pivotCols.includes(c)) continue;
+        // Free column c → null vector: v_c = 1, v_pivot = −R[row][c].
+        const vC: [number, number, number] = [0, 0, 0];
+        vC[c] = 1;
+        pivotCols.forEach((pc, row) => {
+          vC[pc] = -R[row]![c]!;
+        });
+        // Uniform fractional shift realizing the Cartesian translation vC.
+        const tFrac = mulVec(Minv, vC);
+        let t: GlobalVec = { frac: sites.map(() => [...tFrac] as Vec3) };
+        for (const u of out) t = minus(t, u, dot(t, u));
+        const n = Math.sqrt(cartNormSq(t));
+        if (n > 1e-8) out.push(scaled(t, 1 / n));
+      }
+      return out;
+    };
+    const polar = nullShifts(polarQ);
+    const common = opts?.gaugeBasis === "rotations" ? null : nullShifts(sitesQ);
+    gauge.push(...(common !== null && common.length === polar.length ? common : polar));
   }
 
   // Seeded modes first (subgroup-tree activation): the caller's displacement

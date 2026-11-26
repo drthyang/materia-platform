@@ -116,7 +116,7 @@ function rietveldCase(g0: Glazer, strain: Vec3, extra: (s: StructureModel) => St
     const rc = realiseChild(PARENT, group, c.elements, c.identity);
     // A class with every atom on a fixed position has no displacement to kick (it differs from the parent in its metric only).
     const field = symmetryBreakingField(PARENT, rc);
-    const set = buildSymmetryModes(rc.structure, field ? { seeds: [{ axes: field, label: "symmetry-breaking kick" }], gauge: "polar" } : { gauge: "polar" });
+    const set = buildSymmetryModes(rc.structure, field ? { seeds: [{ axes: field, label: "symmetry-breaking kick" }], gaugeBasis: "rotations" } : { gaugeBasis: "rotations" });
     const spec = buildStructureRefinement(set.parentized, pattern, { scale: (300 * 5e4) / top, width: 0.25, backgroundTerms: 1, refineAdp: true, refinePositions: true });
     const swapped = set.modes.length > 0 ? withDistortionModes({ params: spec.params, bindings: spec.bindings }, set) : { params: spec.params, bindings: spec.bindings };
     const lead = field ? set.modes[0]!.id : null;

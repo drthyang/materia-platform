@@ -36,11 +36,10 @@
  * directions are projected out, so it must hold the free coordinates minus
  * the polar dimension, and each irrep loses m_V(Γ)·n_Γ modes, m_V(Γ) the
  * copies of Γ in the vector representation (tr W_f). buildSymmetryModes'
- * default gauge ("sites") instead removes every direction all the child's
- * site representatives allow; where that space is larger than the polar one
- * it drops a real distortion (a known, frozen issue; the PDF page's
- * same-cell t-subgroup route uses it, the supercell route does not). Those
- * classes are counted and listed, not failed.
+ * default (the gauge basis the PDF page's same-cell routes use) must keep the
+ * same count: until 2026-11-26 it removed every direction all the child's
+ * site representatives allow, which drops a real distortion where that space
+ * is larger than the polar one. A class where it keeps fewer modes fails.
  */
 import { analyze_cell, type MoyoDataset } from "@spglib/moyo-wasm";
 import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
@@ -173,12 +172,10 @@ export interface ModeCheck {
   /** Dimension of H's rigid translations (its polar directions). */
   readonly polar: number;
   /**
-   * buildSymmetryModes' default-gauge ("sites") mode count on the realised
-   * child, computed where it can differ from the polar gauge's (every child
-   * orbit free, H not P1); `expected − polar − sitesGauge` real modes it would
-   * drop (the known gauge issue).
+   * buildSymmetryModes' mode count on the realised child with its default
+   * gauge basis (the same-cell routes'); it must be `expected − polar`.
    */
-  readonly sitesGauge?: number;
+  readonly defaultGauge?: number;
   readonly orbits: readonly ChildOrbit[];
   /** By parent site: the engine's modes and the expected count. */
   readonly bySite: readonly { readonly site: string; readonly engine: number; readonly expected: number }[];
@@ -368,7 +365,7 @@ export function checkModes(
   // ── 2. the engine ──
   let engine: number | null = null;
   let engineGauged: number | null = null;
-  let sitesGauge: number | undefined;
+  let defaultGauge: number | undefined;
   const bySite: { site: string; engine: number; expected: number }[] = [];
   const irreps: IrrepCount[] = [];
   let orthoError = 0;
@@ -386,14 +383,11 @@ export function checkModes(
     } catch (e) {
       problems.push(`engine (irrepModeSet): ${e instanceof Error ? e.message : String(e)}`);
     }
-    if (polar < 3 && orbits.every((o) => o.free > 0)) {
-      // The known gauge issue: the default gauge removes every direction each
-      // child site's representative allows (which depends on the
-      // representatives), the polar one only H's translations. It can only
-      // remove more, never less: a polar direction is allowed at every site.
-      sitesGauge = buildSymmetryModes(realised.structure).modes.length;
-      if (sitesGauge > expected - polar) problems.push(`default gauge: buildSymmetryModes keeps ${sitesGauge} modes, more than the ${expected} − ${polar} without H's translations`);
-    }
+    // The default gauge basis removes H's translations only, as the polar one
+    // does (before 2026-11-26 it removed every direction each child site's
+    // representative allows, and dropped real modes where that was more).
+    defaultGauge = buildSymmetryModes(realised.structure).modes.length;
+    if (defaultGauge !== expected - polar) problems.push(`default gauge: buildSymmetryModes keeps ${defaultGauge} modes, expected ${expected} − ${polar} without H's translations`);
 
     for (const s of parent.sites) {
       bySite.push({ site: s.label, engine: basis.modes.filter((m) => m.parentSite === s.label).length, expected: orbits.filter((o) => o.parentSite === s.label).reduce((t, o) => t + o.free, 0) });
@@ -521,7 +515,7 @@ export function checkModes(
     engineGauged,
     expected,
     polar,
-    ...(sitesGauge !== undefined ? { sitesGauge } : {}),
+    ...(defaultGauge !== undefined ? { defaultGauge } : {}),
     orbits,
     bySite,
     irreps,
@@ -565,9 +559,9 @@ export function modeFindings(b: ModeBoundCheck): string[] {
     .map((c) => `#${b.parent} ${b.bound} class ${c.id} (#${c.number ?? "?"} ${c.hm ?? ""}, order ${c.order}, ${c.kind}; polar ${c.polar}): ${c.problems.join("; ")} | orbits ${c.orbits.map((o) => `${o.parentSite}→${o.wyckoff}(${o.siteSymmetry}):${o.free}`).join(" ")} | seed ${c.seed}`);
 }
 
-/** The classes where buildSymmetryModes' default gauge would remove more than the rigid translations (the known frozen issue). */
+/** The classes where buildSymmetryModes' default gauge removes more than the rigid translations (the gauge bug fixed on 2026-11-26; none expected). */
 export function gaugeGaps(b: ModeBoundCheck): string[] {
   return b.classes
-    .filter((c) => c.sitesGauge !== undefined && c.sitesGauge < c.expected - c.polar)
-    .map((c) => `#${b.parent} ${b.bound} class ${c.id} (#${c.number ?? "?"} ${c.hm ?? ""}, polar ${c.polar}): the default gauge keeps ${c.sitesGauge} modes, the polar gauge ${c.engineGauged ?? "?"} of ${c.expected}; ${c.expected - c.polar - c.sitesGauge!} real mode(s) dropped`);
+    .filter((c) => c.defaultGauge !== undefined && c.defaultGauge < c.expected - c.polar)
+    .map((c) => `#${b.parent} ${b.bound} class ${c.id} (#${c.number ?? "?"} ${c.hm ?? ""}, polar ${c.polar}): the default gauge keeps ${c.defaultGauge} modes, the polar gauge ${c.engineGauged ?? "?"} of ${c.expected}; ${c.expected - c.polar - c.defaultGauge!} real mode(s) dropped`);
 }
