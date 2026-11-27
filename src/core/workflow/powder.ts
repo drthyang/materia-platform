@@ -164,7 +164,7 @@ export function tofWidthsAt(applied: AppliedModel, d: number): TofWidths {
 }
 
 /** The d-range (Å) the pattern's points cover, with the applied calibration on TOF. */
-function dataDRange(pattern: PowderPattern, applied: AppliedModel): { dMin: number; dMax: number } {
+export function dataDRange(pattern: PowderPattern, applied: AppliedModel): { dMin: number; dMax: number } {
   return pattern.xUnit === "tof" && applied.tof !== undefined ? tofDataDRange(pattern, applied.tof, applied.zeroShift) : dRange(pattern);
 }
 

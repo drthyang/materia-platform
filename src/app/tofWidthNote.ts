@@ -12,7 +12,7 @@ import type { InstrumentBank } from "@/parsers/instrument";
 import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
 import { phaseBindingsFor } from "@/core/workflow/multiPhase";
-import { tofNegativeLorentzian, tofReflectionsLeftOut, tofWidthProblems } from "@/core/workflow/powder";
+import { dataDRange, tofNegativeLorentzian, tofReflectionsLeftOut, tofWidthProblems, type TofWidthProblem } from "@/core/workflow/powder";
 import { GSAS2_NEW_PHASE_MUSTRAIN, GSAS2_NEW_PHASE_SIZE, tofFileProfileOf } from "@/app/powderSpec";
 import { reachText, readWithinLimit } from "@/app/reflectionLimit";
 
@@ -31,23 +31,18 @@ export const FULLPROF_UNCHECKED = "not yet checked against a FullProf run";
  * file's own program's function, or null when the instrument gives no profile
  * (the page's own refinable profile, described by bankChoice.unusedNote).
  */
-/** The GSAS-II line's two sentences: the Instrument card shows the first, and the second leads its "?" (fileProfileCardNote). */
+/** The GSAS-II line's two sentences. */
 const GSAS2_HELD = "Profile as the file gives it, held.";
 const GSAS2_SAMPLE_ROWS = `Sample rows start at GSAS-II's defaults (Lorentzian microstrain ${GSAS2_NEW_PHASE_MUSTRAIN}, size ${GSAS2_NEW_PHASE_SIZE} µm), which a GSAS-II calibration assumes.`;
 
 /**
- * The Instrument card's form of fileProfileNote: the GSAS-II line folded to
- * its first sentence (and any "Not used"), the sample-row sentence moved to
- * the start of the "?". The FullProf note is the same. fileProfileNote itself
- * is unchanged: get_state and the report read it as it is.
+ * The Instrument card's form of fileProfileNote: "Profile held", with the
+ * note's whole line and detail behind "?". fileProfileNote itself is
+ * unchanged: get_state and the report read it as it is.
  */
 export function fileProfileCardNote(instrument: InstrumentParameters, bank: InstrumentBank | null): CardNote | null {
   const note = fileProfileNote(instrument, bank);
-  if (!note || !note.line.startsWith(`${GSAS2_HELD} ${GSAS2_SAMPLE_ROWS}`)) return note;
-  return {
-    line: `${GSAS2_HELD}${note.line.slice(`${GSAS2_HELD} ${GSAS2_SAMPLE_ROWS}`.length)}`,
-    detail: `${GSAS2_SAMPLE_ROWS} ${note.detail}`,
-  };
+  return note ? { line: "Profile held", detail: `${note.line} ${note.detail}` } : null;
 }
 
 export function fileProfileNote(instrument: InstrumentParameters, bank: InstrumentBank | null): CardNote | null {
@@ -100,6 +95,32 @@ export function tofWidthNote(s: {
   readonly powderParams: readonly RefinementParameter[];
   readonly powderBindings: readonly ParameterBinding[];
 }): CardNote | null {
+  return tofWidthReading(s)?.note ?? null;
+}
+
+/**
+ * The Instrument card's form of tofWidthNote: one short line on where the file
+ * gives no peak width ("No peak width below d 0.209 Å"), and tofWidthNote's
+ * full line and detail behind "?". tofWidthNote itself is unchanged: get_state
+ * reads it as it is.
+ */
+export function tofWidthCardNote(s: Parameters<typeof tofWidthNote>[0]): CardNote | null {
+  const r = tofWidthReading(s);
+  if (!r) return null;
+  return { line: widthShortLine(r.problems, r.range), detail: `${r.note.line} ${r.note.detail}` };
+}
+
+function widthShortLine(problems: readonly TofWidthProblem[], range: { dMin: number; dMax: number }): string {
+  const only = problems.length === 1 ? problems[0]! : null;
+  if (!only) return "No peak width in parts of the d-range";
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+  if (near(only.dMin, range.dMin) && near(only.dMax, range.dMax)) return "No peak width over the data's d-range";
+  if (near(only.dMin, range.dMin)) return `No peak width below d ${fmtD(only.dMax)} Å`;
+  if (near(only.dMax, range.dMax)) return `No peak width above d ${fmtD(only.dMin)} Å`;
+  return `No peak width for d ${fmtD(only.dMin)}–${fmtD(only.dMax)} Å`;
+}
+
+function tofWidthReading(s: Parameters<typeof tofWidthNote>[0]): { note: CardNote; problems: TofWidthProblem[]; range: { dMin: number; dMax: number } } | null {
   if (s.pattern.xUnit !== "tof" || !s.powderBindings.some((b) => b.kind === "tofFileProfile")) return null;
   const values: Record<string, number> = {};
   for (const p of s.powderParams) values[p.id] = p.value;
@@ -117,7 +138,7 @@ export function tofWidthNote(s: {
   if ("error" in read && !over) throw read.error;
   const left = "value" in read ? read.value : [];
   const names = left.slice(0, 12).map((r) => `${r.h} ${r.k} ${r.l} (${fmtD(r.d)} Å)`).join(", ");
-  return {
+  const note: CardNote = {
     line: over
       ? `The instrument file gives no peak width for ${ranges}: the reflections there are not drawn.`
       : `The instrument file gives no peak width for ${ranges}: ${left.length} reflection${left.length === 1 ? "" : "s"} not drawn.`,
@@ -129,6 +150,7 @@ export function tofWidthNote(s: {
       "Set the fit range to leave that part of the data out, or use an instrument file calibrated over it. A refinement step that would take a width below zero elsewhere in the data's range is rejected.",
     ].join(" "),
   };
+  return { note, problems, range: dataDRange(s.pattern, appliedOf(s.structure)) };
 }
 
 /**

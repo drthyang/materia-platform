@@ -6,7 +6,7 @@ import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { buildPowderSpec, tofFileProfileOf } from "@/app/powderSpec";
 import { emptyPage, withFixed, withInstrument, withPattern, withStructure } from "@/app/powderPage";
-import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
+import { fileProfileNote, tofNegativeGammaNote, tofWidthCardNote, tofWidthNote } from "@/app/tofWidthNote";
 import { applyParameters } from "@/core/workflow/apply";
 import { resolveTies } from "@/core/refinement/constraints";
 import { buildPowderProblem, placePeaks, tofNegativeLorentzian, tofReflectionsLeftOut, tofWidthProblems, tofWidthsAt } from "@/core/workflow/powder";
@@ -141,9 +141,14 @@ describe("the width rule: σ², α and β over the data's d-range", () => {
     expect(Number.isFinite(peaks[0]!.tof!.sigma) && peaks[0]!.tof!.sigma > 0).toBe(true);
     const note = tofWidthNote(s)!;
     expect(note.line).toMatch(/^The instrument file gives no peak width for d 0\.550–0\.60\d Å \(σ² ≤ 0\): \d+ reflections? not drawn\.$/);
+    // The Instrument card's short line: the range starts at the data's low end; the full note is behind "?".
+    const card = tofWidthCardNote(s)!;
+    expect(card.line).toMatch(/^No peak width below d 0\.60\d Å$/);
+    expect(card.detail).toBe(`${note.line} ${note.detail}`);
     // The same check outside the data's range says nothing: data from 0.7 Å up.
     const above = withPattern(page, patternOn(1, 0.7, 3.3), { name: "si.dat", text: "" });
     expect(tofWidthNote(above.session)).toBeNull();
+    expect(tofWidthCardNote(above.session)).toBeNull();
   });
 
   it("a fit step that would take a width below zero inside the data's range is rejected, and the fit goes on", () => {
@@ -369,6 +374,8 @@ describe("a FullProf .irf's rows", () => {
     expect(left.some((r) => r.h === 1 && r.k === 1 && r.l === 1)).toBe(true);
     expect(left.every((r) => r.d < 0.5904 || r.d > 2.6787)).toBe(true);
     expect(tofWidthNote(s2)!.line).toMatch(/^The instrument file gives no peak width for d 0\.500–0\.5\d\d Å \(σ² ≤ 0\), d 2\.6\d–3\.30 Å \(σ² ≤ 0\): \d+ reflections not drawn\.$/);
+    const note2 = tofWidthNote(s2)!;
+    expect(tofWidthCardNote(s2)).toEqual({ line: "No peak width in parts of the d-range", detail: `${note2.line} ${note2.detail}` });
   });
 
   it("an .irf whose ALFBE is all zero, and a calibration alone, keep the page's own profile", () => {

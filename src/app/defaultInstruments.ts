@@ -104,10 +104,13 @@ export function defaultUncovered(d: DefaultInstrument, fileText: string, data: D
 
 /** The standing statement while a default is in use: one line, and the reason behind "?". */
 export interface DefaultInstrumentWarning {
-  /** The Instrument card's title: "TOF · NOMAD · default 2023A". */
+  /** The Instrument card's title: "TOF · NOMAD 2023A" (the "default file" chip says it is the default). */
   readonly title: string;
   readonly line: string;
   readonly detail: string;
+  /** The Instrument card's short line; `line` and `detail` go behind its "?". */
+  readonly cardLine: string;
+  readonly cardDetail: string;
   /** The same statement for the report's instrument rows and an exported bundle's README: the line and its reason. */
   readonly report: string;
   /** The line get_state gives the Copilot (agent/powderTools.ts). */
@@ -118,11 +121,21 @@ export interface DefaultInstrumentWarning {
 export function defaultInstrumentWarning(id: string): DefaultInstrumentWarning {
   const d = defaultInstrumentById(id);
   const what = d ? `Default ${d.instrument} parameters (${d.cycle} calibration)` : `Default instrument parameters (${id})`;
+  const { line, detail } = defaultLines(d, what);
   const why = "The calibration changes between run cycles, and a wrong one shifts peak positions and changes peak widths: results from this fit are a first look, not checked against the instrument's calibration for this measurement.";
   return {
     report: `${what}, the facility's file shipped with MATERIA, not a file loaded for this measurement: load the instrument file for your own run cycle. ${why}`,
     agent: `${what}: the facility's file shipped with the app, not a calibration of this measurement; peak positions and widths are a first look until the user loads the instrument file for their own run cycle.`,
-    title: d ? `TOF · ${d.instrument} · default ${d.cycle}` : "TOF · default parameters",
+    title: d ? `TOF · ${d.instrument} ${d.cycle}` : "TOF · default parameters",
+    line,
+    detail,
+    cardLine: "Default calibration: load your run's file",
+    cardDetail: `${line} ${detail}`,
+  };
+}
+
+function defaultLines(d: DefaultInstrument | null, what: string): { line: string; detail: string } {
+  return {
     line: `${what}: load the instrument file for your own run cycle.`,
     detail: `These are the facility's instrument parameters for ${d ? `run cycle ${d.cycle}` : "one run cycle"}, shipped with the app, not a calibration of your measurement. The calibration changes between run cycles; a wrong one shifts peak positions and changes peak widths, and a fit can hide that in the cell, the zero and the sample broadening. Use the default for a first look, and load the instrument file from your own run cycle before you report a result. This line goes when you load your own file.`,
   };
