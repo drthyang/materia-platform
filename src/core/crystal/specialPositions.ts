@@ -175,6 +175,20 @@ export function specialPositionOf(ops: readonly SymmetryOperation[], position: V
   return out;
 }
 
+/**
+ * The exact special position a site's coordinates stand for, by the same rule
+ * as the snap on load (specialPositionOf): a rounded coordinate (GaTa4Se8's Se
+ * at 0.384737, 0.884736, 0.884736 on 16e) is put exactly on its special
+ * position; a general position, an exact special one, or a site the snap leaves
+ * as printed comes back unchanged, bit for bit. The subgroup engine calls it on
+ * each parent site (coreCell, realiseChild), so a structure built or restored
+ * without the snap still gives one exact geometry to the T″ cell, the realised
+ * child and its modes, which match atoms at 1e-6.
+ */
+export function exactSitePosition(ops: readonly SymmetryOperation[], position: Vec3): Vec3 {
+  return specialPositionOf(ops, position) ?? position;
+}
+
 /** The structure with each site on its exact special position, and the sites moved. */
 export function snapToSpecialPositions(structure: StructureModel, tol = SNAP_TOLERANCE): { readonly structure: StructureModel; readonly snapped: readonly SiteSnap[] } {
   const ops = structure.spaceGroup.operations;

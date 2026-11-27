@@ -42,6 +42,7 @@ import type { Mat3, Vec3 } from "@/core/math/types";
 import type { StructureModel } from "@/core/crystal/types";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
 import { equivalentPositions, siteMultiplicity } from "@/core/crystal/symmetry";
+import { exactSitePosition } from "@/core/crystal/specialPositions";
 import { metricTensor, orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { symmetricEigenDecomposition } from "@/core/math/linalg";
 import { canonicalArm, equivalentK, kInBound, rotateK, pointGroupElements, starsInBound, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
@@ -182,7 +183,7 @@ export function coreCell(parent: StructureModel, group: FactorGroup): CoreCell {
   };
   parent.sites.forEach((s, si) => {
     const orbit: Vec3[] = [];
-    for (const x of equivalentPositions(parent.spaceGroup.operations, s.position)) {
+    for (const x of equivalentPositions(parent.spaceGroup.operations, exactSitePosition(parent.spaceGroup.operations, s.position))) {
       // Modulo the centring vectors too: the orbit modulo T.
       if (orbit.some((y) => centrings.some((c) => periodicGap([y[0] + c[0], y[1] + c[1], y[2] + c[2]], x) < 1e-6))) continue;
       orbit.push(x);

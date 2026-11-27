@@ -14,7 +14,8 @@ import { snapNote } from "@/app/snapNote";
  * decimals. Read as printed, a cell-multiplying child could not be realised
  * on the PDF page (the supercell mode basis matches atoms at 1e-6); snapped on
  * load, Pnma in its 1×2×1 cell is lowered, and the load's notice says which
- * sites moved and by how much.
+ * sites moved and by how much. The engine now also places each parent site
+ * exactly (exactSitePosition), so the printed structure gives the same child.
  */
 function pattern(s: StructureModel): PdfPattern {
   const rGrid = makeRGrid(1.5, 10, 0.02);
@@ -34,13 +35,16 @@ async function pnma(s: StructureModel) {
 }
 
 describe("Mn₃Ga snapped on load", () => {
-  it("as printed, Pnma in 1×2×1 is not realised (the reason the view shows); snapped, it is", async () => {
+  it("snapped, Pnma in 1×2×1 is realised; as printed too, the same child: the engine places each parent site exactly (exactSitePosition)", async () => {
     expect(printed.sites.map((s) => s.position)).toEqual([[0.16393, 0.32775, 0.25], [0.3333, 0.6667, 0.75]]);
-    const before = await pnma(printed);
-    expect(before.message).toMatch(/supercellModes: the parent's operations do not map its atoms onto its atoms/);
     const after = await pnma(structure);
     expect(after.message).toMatch(/^realised P n m a #62 in its own cell: \d+ child site\(s\), \d+ atoms in the cell \(×2 the parent's\)/);
     expect(after.model.modes).toBeDefined();
+    // Before the engine placed parent sites exactly, the printed CIF failed here with "supercellModes: the
+    // parent's operations do not map its atoms onto its atoms".
+    const before = await pnma(printed);
+    expect(before.message).toBe(after.message);
+    expect(before.model.modes!.set.modes.map((m) => m.label)).toEqual(after.model.modes!.set.modes.map((m) => m.label));
   }, 240_000);
 
   it("the notice names the sites moved and by how much", () => {
