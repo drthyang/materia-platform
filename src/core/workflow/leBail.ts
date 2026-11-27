@@ -106,6 +106,12 @@ export interface LeBailOptions {
   readonly tofProfile?: LeBailTofProfile;
   /** Impurity phases, extracted together with the main one. */
   readonly extraPhases?: readonly LeBailPhase[];
+  /**
+   * The fit window (pattern x-units). On time of flight the reflection list
+   * starts at its short-d edge (less the 5 % margin), as the Rietveld list
+   * follows the window (powder.ts reflectionRange).
+   */
+  readonly fitRange?: { readonly min?: number; readonly max?: number };
 }
 
 const FWHM_PER_SIGMA = 2 * Math.sqrt(2 * Math.LN2);
@@ -182,8 +188,11 @@ export function dToX(pattern: PowderPattern, d: number, tof?: TofCalibration): n
 }
 
 /** The d-spacing span a pattern covers. */
-export function dRange(pattern: PowderPattern, tof?: TofCalibration): { dMin: number; dMax: number } {
-  const { min: xMin, max: xMax } = minMax(pattern.points.map((p) => p.x));
+export function dRange(pattern: PowderPattern, tof?: TofCalibration, window?: { readonly min?: number; readonly max?: number }): { dMin: number; dMax: number } {
+  const span = minMax(pattern.points.map((p) => p.x));
+  const xMax = span.max;
+  // On TOF the window's short-d edge starts the list (THY-90); elsewhere the data's range, as the Rietveld list.
+  const xMin = pattern.xUnit === "tof" && window?.min !== undefined ? Math.min(Math.max(span.min, window.min), span.max) : span.min;
   const wl = pattern.wavelength ?? (pattern.radiation.kind !== "neutron-tof" ? pattern.radiation.wavelength : 1.54);
   switch (pattern.xUnit) {
     case "twoTheta": {
@@ -256,7 +265,7 @@ export function leBailExtract(
   spaceGroup: SpaceGroup,
   options: LeBailOptions,
 ): LeBailResult {
-  const { dMin, dMax } = dRange(pattern, options.tof);
+  const { dMin, dMax } = dRange(pattern, options.tof, options.fitRange);
   const phases: LeBailPhase[] = [{ cell, spaceGroup }, ...(options.extraPhases ?? [])];
   const perPhase = phases.map((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, dMax));
   const reflections = perPhase.flat();

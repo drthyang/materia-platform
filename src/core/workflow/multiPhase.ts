@@ -13,7 +13,7 @@ import type { ProfilePeak, ProfileOptions } from "@/core/diffraction/profile";
 import type { FitRange, PowderProfile } from "@/core/workflow/powder";
 import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
-import { createPeakBuilder, createTofWidthGuard, powderPointWeights } from "@/core/workflow/powder";
+import { createPeakBuilder, createTofWidthGuard, modelledFitRange, powderPointWeights, startValues } from "@/core/workflow/powder";
 import { SHARED_CORRECTION_KINDS } from "@/core/diffraction/corrections";
 import { synthesizePattern } from "@/core/diffraction/profile";
 
@@ -80,7 +80,10 @@ export function buildMultiPhasePowderProblem(
   // excluded plateau or outside the fit range, so a multi-phase refinement
   // optimizes the points the page scores.
   const weights = new Float64Array(observations.length);
-  weights.set(powderPointWeights(pattern, fitRange), 0);
+  // No point is fitted where a phase's reflection list stops short of it (a validity limit, reflectionRange).
+  const start = resolveTies(parameters, startValues(parameters));
+  const startApplied = phases.map((phase) => applyParameters(phase.structure, phaseBindingsFor(bindings, phase.id), start));
+  weights.set(powderPointWeights(pattern, modelledFitRange(pattern, startApplied, fitRange)), 0);
   restraints.forEach((r, i) => { weights[xValues.length + i] = 1 / Math.max(r.sigma, 1e-12) ** 2; });
   // Per-phase cached peak builders (see createPeakBuilder): each phase's
   // structure factors are reused whenever none of ITS geometry parameters
@@ -89,7 +92,7 @@ export function buildMultiPhasePowderProblem(
   const applyLorentz = profile.lorentz ?? true;
   const phaseBuilders = phases.map((phase) => {
     const phaseBindings = phaseBindingsFor(bindings, phase.id);
-    return { phase, phaseBindings, peaksFor: createPeakBuilder(pattern, phaseBindings, applyLorentz) };
+    return { phase, phaseBindings, peaksFor: createPeakBuilder(pattern, phaseBindings, applyLorentz, fitRange) };
   });
   // The instrument's profile is shared, so the first phase's model carries it.
   const first = phaseBuilders[0];
@@ -133,12 +136,13 @@ export function multiPhaseCurves(
   parameters: readonly RefinementParameter[],
   bindings: readonly ParameterBinding[],
   profile: PowderProfile = { shape: "gaussian" },
+  fitRange?: FitRange,
 ): MultiPhaseCurves {
   const values: Record<string, number> = {};
   for (const p of parameters) values[p.id] = p.value;
   const xValues = pattern.points.map((p) => p.x);
   // The refinement's own pattern, so what is drawn and scored is what a fit minimizes.
-  const yCalc = buildMultiPhasePowderProblem(phases, pattern, parameters, bindings, profile).calculate(values);
+  const yCalc = buildMultiPhasePowderProblem(phases, pattern, parameters, bindings, profile, fitRange).calculate(values);
   const yObs = pattern.points.map((p) => p.yObs);
   // The shared background as the problem applies it (the last phase that
   // carries background terms), drawn with no peaks.

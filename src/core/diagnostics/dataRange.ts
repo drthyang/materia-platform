@@ -46,10 +46,16 @@ export interface DataRangeInput {
   readonly excluded?: readonly boolean[];
   /** The current fit window, on the same axis. */
   readonly window?: { readonly min: number; readonly max: number } | null;
+  /**
+   * The window reaches well below the last resolved lines (the model's own
+   * reading, app/shortD.ts): where they stop, on the axis and in d. The short-d
+   * end is then trimmed there.
+   */
+  readonly unresolvedBelow?: { readonly x: number; readonly d: number };
 }
 
 /** Why a stretch at an end is left out. */
-export type EdgeCause = "no-counts" | "step" | "background-only" | "faded-peaks" | "residual" | "line-at-edge";
+export type EdgeCause = "no-counts" | "step" | "background-only" | "faded-peaks" | "unresolved-lines" | "residual" | "line-at-edge";
 
 export interface EdgeFinding {
   readonly cause: EdgeCause;
@@ -215,6 +221,16 @@ export function inspectDataRange(input: DataRangeInput): DataRangeReading {
             add("background-only", j - 1, `background only beyond the outermost peak in the data, at ${fmt(outermost, localStep)} (no phase explains it: kept in the window${tail})`);
           }
         }
+      }
+    }
+
+    // The short-d end beyond the last resolved lines: they merge there, and each one costs the fit time.
+    if (end === input.shortD && input.unresolvedBelow) {
+      const u = input.unresolvedBelow.x;
+      let k = 0;
+      while (k < n && (end === "low" ? pos(k) < u : pos(k) > u)) k++;
+      if (k >= h) {
+        add("unresolved-lines", k - 1, `below d ${input.unresolvedBelow.d.toFixed(3)} Å neighbouring reflections lie less than one line width apart and merge, so no line is resolved there; they are calculated, and each one costs the fit time`);
       }
     }
 

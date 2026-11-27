@@ -20,6 +20,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { CorrectionsUpdate, SiteTies } from "@/app/powderSpec";
 import { fileProfileNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
+import { shortDReading, shortDText, type ShortDPage } from "@/app/shortD";
 import { SIG1_OR_GAUSS, tofFilePassTerms, tofFileRows, tofFileShapeAdvice } from "@/core/diagnostics/tofFileProfile";
 import { availableDisplayUnits, convertAxisValue, convertInterval } from "@/visualization/axisUnits";
 import { k0MagneticHint, oneCurve, physicalFindings, residualPeaks } from "@/core/diagnostics/assessment";
@@ -120,7 +121,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       };
     }
     case "check_fit_range":
-      return { ...fitRangeView(fitRangeReading(s), fitRangeWords(s), s.fitRange), ...fileWidthView(s) };
+      return { ...fitRangeView(fitRangeReading(s), fitRangeWords(s), s.fitRange), ...fileWidthView(s), ...shortDView(s) };
     case "check_cell_symmetry": {
       // One factor on every d (a wrong λ or difC) first, from the pattern's own peaks: the Le Bail fit cannot follow it.
       const scale = scaleReading(s);
@@ -574,6 +575,7 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
           }),
       ),
       observations: s.observationCount,
+      ...shortDView(s),
       radiation: s.pattern.radiation.kind,
       // X-ray constants the fit cannot determine (set_instrument_constants); a
       // lab tube's Kα₂ is drawn with every reflection: no misfit and no phase.
@@ -695,9 +697,23 @@ function phaseFractionView(s: PowderLiveState): Record<string, unknown> {
 
 const UNIT = X_UNIT_LABEL;
 
+/** The page's model as app/shortD.ts reads it. */
+const shortDPage = (s: PowderLiveState): ShortDPage => ({ structure: s.structure, extraPhases: s.extraPhases, pattern: s.pattern, powderParams: s.parameters, powderBindings: s.bindings, powderProfile: s.profile });
+
+/** Where the reflection list stops at short d and why, the points it leaves out, a trim worth making (app/shortD.ts): the page's line and its "?". */
+function shortDView(s: PowderLiveState): Record<string, unknown> {
+  if (s.viewOnly) return {};
+  const text = shortDText(shortDReading(shortDPage(s), s.fitRange));
+  return text ? { reflectionsTo: text } : {};
+}
+
 /** The data's ends read on the page's curves: every phase's reflections placed on the pattern's own axis. */
 export function fitRangeReading(s: PowderLiveState): DataRangeReading {
+  // The window reaching well below the last resolved lines: their position, for a trim at the short-d end.
+  const trim = s.viewOnly ? undefined : shortDReading(shortDPage(s), s.fitRange)?.trim;
+  const trimX = trim ? convertAxisValue(trim.d, "dSpacing", s.pattern.xUnit, s.axis) : NaN;
   return readFitRange({
+    ...(trim && Number.isFinite(trimX) ? { unresolvedBelow: { x: trimX, d: trim.d } } : {}),
     unit: s.pattern.xUnit,
     x: s.curves.x,
     yObs: s.curves.yObs,

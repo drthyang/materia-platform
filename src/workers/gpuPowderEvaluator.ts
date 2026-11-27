@@ -53,7 +53,7 @@ export async function evaluatePowderBatchOnGpu(
   const infos: ColumnInfo[] = sets.map((set) => {
     const resolved = resolveTies(spec.parameters, set);
     const applied = applyParameters(spec.structure, spec.bindings, resolved);
-    const { dMin, dMax } = reflectionDRange(spec.pattern, applied);
+    const { dMin, dMax } = reflectionDRange(spec.pattern, applied, spec.fitRange);
     const hkls = generateReflections(applied.model.cell, applied.model.spaceGroup, dMin, dMax).map((r) => ({ h: r.h, k: r.k, l: r.l }));
     const { reflections, reciprocal } = structureFactorInputs(applied.model, hkls);
     const c = applied.model.cell;

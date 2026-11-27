@@ -71,7 +71,7 @@ export function magneticStepOn(
       applied: appliedView(s),
       // A view-only TOF page, which the compute client does not refine, fits in this thread.
       fit: powderMomentFit(viewOnly ? null : opts.client ?? null, s, window),
-      baselineAgreement: s.pattern.points.length > 0 ? weightedR(s, powderPageCurves(s).nuclear, window) : null,
+      baselineAgreement: s.pattern.points.length > 0 ? weightedR(s, powderPageCurves(s, window).nuclear, window) : null,
       nuclearValues: reRefinedRows(s.powderParams),
       // The rows a fit's rounds refined go onto the page, as the workbench puts them.
       onMomentFit: (held, fitted) => {
