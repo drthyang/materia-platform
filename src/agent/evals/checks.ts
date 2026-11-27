@@ -328,10 +328,101 @@ export function lowersTo(group: string, cell: string): Check {
  * the baseline first, are fair questions in Ask mode).
  */
 export function askedBeforeLowering(events: readonly EvalEvent[]): boolean {
-  if (events.some((e) => e.kind === "call" && e.name === "lower_symmetry" && !e.isError && !!json(e.text)?.lowered)) return false;
+  return !lowered(events) && endedOnQuestion(events);
+}
+
+/**
+ * The Agent's turn ended on a question after a lowering: the fit window, or
+ * what to refine next (THY-73, 2026-11-08: run 1 lowered, then asked about
+ * the fit window, and the run ended there). The user's answer lets it go on.
+ */
+export function askedAfterLowering(events: readonly EvalEvent[]): boolean {
+  return lowered(events) && endedOnQuestion(events);
+}
+
+/** A lower_symmetry call that left a subgroup on the page. */
+function lowered(events: readonly EvalEvent[]): boolean {
+  return events.some((e) => e.kind === "call" && e.name === "lower_symmetry" && !e.isError && !!json(e.text)?.lowered);
+}
+
+/** The last call or reply of the run so far is a question: an ask_user, or a reply that asks. */
+function endedOnQuestion(events: readonly EvalEvent[]): boolean {
   const last = [...events].reverse().find((e) => e.kind === "call" || (e.kind === "reply" && e.text.trim() !== ""));
   if (!last) return false;
   return last.kind === "call" ? last.name === "ask_user" && !last.isError : last.text.includes("?");
+}
+
+/** A k-point's coordinate as a reply may write it: "1/2", "½" or "0.5". */
+const FRACTION: Readonly<Record<string, string>> = { "1/2": "1/2|½|0?\\.5", "1/3": "1/3|⅓", "2/3": "2/3|⅔", "1/4": "1/4|¼|0?\\.25", "3/4": "3/4|¾|0?\\.75" };
+
+/**
+ * A reply names the k-point and irrep that reach the subgroup as the engine
+ * labels them (lower_symmetry's mode rows: "Δ (0, 0, 1/2) irrep 2 of 4"): the
+ * line's name, its coordinates (a line point needs them: Δ is a line, not a
+ * point) and the irrep's number. THY-85: line points' names were new in the
+ * engine, and no live model had seen one.
+ */
+export function namesKIrrep(line: string, k: readonly [string, string, string], irrep: number): Check {
+  const coordinate = (c: string): string => `(?:${FRACTION[c] ?? c.replace(/[.]/g, "\\.")})`;
+  const label = `${line} (${k.join(", ")}) irrep ${irrep}`;
+  const named = new RegExp(`${line}[^.\\n(]{0,20}\\(\\s*${k.map(coordinate).join("\\s*,\\s*")}\\s*\\)[^\\n]{0,30}?\\birrep\\s*${irrep}(?![\\d⊕]|\\s*⊕)`, "u");
+  return {
+    name: `names the k-point and irrep as the engine labels them: ${label}`,
+    grade: (run) => {
+      const hit = replies(run).flatMap((r) => sentences(r)).find((s) => named.test(s));
+      return hit ? ok(`"${hit.slice(0, 120)}"`) : fail(`no reply names ${label}`);
+    },
+  };
+}
+
+/**
+ * Δ as a k-point: the letter on its own, with its coordinates, irrep or "line"
+ * / "point" if given ("Δ (0, 0, 1/2) irrep 2", "the Δ line", "Δ or X"); not
+ * ΔPDF, ΔRw, Δr or Δ-PDF.
+ */
+const DELTA_K = /(?<!\p{L})Δ(?![\p{L}-])(?:\s*\([^)]*\))?(?:\s+irreps?\s*\d+(?:\s+of\s+\d+)?|\s+(?:line|point)\b)?/gu;
+
+/**
+ * The fixed list of ways a reply excludes Δ, in the same clause, right next to
+ * it. Before Δ (an optional "the" between): "not Δ", "no Δ", "isn't Δ" (any
+ * n't), "is not Δ", "never Δ", "rules out Δ", "ruled out Δ", "excludes Δ",
+ * "excluding Δ", "excluded: Δ". After it: "Δ … is ruled out", "Δ … is
+ * excluded", "Δ … does not apply". Anything else that mentions Δ asserts it.
+ */
+const DELTA_EXCLUDED_BEFORE = /(?:\b(?:not|no|never|rules?\s+out|ruled\s+out|excludes|excluding)|n't|\bexcluded:)\s+(?:the\s+)?$/iu;
+const DELTA_EXCLUDED_AFTER = /^\s*(?:is|was)\s+(?:ruled\s+out|excluded)\b|^\s*does\s+not\s+apply\b/iu;
+
+/** A sentence's mention of Δ that no excluding pattern next to it, in its clause, takes back. */
+function assertsDelta(sentence: string): boolean {
+  for (const m of sentence.matchAll(DELTA_K)) {
+    const before = sentence.slice(0, m.index).split(/[,;]/).pop()!;
+    const after = sentence.slice(m.index + m[0].length);
+    if (!DELTA_EXCLUDED_BEFORE.test(before) && !DELTA_EXCLUDED_AFTER.test(after)) return true;
+  }
+  return false;
+}
+
+/**
+ * A reply names, in one sentence, every k-point and irrep of a coupled pair
+ * as the engine labels them (list_subgroups' row: "X irrep 5 (0,0,a,-a,-a,a)
+ * + W irrep 1 (a,0,0,a,0,0)"; lower_symmetry's modes: "X irrep 5 of 5"); the
+ * order-parameter directions are optional. No reply may assert the line point
+ * Δ for it; a Δ excluded by one of the fixed patterns above is fine (THY-85:
+ * the pair-reached subgroup beside pdf-line-k-subgroup's Δ).
+ */
+export function namesIrreps(...labels: readonly (readonly [point: string, irrep: number])[]): Check {
+  const label = labels.map(([p, i]) => `${p} irrep ${i}`).join(" + ");
+  const each = labels.map(([p, i]) => new RegExp(`(?<!\\p{L})${p}\\s+irrep\\s*${i}(?!\\d)`, "u"));
+  return {
+    name: `names the k-points and irreps as the engine labels them: ${label}`,
+    grade: (run) => {
+      const said = replies(run).flatMap((r) => sentences(r));
+      const delta = said.find(assertsDelta);
+      if (delta) return fail(`names Δ: "${delta.slice(0, 120)}"`);
+      const hit = said.find((s) => each.every((re) => re.test(s)));
+      return hit ? ok(`"${hit.slice(0, 120)}"`) : fail(`no reply names ${label} in one sentence`);
+    },
+  };
 }
 
 /** The row picked from the Subgroups view's list: list_subgroups before the first lowering. */

@@ -152,6 +152,10 @@ export function modesCellNote(modes: ModesInForce): string {
   return modes.fromActivation ? " · in the parent's cell" : "";
 }
 
+/** What an Activate handler returns: why nothing changed (shown under the
+ *  button, the row left inactive), or null / nothing once the child is in force. */
+export type Activated = string | null | void;
+
 interface Props {
   /** The loaded structure's space group: the parent every choice here lowers. */
   readonly spaceGroup: string | undefined;
@@ -166,16 +170,16 @@ interface Props {
   readonly operations?: readonly SymmetryOperation[];
   /** The loaded structure: which irreps its atoms carry (a row's notes, the order of its coupled sets, its mode count). */
   readonly structure?: StructureModel;
-  readonly onActivateSameCell?: (node: SameCellNode) => void;
+  readonly onActivateSameCell?: (node: SameCellNode) => Activated;
   /** A cell-multiplying child, realised in its own cell (withSupercellChild). */
-  readonly onActivateSupercell?: (choice: SupercellChoice) => void;
+  readonly onActivateSupercell?: (choice: SupercellChoice) => Activated;
   /** The choice in force, or null at the parent's own symmetry. */
   readonly modes: ModesInForce | null;
   /** How many of its modes refine (pageView.modeSet); null while Positions is on “Constrained atomic”. */
   readonly modeCount: number | null;
   readonly busy: boolean;
-  readonly onActivateMode: (term: DisplaciveIrrepTerm, sub: IrrepSubgroup) => void;
-  readonly onActivateSubgroup: (node: SubgroupNode) => void;
+  readonly onActivateMode: (term: DisplaciveIrrepTerm, sub: IrrepSubgroup) => Activated;
+  readonly onActivateSubgroup: (node: SubgroupNode) => Activated;
   /** Drop the choice: back to the parent's per-coordinate positions. */
   readonly onClear: () => void;
   /** Open the 3D Model view, where the modes are inspected. */
@@ -349,6 +353,8 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   const [sheet, setSheet] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(["p"]));
   const [activating, setActivating] = useState<string | null>(null);
+  // The row whose Activate changed nothing last, and why (shown in its detail).
+  const [failed, setFailed] = useState<{ readonly key: string; readonly why: string } | null>(null);
   // The larger cells' listing: one run at a time, its progress, stop.
   const workingRef = useRef(false);
   const [working, setWorking] = useState(false);
@@ -464,22 +470,29 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
     if (hits.length === 1) setSelected({ group: hits[0]!.key, row: null });
   }, [modes, groups, selected, activeKey]);
 
-  const dispatch = (action: PickerAction): void => {
-    if (action.kind === "irrep") onActivateMode(action.term, action.sub);
-    else if (action.kind === "subgroup") onActivateSubgroup(action.node);
-    else if (action.kind === "sameCell") onActivateSameCell?.(action.node);
-    else if (action.kind === "supercell") onActivateSupercell?.(action.choice);
+  const dispatch = (action: PickerAction): Activated => {
+    if (action.kind === "irrep") return onActivateMode(action.term, action.sub);
+    if (action.kind === "subgroup") return onActivateSubgroup(action.node);
+    if (action.kind === "sameCell") return onActivateSameCell?.(action.node);
+    if (action.kind === "supercell") return onActivateSupercell?.(action.choice);
+    return undefined;
   };
   const canActivate = (a: PickerAction): boolean =>
     a.kind === "irrep" || a.kind === "subgroup" || (a.kind === "sameCell" && onActivateSameCell !== undefined) || (a.kind === "supercell" && onActivateSupercell !== undefined);
-  /** Activate a row once "working…" has painted; one at a time. */
+  /** Activate a row once "working…" has painted; one at a time. A row is
+   *  marked active only when its child is in force: otherwise why nothing
+   *  changed is shown under the button. */
   const activate = (row: SubgroupRow): void => {
     if (activating !== null) return;
     setActivating(row.key);
+    setFailed(null);
     setTimeout(() => {
       try {
-        dispatch(row.action);
-        onActivated(row.key);
+        const why = dispatch(row.action);
+        if (typeof why === "string") setFailed({ key: row.key, why });
+        else onActivated(row.key);
+      } catch (e) {
+        setFailed({ key: row.key, why: e instanceof Error ? e.message : String(e) });
       } finally {
         setActivating(null);
       }
@@ -557,6 +570,7 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
       modesInForce={modes !== null}
       busy={busy}
       activating={activating}
+      failed={failed}
       canActivate={canActivate}
       onActivate={activate}
       onPickVariant={(v) => setSelected({ group: selGroup.key, row: v.key })}

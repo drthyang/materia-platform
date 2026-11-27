@@ -110,6 +110,13 @@ release fixes bugs.
   range. The final instrument pass, the fit-cause advice and the report
   follow, and the two skills say it. A session whose instrument is a
   calibration alone reads as before. New eval scenario `file-profile-held`.
+- **Eval scenarios `pdf-line-k-subgroup` and `pdf-coupled-k-subgroup`**: the
+  Agent names the k-points and irreps that reach a subgroup as the engine
+  labels them (Δ (0, 0, 1/2) irrep 2 for P-4c2 in 1×1×2 on the GaTa₄Se₈ demo;
+  the coupled pair X irrep 5 + W irrep 1 for P-42₁m in 1×1×2), lowers to it
+  and refines; a question after a lowering now gets the stand-in user's
+  answer too. Developer tooling only
+  ([report](docs/reports/2026-11-25-eval-line-k-names.md)).
 - **MCP: `bank`.** `parse_instrument` and `parse_powder_data` take an
   optional `bank` and name the bank read and the banks in the file; the
   default is unchanged.
@@ -166,6 +173,10 @@ release fixes bugs.
   ([report](docs/reports/2026-11-24-mcif-incommensurate-k.md)).
 
 ### Fixed
+
+- **A failed Activate on the Subgroups view says why** and leaves the row
+  inactive; before, the reason went to the console and the row showed
+  "Active ✓" ([report](docs/reports/2026-11-26-activate-failure-visible.md)).
 
 - **Symmetry modes no longer lose real distortions.** The mode basis built
   from a structure's own group projected out every direction all its sites

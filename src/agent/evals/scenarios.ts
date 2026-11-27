@@ -6,7 +6,10 @@
 
 import { localUserFiles, localUserPage, BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, MN3GA_30K_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, mn3ga30kPage, pdfPage, powderPage, refineNuclear, siFileProfilePage } from "@/agent/evals/pages";
 import {
+  askedAfterLowering,
   askedBeforeLowering,
+  namesKIrrep,
+  namesIrreps,
   mergesFirst,
   refinesFlack,
   invertsWrongHand,
@@ -62,8 +65,19 @@ import {
   refinesLowered,
   asksForNoCif,
 } from "@/agent/evals/checks";
-import type { EvalScenario } from "@/agent/evals/harness";
+import type { EvalScenario, FollowUp } from "@/agent/evals/harness";
 import type { PowderAgentPort } from "@/agent/port";
+
+/**
+ * The stand-in user's answers on a lowering in Ask mode: a question before it
+ * (which variant, or the baseline first: 2026-11-07, three runs of six), and
+ * one after it (the fit window, or what to refine: THY-73, 2026-11-08, run 1
+ * lowered, asked about the fit window and stopped). Each is sent at most once.
+ */
+export const LOWERING_FOLLOW_UPS: readonly FollowUp[] = [
+  { text: "Use the default variant, and go on.", when: askedBeforeLowering },
+  { text: "Refine it with the method's defaults, and go on.", when: askedAfterLowering },
+];
 
 export const SCENARIOS: readonly EvalScenario[] = [
   {
@@ -272,11 +286,31 @@ export const SCENARIOS: readonly EvalScenario[] = [
     origin: "The owner (2026-11-03): asked for P-42₁m in a 1×1×2 cell on the GaTa₄Se₈ demo, the Agent said the PDF page had no tool to change the space group and asked for a CIF made in VESTA, ISODISTORT or TRANSTRU.",
     page: () => pdfPage(),
     messages: ["Use P-42₁m in a 1×1×2 cell (c doubled): lower the symmetry to it and refine."],
-    // A question before lowering (which variant, or the baseline first: 2026-11-07, three runs of six) is fair
+    // A question before lowering (which variant, or the baseline first) or after it (the fit window) is fair
     // in Ask mode; the user answers it, and the run goes on.
-    followUp: { text: "Use the default variant, and go on.", when: askedBeforeLowering },
+    followUp: LOWERING_FOLLOW_UPS,
     autonomy: "ask",
     checks: [readsMethodFirst, listsBeforeLowering, lowersTo("P -4 21 m #113", "in its own cell, 1×1×2"), refinesLowered, asksForNoCif, noStall],
+  },
+  {
+    id: "pdf-line-k-subgroup",
+    title: "Names the line point and irrep that reach a subgroup, then lowers to it and refines",
+    origin: "THY-85: in the THY-73 eval (2026-11-08) pdf-lower-symmetry reached only the X and W points, so no live model saw a line point's name (Δ, Σ, Λ: the line's letter with the point's coordinates). On the GaTa₄Se₈ demo, P-4c2 #116 in the 1×1×2 cell is reached by Δ (0, 0, 1/2) irrep 2 alone, in both its variants, and no other row at 1×1×2 bears its name.",
+    page: () => pdfPage(),
+    messages: ["Lower the symmetry to P-4c2 in a 1×1×2 cell (c doubled) and refine it. Which k-point and irrep of F-43m take the structure there?"],
+    followUp: LOWERING_FOLLOW_UPS,
+    autonomy: "ask",
+    checks: [readsMethodFirst, listsBeforeLowering, namesKIrrep("Δ", ["0", "0", "1/2"], 2), lowersTo("P -4 c 2 #116", "in its own cell, 1×1×2"), refinesLowered, asksForNoCif, noStall],
+  },
+  {
+    id: "pdf-coupled-k-subgroup",
+    title: "Names the coupled k-points and irreps that reach a subgroup, then lowers to it and refines",
+    origin: "THY-85, the owner's second scenario beside pdf-line-k-subgroup: on the GaTa₄Se₈ demo, P-42₁m #113 in the 1×1×2 cell is reached only by the coupled pair X irrep 5 (0,0,a,-a,-a,a) + W irrep 1 (a,0,0,a,0,0) (class c45@1×1×2, 44 modes, 4 variants; the engine's labels, cross-checked with ISOTROPY). A model that has just seen a line point may name Δ for the doubled c, or only one irrep of the pair.",
+    page: () => pdfPage(),
+    messages: ["Lower the symmetry to P-42₁m in a 1×1×2 cell (c doubled) and refine it. Which k-points and irreps of F-43m take the structure there?"],
+    followUp: LOWERING_FOLLOW_UPS,
+    autonomy: "ask",
+    checks: [readsMethodFirst, listsBeforeLowering, namesIrreps(["X", 5], ["W", 1]), lowersTo("P -4 21 m #113", "in its own cell, 1×1×2"), refinesLowered, asksForNoCif, noStall],
   },
   {
     id: "sc-data-first",

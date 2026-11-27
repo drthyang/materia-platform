@@ -6,7 +6,8 @@
  * generator in place): a progress line with the supercell held, the rows
  * streaming in, a stop heard, one run at a time, the result kept for the next
  * visit. A row opens its detail (how you get here, the irreps, the variants,
- * the modes) and Activate hands over that row's own action; the list opens
+ * the modes) and Activate hands over that row's own action (one that changes
+ * nothing says why and leaves the row inactive); the list opens
  * short (the top index levels, strain-only rows hidden) with Show more, show
  * all and a name search; the k-point chips and the folded filters filter it;
  * the tree expands one maximal step at a time; on a narrow panel the detail is a full-screen sheet with Back.
@@ -65,7 +66,7 @@ const until = async (ok: () => boolean, ms = 200_000): Promise<void> => {
   }
 };
 
-type Handlers = { onActivateMode?: () => void; onActivateSupercell?: () => void; onActivateSubgroup?: () => void; busy?: boolean };
+type Handlers = { onActivateMode?: () => string | null | void; onActivateSupercell?: () => string | null | void; onActivateSubgroup?: () => void; busy?: boolean };
 function panel(handlers: Handlers = {}) {
   return createElement(SubgroupsPanel, {
     spaceGroup: PARENT.spaceGroup.hermannMauguin,
@@ -318,6 +319,38 @@ describe("the subgroup list in a DOM", () => {
     expect(rowOf(h, PNMA)).toBeDefined();
     act(() => button(h, "Tree")!.click());
     expect(h.querySelector('[data-tree="p"]')).not.toBeNull();
+  });
+
+  it("an Activate that changes nothing says why under the button and leaves the row inactive; one that works marks it active", async () => {
+    const why = "R -3 c:H #167: supercellModes: the parent's operations do not map its atoms onto its atoms";
+    const onSupercell = vi.fn((): string | null => why);
+    const h = mountList(panel({ onActivateSupercell: onSupercell }));
+    await until(() => text(h).includes(ALL));
+    pickRow(h, R3C);
+    await activate(h, "R -3 c:H #167");
+    expect(onSupercell).toHaveBeenCalledTimes(1);
+    const b = h.querySelector<HTMLButtonElement>('button[aria-label="Activate R -3 c:H #167"]')!;
+    expect(b.textContent).toBe("Activate R-3c:H");
+    expect(b.disabled).toBe(false);
+    expect(rowOf(h, R3C)!.textContent).not.toContain("active");
+    const alert = h.querySelector<HTMLElement>("[data-detail] [role=alert]");
+    expect(alert?.textContent).toBe(`⚠ Not activated, nothing changed: ${why}`);
+    // The next try clears the reason; this one works, and the row is marked active.
+    onSupercell.mockImplementation(() => null);
+    await activate(h, "R -3 c:H #167");
+    expect(onSupercell).toHaveBeenCalledTimes(2);
+    expect(h.querySelector("[data-detail] [role=alert]")).toBeNull();
+    expect(b.textContent).toBe("Active ✓");
+    expect(rowOf(h, R3C)!.textContent).toContain("active");
+  });
+
+  it("an Activate that throws says why and leaves the row inactive", async () => {
+    const h = mountList(panel({ onActivateMode: () => { throw new Error("no child"); } }));
+    pickRow(h, P4MM);
+    await activate(h, "P 4 m m #99");
+    const b = h.querySelector<HTMLButtonElement>('button[aria-label="Activate P 4 m m #99"]')!;
+    expect(b.textContent).toBe("Activate P4mm");
+    expect(h.querySelector("[data-detail] [role=alert]")?.textContent).toBe("⚠ Not activated, nothing changed: no child");
   });
 
   it("holds Activate while a fit runs", async () => {
