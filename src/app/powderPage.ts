@@ -1205,7 +1205,7 @@ export function powderMomentFit(client: PowderCompute | null, s: Session, window
       for (const p of momentParams) if (out.esd[p.id] !== undefined) esd[p.id] = out.esd[p.id]!;
       return {
         values: momentsOf(out.result), agreement: out.agreement, ...noiseOf(out.result),
-        rounds: { held: out.reRefined, count: out.rounds, settled: out.settled, lastShiftOverEsd: out.lastShiftOverEsd, esd, esdIncludes: out.esdIncludes },
+        rounds: { held: out.reRefined, count: out.rounds, settled: out.settled, lastShiftOverEsd: out.lastShiftOverEsd, esd, esdIncludes: out.esdIncludes, zeroStart: out.zeroStart, undetermined: out.undetermined },
       };
     },
   };

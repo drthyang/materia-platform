@@ -236,7 +236,8 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
         bindings: [...built.bindings, ...build.bindings],
         profile: built.profile,
       },
-      keys: ["components", "esd", "esdAloneReason", "esdIncludes", "lastShiftOverEsd", "magnetic", "moments", "observationCount", "parallel", "parameters", "reRefined", "reading", "result", "rounds", "settled", "wR"],
+      // One seeded mode: the other two start at 0, and are kicked and tested (`zeroStart`).
+      keys: ["components", "esd", "esdAloneReason", "esdIncludes", "lastShiftOverEsd", "magnetic", "moments", "observationCount", "parallel", "parameters", "reRefined", "reading", "result", "rounds", "settled", "wR", "zeroStart"],
     };
   })(),
   parse_single_crystal_data: {

@@ -21,7 +21,7 @@ import { magneticSubgroupLattice, latticeRepresentatives, maximalWithMoment, typ
 import { buildMagneticModel, momentFitRows, type MagneticModelBuild } from "@/core/magnetic/momentModel";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { fitMomentsWithRestarts, RANK_RESTARTS, type MomentFit } from "@/core/magnetic/momentRestarts";
-import { ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE } from "@/core/magnetic/momentsFit";
+import { ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE, reportedFitLabel, zeroStartSentences, type UndeterminedFamily, type ZeroStartTest } from "@/core/magnetic/momentsFit";
 import { momentCartesian } from "@/core/magnetic/moment";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { resolveTies } from "@/core/refinement/constraints";
@@ -219,6 +219,10 @@ export interface MomentRounds {
   readonly esd: Readonly<Record<string, number>>;
   /** The held rows whose uncertainty the esds include; empty when the covariance with them could not be formed. */
   readonly esdIncludes: readonly string[];
+  /** The amplitudes the fit left at 0, kicked and tested (momentsFit.ts); absent or null when none was. */
+  readonly zeroStart?: ZeroStartTest | null;
+  /** The moment rows whose direction the data do not determine, with no esd (momentsFit.ts); absent or empty when none. */
+  readonly undetermined?: readonly UndeterminedFamily[];
 }
 
 /** A step's fit: its moments, and what the rounds did where it ran as rounds. */
@@ -298,10 +302,15 @@ export function momentFitReadout(agreementLabel: string, wR: number, rounds: Mom
   // A fit with nothing between its moments steps (no free scale or background row) is one fit, as it was.
   if (!rounds || (rounds.count === 0 && rounds.esdIncludes.length === 0)) return { line: fit, warning: false, details: null };
   const n = `${rounds.count} round${rounds.count === 1 ? "" : "s"}`;
+  // Which fit is reported, where Refine moments kicked a row left at 0 (momentsFit.ts): the kicked fit, or the zero-start fit with it held.
+  const which = reportedFitLabel(rounds.zeroStart);
+  const tag = which ? `${which}, ` : "";
   const line = rounds.settled
-    ? `${fit} · settled in ${n}`
-    : `${fit} · not settled after ${n} (a moment still moved by ${rounds.lastShiftOverEsd.toFixed(2)} esd)`;
+    ? `${fit} · ${tag}settled in ${n}`
+    : `${fit} · ${tag}not settled after ${n} (a moment still moved by ${rounds.lastShiftOverEsd.toFixed(2)} esd)`;
   const esds = Object.entries(rounds.esd).filter(([, e]) => e > 0).map(([id, e]) => `${names[id] ?? id} ± ${e.toPrecision(2)}`);
+  const zeroStart = zeroStartSentences({ zeroStart: rounds.zeroStart ?? null, undetermined: rounds.undetermined ?? [] }, (id) => names[id] ?? id);
+  const directionOpen = (rounds.undetermined ?? []).length > 0;
   const details = [
     MOMENT_ROUNDS_SUMMARY,
     "Each round refines the scale and the background with the moments held, then the moments with every nuclear row held. The fit ends on a moments step; moments and nuclear rows never refine together.",
@@ -310,16 +319,25 @@ export function momentFitReadout(agreementLabel: string, wR: number, rounds: Mom
       : `Not settled: after ${rounds.count} rounds (the most a fit runs is ${ALTERNATION_MAX_ROUNDS}) a moment still moved by ${rounds.lastShiftOverEsd.toFixed(2)} of its esd. The last moments step is kept. A moment the data do not determine does this; run Refine moments again, or tie or drop that component.`,
     "The page's scale and background rows now hold the re-refined values (one History step).",
     ...(esds.length > 0
-      ? [`Esd${esds.length === 1 ? "" : "s"}: ${esds.join(", ")}${rounds.esdIncludes.length > 0 ? ", with the uncertainty of the scale and the background included" : " (of the moments alone: the covariance with the scale and the background could not be formed)"}.`]
+      ? [`Esd${esds.length === 1 ? "" : "s"}: ${esds.join(", ")}${rounds.esdIncludes.length > 0 ? ", with the uncertainty of the scale and the background included" : directionOpen ? " (of the moments alone: a direction among the moments is not determined)" : " (of the moments alone: the covariance with the scale and the background could not be formed)"}.`]
       : []),
+    ...zeroStart,
   ].join(" ");
   return { line, warning: !rounds.settled, details };
 }
 
 /** A fit's rounds as the Agent's view of the chosen model carries them; nothing for a fit with no step between its moments steps. */
-function roundsView(rounds: MomentRounds | null): { count: number; settled: boolean; lastShiftOverEsd: number; esd: Readonly<Record<string, number>>; esdIncludes: boolean } | undefined {
+function roundsView(rounds: MomentRounds | null): { count: number; settled: boolean; lastShiftOverEsd: number; esd: Readonly<Record<string, number>>; esdIncludes: boolean; heldAtZero?: readonly string[]; undetermined?: readonly string[]; notes?: readonly string[] } | undefined {
   if (!rounds || (rounds.count === 0 && rounds.esdIncludes.length === 0)) return undefined;
-  return { count: rounds.count, settled: rounds.settled, lastShiftOverEsd: rounds.lastShiftOverEsd, esd: rounds.esd, esdIncludes: rounds.esdIncludes.length > 0 };
+  const undetermined = (rounds.undetermined ?? []).flatMap((f) => f.rows);
+  const heldAtZero = (rounds.zeroStart?.heldRows ?? []).filter((id) => !undetermined.includes(id));
+  const words = zeroStartSentences({ zeroStart: rounds.zeroStart ?? null, undetermined: rounds.undetermined ?? [] });
+  return {
+    count: rounds.count, settled: rounds.settled, lastShiftOverEsd: rounds.lastShiftOverEsd, esd: rounds.esd, esdIncludes: rounds.esdIncludes.length > 0,
+    ...(heldAtZero.length > 0 ? { heldAtZero } : {}),
+    ...(undetermined.length > 0 ? { undetermined } : {}),
+    ...(words.length > 0 ? { notes: words } : {}),
+  };
 }
 
 // ── the ranking ─────────────────────────────────────────────────────────────
