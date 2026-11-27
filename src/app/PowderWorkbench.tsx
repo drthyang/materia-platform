@@ -1608,7 +1608,7 @@ export function PowderWorkbench({
                     options={dataBankChoices}
                     value={dataBank?.bankNumber ?? null}
                     {...(onDataBank ? { onChange: onDataBank } : {})}
-                    help="This data file holds several banks, and the page reads one at a time (a joint fit of several banks is not available). It opens on bank 1. Choosing another bank reads that bank in one History step: every refinement value and free, fixed or tied choice is kept, the scale and background included; the instrument follows the bank when its file has it, and its rows take that bank's values. Nothing is refined until you click Refine."
+                    help="This data file holds several banks, and the page reads one at a time (a joint fit of several banks is not available). It opens on the file's first bank, or the bank a project or example saved. Choosing another bank reads that bank in one History step: every refinement value and free, fixed or tied choice is kept, the scale and background included; the instrument follows the bank when its file has it, and its rows take that bank's values. Nothing is refined until you click Refine."
                   />
                 )}
                 {bankKept && (
