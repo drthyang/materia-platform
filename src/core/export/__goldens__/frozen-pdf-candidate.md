@@ -45,13 +45,13 @@ Real-space PDF refinement of Mn3Ga (P 63/m m c) against neutron G(r) over 1.5–
 
 | Site | Type | x | y | z | Occ. | B_iso (Å²) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Mn1 | Mn | 0.16393 | 0.32775 | 0.25000 | 0.9780 | 1.121 |
-| Ga1 | Ga | 0.33330 | 0.66670 | 0.75000 | 1.0050 | 0.734 |
+| Mn1 | Mn | 0.16387 | 0.32775 | 0.25000 | 0.9780 | 1.121 |
+| Ga1 | Ga | 0.33333 | 0.66667 | 0.75000 | 1.0050 | 0.734 |
 
 | Site | Bonds (Å) | Mean (Å) |
 | --- | --- | ---: |
-| Mn1 | Mn1 2.6657 ×2 · Mn1 2.6749 ×4 · Ga1 2.7055 ×2 · Ga1 2.7106 · Ga1 2.7118 · Mn1 2.7565 ×2 | 2.6981 |
-| Ga1 | Mn1 2.7052 ×6 · Mn1 2.7106 ×2 · Mn1 2.7112 ×3 · Mn1 2.7118 | 2.7083 |
+| Mn1 | Mn1 2.6657 ×2 · Mn1 2.6749 ×4 · Ga1 2.7054 ×2 · Ga1 2.7112 ×2 · Mn1 2.7565 ×2 | 2.6981 |
+| Ga1 | Mn1 2.7054 ×6 · Mn1 2.7112 ×6 | 2.7083 |
 
 *Each cation's shell at the refined positions, out to 3.2 Å (or 1.25 × its shortest bond for a large cation); no esds, as the covariance is not carried to the lengths.*
 
@@ -75,7 +75,7 @@ Real-space PDF refinement of Mn3Ga (P 63/m m c) against neutron G(r) over 1.5–
 | Site · orbit | Position (fractional) | m along a, b, c (µB) | \|m\| (µB) |
 | --- | ---: | ---: | ---: |
 | Mn1 · orbit 1 | 0.1639, 0.3277, 0.2500 | 2.500, 0.000, 0.000 | 2.500 |
-| Mn1 · orbit 2 | 0.8362, 0.1639, 0.7500 | -1.443, 1.443, 0.000 | 2.500 |
+| Mn1 · orbit 2 | 0.8361, 0.1639, 0.7500 | -1.443, 1.443, 0.000 | 2.500 |
 
 ## 6. Refinement details
 

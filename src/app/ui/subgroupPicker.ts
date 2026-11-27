@@ -812,14 +812,20 @@ export function multiplicitiesOf(structure: StructureModel | undefined, group: F
   return displacementOf(structure, group)?.multiplicity;
 }
 
-/** The multiplicities of multiplicitiesOf, and the identity irrep's (the parent's free coordinates). */
+/**
+ * The multiplicities of multiplicitiesOf, and the identity irrep's (the parent's
+ * free coordinates). A structure whose displacement representation cannot be
+ * worked out throws: its rows would otherwise be listed as if there were no
+ * structure (no mode counts, no bond-stretch order), which reads as a result.
+ * The listing says why instead (the page's line, the Agent's "not listed").
+ */
 export function displacementOf(structure: StructureModel | undefined, group: FactorGroup): { readonly multiplicity: (b: BoundIrrep) => number; readonly identity: number; readonly stretch: BondStretch } | undefined {
   if (!structure) return undefined;
   let chi: Float64Array;
   try {
     chi = displacementCharacters(structure, group);
-  } catch {
-    return undefined;
+  } catch (e) {
+    throw new Error(`mode counts for this structure failed (${e instanceof Error ? e.message : String(e)})`, { cause: e });
   }
   return { multiplicity: (b) => displacementMultiplicity(chi, b.irrep.characters), identity: displacementMultiplicity(chi, group.elements.map(() => 1)), stretch: bondStretch(structure, group) };
 }

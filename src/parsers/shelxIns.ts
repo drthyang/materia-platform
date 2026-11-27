@@ -17,7 +17,9 @@
  *   instructions, for the page to apply or the Agent to read.
  *
  * Everything after END is ignored (a .res lists its difference-map peaks
- * there). Reference: the SHELXL manual (Sheldrick, 2008 and later).
+ * there). A site the engine reads as special (within 1e-3) is placed on its
+ * special position exactly, as a CIF's is (specialPositions.ts).
+ * Reference: the SHELXL manual (Sheldrick, 2008 and later).
  */
 
 import type { AtomSite, StructureModel, SymmetryOperation } from "@/core/crystal/types";
@@ -26,6 +28,7 @@ import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
 import { elementFromLetters } from "@/core/crystal/elements";
 import { expandGenerators, settingForOperations, spaceGroupFromSetting } from "@/core/crystal/spaceGroups";
 import { parseSymmetryOperation, siteMultiplicity } from "@/core/crystal/symmetry";
+import { snapToSpecialPositions, type SiteSnap } from "@/core/crystal/specialPositions";
 
 /** What the file asks of a refinement, beyond the structure. */
 export interface ShelxInstructions {
@@ -60,6 +63,11 @@ export interface ShelxInstructions {
 export interface ShelxModel {
   readonly structure: StructureModel;
   readonly instructions: ShelxInstructions;
+  /** The sites moved onto their exact special positions, as a CIF's are (specialPositions.ts). */
+  readonly snapped: readonly SiteSnap[];
+  /** Sites the snap would have moved but left as read: a coordinate is tied by a free variable (FVAR m ≥ 2), which
+   *  may tie it to another atom's, and moving one of the pair would pull them apart. */
+  readonly leftAsRead: readonly string[];
 }
 
 /** The instructions SHELXL knows: a line starting with one is no atom. */
@@ -287,6 +295,8 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
   const spaceGroup = setting ? spaceGroupFromSetting(setting) : { operations };
 
   const sites: AtomSite[] = [];
+  // The sites whose coordinates a free variable gives (m ≥ 2): left as read by the snap below.
+  const tiedByVariable = new Set<string>();
   const afixOf = new Map<string, number>();
   const ridingU = new Map<string, number>();
   const shared = new Map<number, { value: number; labels: string[] }>();
@@ -305,7 +315,8 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
     const values = tokens.slice(2).map(Number);
     if (values.length < 3 || values.slice(0, 3).some((v) => !Number.isFinite(v))) throw new Error(`atom ${tokens[0]}: x y z expected`);
     const label = labelOf(tokens[0]!, element);
-    const position: Vec3 = [shelxValue(values[0]!, fv).value, shelxValue(values[1]!, fv).value, shelxValue(values[2]!, fv).value];
+    const coords = [0, 1, 2].map((i) => shelxValue(values[i]!, fv));
+    const position: Vec3 = [coords[0]!.value, coords[1]!.value, coords[2]!.value];
     const sofValue = shelxValue(values[3] ?? 11, fv);
     const sof = sofValue.value;
     // The sof carries the site's symmetry: an atom on a twofold axis has 0.5 for a full site.
@@ -345,14 +356,26 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
       ...(group !== 0 ? { disorder: { assembly: assemblyOf(sofValue.variable !== undefined ? `fv${sofValue.variable}` : `run${run}`), group } } : {}),
     };
     sites.push(site);
+    if (coords.some((c) => c.variable !== undefined)) tiedByVariable.add(label);
     afixOf.set(label, code);
     if (!hydrogen) lastHeavy = site;
   }
   if (sites.length === 0) throw new Error("no atoms in the file");
 
   const name = title.split(/\s+in\s+/i)[0]!.trim() || id;
+  // The sites on their exact special positions, by the rule every structure file is read with (parseCif's):
+  // the file's coordinates are plain numbers here (a free-variable code is resolved above); the occupancy's
+  // site share is the same at 1e-3 before and after.
+  // A site whose coordinate a free variable ties (perhaps to another atom's) is left as read: snapping one
+  // of a tied pair would pull the pair apart, so the person is told instead.
+  const all = snapToSpecialPositions({ id, name, cell, ...(cellSu ? { cellSu } : {}), spaceGroup, sites });
+  const leftAsRead = all.snapped.filter((s) => tiedByVariable.has(s.label)).map((s) => s.label);
+  const snapped = all.snapped.filter((s) => !tiedByVariable.has(s.label));
+  const structure = leftAsRead.length === 0 ? all.structure : { ...all.structure, sites: all.structure.sites.map((site, i) => (tiedByVariable.has(site.label) ? sites[i]! : site)) };
   return {
-    structure: { id, name, cell, ...(cellSu ? { cellSu } : {}), spaceGroup, sites },
+    structure,
+    snapped,
+    leftAsRead,
     instructions: {
       title,
       wavelength,

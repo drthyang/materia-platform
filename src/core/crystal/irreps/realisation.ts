@@ -45,6 +45,7 @@
 import type { Mat3, Vec3 } from "@/core/math/types";
 import type { AtomSite, DisplacementParameters, StructureModel, SymmetryOperation, UnitCell } from "@/core/crystal/types";
 import { applyOperation, formatOperationXyz, parseSymmetryOperation, siteMultiplicity } from "@/core/crystal/symmetry";
+import { exactSitePosition } from "@/core/crystal/specialPositions";
 import { distinctSiteOps } from "@/core/diffraction/structureFactor";
 import { metricTensor, orthogonalizationMatrix, reciprocalMetricTensor } from "@/core/crystal/unitCell";
 import { cellFromMetric } from "@/core/crystal/settings";
@@ -409,7 +410,9 @@ export function realiseChild(parent: StructureModel, group: FactorGroup, element
   const origins: ChildSiteOrigin[] = [];
   const atoms: ChildAtom[] = [];
   const taken = new Set<string>(parent.sites.map((s) => s.label));
-  for (const site of parent.sites) {
+  for (const printed of parent.sites) {
+    // The site on its exact special position: the T″ cell (coreCell) places it the same way.
+    const site = { ...printed, position: exactSitePosition(parentOps, printed.position) };
     const placing = distinctSiteOps(parentOps, site.position);
     const images = placing.map((op) => ({ op: parentOps.indexOf(op), x: applyOperation(op, site.position) }));
     // Every image of the site in the child cell.

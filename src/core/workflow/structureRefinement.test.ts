@@ -126,7 +126,10 @@ describe("powder structure refinement", () => {
     // The single Mn1 positional mode is driven back by ≈ −DELTA (recovers truth).
     const pos = out.parameters.find((p) => p.id === "pos_Mn1_0")!;
     expect(pos.value).toBeCloseTo(-DELTA, 3);
-    expect(pos.esd).toBeGreaterThan(0);
+    // Noise-free data and a site exactly on its special position (snapped on load): the fit is exact and
+    // its esd is round-off, sqrt(cov·χ²/dof) with χ² ≈ 0. The engine does not zero esds on an exact fit,
+    // so the value is platform round-off: 0 on arm64, about 1.7e-16 on CI's x64.
+    expect(pos.esd).toBeLessThan(1e-12);
 
     // The fit collapses to (near) zero on noiseless data.
     expect(wRend).toBeLessThan(wRstart);
