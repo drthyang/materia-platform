@@ -1253,7 +1253,7 @@ Powder page only. Choose one magnetic space group by its id (G1, G2, … from ma
 
 ### refine_moments
 
-Powder page only. Fit the chosen group's moment amplitudes in rounds: the moments (nuclear rows held), then the scale and background (moments held), until no moment moves by 0.1 esd; at most 10 rounds, ending on the moments. The page's scale and background rows take the re-refined values. Returns wR, the rounds, the moments (µB) and their esds. "not settled": the data do not determine a moment; tie or hold it.
+Powder page only. Fit the chosen group's moment amplitudes in rounds: the moments (nuclear rows held), then the scale and background (moments held), until no moment moves by 0.1 esd; at most 10 rounds, ending on the moments. The page's scale and background rows take the re-refined values. Returns wR, the rounds, the moments (µB) and their esds. An amplitude the fit leaves at exactly 0 (where it has no gradient) is kicked to 0.1 µB and refitted, and kept only when Hamilton's test at 5 % says the data require it, otherwise held at 0 with no esd; rows whose direction the data do not determine get no esd. "not settled": the data do not determine a moment; tie or hold it.
 
 ```json
 {
