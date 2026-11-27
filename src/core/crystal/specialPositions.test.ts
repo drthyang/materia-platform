@@ -95,6 +95,20 @@ describe("snap on load", () => {
     expect(SNAP_TOLERANCE).toBe(1e-3);
   });
 
+  it("tied coordinates hold exactly in floating point: F-43m 16e (x, x+½, x+½) printed 1e-6 off, and P6₃/mmc 6h y = 2x", () => {
+    // The user's GaTa₄Se₈ Se17: (0.384737, 0.884736, 0.884736), one coordinate rounded 1e-6 off 16e.
+    const f = buildSpaceGroup("F -4 3 m").operations;
+    const se = specialPositionOf(f, [0.384737, 0.884736, 0.884736])!;
+    expect(se[1] - se[0]).toBe(0.5);
+    expect(se[2]).toBe(se[1]);
+    // The nearest point of the line: t = the mean of x, y − ½, z − ½.
+    expect(se[0]).toBeCloseTo((0.384737 + 2 * 0.384736) / 3, 15);
+    expect(equivalentPositions(f, se, 1e-15)).toHaveLength(equivalentPositions(f, se).length);
+    const h = buildSpaceGroup("P 63/m m c").operations;
+    const mn = specialPositionOf(h, [0.16393, 0.32775, 0.2501])!;
+    expect(mn).toEqual([0.32775 / 2, 0.32775, 0.25]);
+  });
+
   it("a general position is never moved", () => {
     const sg = buildSpaceGroup("P 63/m m c");
     const s: StructureModel = {

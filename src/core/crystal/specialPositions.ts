@@ -19,9 +19,12 @@
  * engine already counts it as special: a free site whose images all lie 1e-3
  * or more away (one that only lies near a special position) is left as
  * printed, as is a site the average would move by more than the tolerance or
- * whose images would not then fix it. A coordinate the snap would change by
- * less than EXACT keeps its printed bits, so a file already exact is read as
- * before, bit for bit.
+ * whose images would not then fix it. The coordinates the site symmetry fixes
+ * or ties are written from its exact constraints (x = ¼, y = 2x, y = x + ½), so
+ * the snapped point is on the special position in floating point, not only to
+ * round-off. A site the snap would change by less than EXACT, and a free
+ * coordinate the average leaves within EXACT, keep their printed bits, so a
+ * file already exact is read as before, bit for bit.
  */
 import { applyOperation } from "@/core/crystal/symmetry";
 import type { Vec3 } from "@/core/math/types";
@@ -74,20 +77,75 @@ function angstrom(cell: UnitCell, d: Vec3): number {
   return Math.sqrt(Math.max(0, x * x + y * y + z * z + 2 * x * y * cg + 2 * x * z * cb + 2 * y * z * ca));
 }
 
-/** v as the double of the nearest fraction n/48 (thirds, quarters, sixths, eighths …) when it lies within 1e-12 of one; else v. */
-function onFraction(v: number): number {
-  const n = Math.round(v * 48);
-  if (Math.abs(v - n / 48) > 1e-12) return v;
-  const d = 48 / gcd(Math.abs(n), 48);
-  return (n / (48 / d)) / d;
+/** A rational n/d (d > 0, reduced), for the special-position constraints solved exactly. */
+type Q = readonly [number, number];
+const gcd = (a: number, b: number): number => (b === 0 ? Math.abs(a) : gcd(b, a % b));
+const q = (n: number, d = 1): Q => {
+  const g = gcd(n, d) || 1;
+  return d < 0 ? [-n / g, -d / g] : [n / g, d / g];
+};
+const sub = (a: Q, b: Q): Q => q(a[0] * b[1] - b[0] * a[1], a[1] * b[1]);
+const mul = (a: Q, b: Q): Q => q(a[0] * b[0], a[1] * b[1]);
+const div = (a: Q, b: Q): Q => q(a[0] * b[1], a[1] * b[0]);
+/** The translations of the space groups the engine reads are multiples of 1/48 (halves, thirds, quarters, sixths, eighths, twelfths). */
+const DENOMINATOR = 48;
+
+/**
+ * The site's special position as exact relations, x_i = c_i + Σ_j a_ij x_j over
+ * the free coordinates j: the operations that fix `x` (within `tol`, each with
+ * the lattice shift that brings its image back) give (R − I)·x = −(t + n), solved
+ * in rationals. A coordinate the stabilizer fixes is a constant (¼, ⅓ …); a tied
+ * one (y = 2x, y = x + ½) is written through a free one. Null when a translation
+ * is not a multiple of 1/48 or the constraints disagree (left to the average).
+ */
+function constraintsAt(ops: readonly SymmetryOperation[], x: Vec3, tol: number): { readonly free: readonly boolean[]; readonly rows: ReadonlyArray<{ readonly pivot: number; readonly c: Q; readonly a: readonly Q[] }> } | null {
+  const rows: Q[][] = [];
+  for (const op of ops) {
+    const y = applyOperation(op, x);
+    const n = [0, 1, 2].map((i) => Math.round(x[i]! - y[i]!));
+    if ([0, 1, 2].some((i) => Math.abs(y[i]! + n[i]! - x[i]!) > tol)) continue;
+    for (let i = 0; i < 3; i++) {
+      const coef = [0, 1, 2].map((j) => op.rotation[i]![j]! - (i === j ? 1 : 0));
+      const t = (op.translation[i]! + n[i]!) * DENOMINATOR;
+      if (Math.abs(t - Math.round(t)) > 1e-9 || coef.some((v) => !Number.isInteger(v))) return null;
+      if (coef.every((v) => v === 0)) continue;
+      rows.push([...coef.map((v) => q(v)), q(-Math.round(t), DENOMINATOR)]);
+    }
+  }
+  // Reduced row echelon form, in rationals.
+  const pivots: number[] = [];
+  let r = 0;
+  for (let col = 0; col < 3 && r < rows.length; col++) {
+    const k = rows.findIndex((row, i) => i >= r && row[col]![0] !== 0);
+    if (k < 0) continue;
+    [rows[r], rows[k]] = [rows[k]!, rows[r]!];
+    const lead = rows[r]![col]!;
+    rows[r] = rows[r]!.map((v) => div(v, lead));
+    for (let i = 0; i < rows.length; i++) {
+      if (i === r || rows[i]![col]![0] === 0) continue;
+      const f = rows[i]![col]!;
+      rows[i] = rows[i]!.map((v, j) => sub(v, mul(f, rows[r]![j]!)));
+    }
+    pivots.push(col);
+    r++;
+  }
+  // A row 0 = c ≠ 0: the images that fix x within the tolerance fix no common point.
+  if (rows.slice(r).some((row) => row[3]![0] !== 0)) return null;
+  const free = [0, 1, 2].map((j) => !pivots.includes(j));
+  return {
+    free,
+    rows: pivots.map((pivot, i) => ({ pivot, c: rows[i]![3]!, a: [0, 1, 2].map((j) => (free[j] ? q(-rows[i]![j]![0], rows[i]![j]![1]) : q(0))) })),
+  };
 }
-const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
 
 /**
  * One site's special position: the average of the images that fix it, repeated
  * while the site symmetry grows (a point near a high-symmetry position can
  * first show only part of its site symmetry within the tolerance); null when
- * the site is left as printed.
+ * the site is left as printed. The average gives the free coordinates; the
+ * coordinates the site symmetry fixes or ties are then written from the exact
+ * constraints, so ¼ is 0.25, ⅓ is the double nearest ⅓, and y = x + ½ holds
+ * as computed in floating point, not to the average's last-bit round-off.
  */
 export function specialPositionOf(ops: readonly SymmetryOperation[], position: Vec3, tol = SNAP_TOLERANCE): Vec3 | null {
   let x = position;
@@ -100,14 +158,21 @@ export function specialPositionOf(ops: readonly SymmetryOperation[], position: V
     x = next;
     if (settled) break;
   }
-  // A coordinate the snap leaves where it was (a free z) keeps its printed bits, and one the average puts on a
-  // fraction of small denominator (⅔) is that fraction's own double, not the average's last-bit round-off.
-  x = x.map((v, i) => (Math.abs(v - position[i]!) < EXACT ? position[i]! : onFraction(v))) as unknown as Vec3;
-  const shift = Math.max(...x.map((v, i) => Math.abs(v - position[i]!)));
-  if (shift === 0 || shift > tol) return null;
-  // The images that fixed it within the tolerance fix the snapped point (to the printed bits kept above).
-  if (nearImages(ops, x, 1e-8).length !== nearImages(ops, x, tol).length) return null;
-  return x;
+  const exact = constraintsAt(ops, x, tol);
+  if (!exact) return null;
+  // A free coordinate the average leaves where it was (a free z) keeps its printed bits.
+  const out = x.map((v, i) => (exact.free[i] && Math.abs(v - position[i]!) < EXACT ? position[i]! : v)) as [number, number, number];
+  for (const { pivot, c, a } of exact.rows) {
+    let v = c[0] / c[1];
+    for (let j = 0; j < 3; j++) if (a[j]![0] !== 0) v += (a[j]![0] / a[j]![1]) * out[j]!;
+    out[pivot] = v;
+  }
+  const shift = Math.max(...out.map((v, i) => Math.abs(v - position[i]!)));
+  // A site the snap would move by less than EXACT is already exact: its printed bits are kept.
+  if (shift < EXACT || shift > tol) return null;
+  // The images that fixed it within the tolerance fix the snapped point.
+  if (nearImages(ops, out, 1e-8).length !== nearImages(ops, out, tol).length) return null;
+  return out;
 }
 
 /** The structure with each site on its exact special position, and the sites moved. */
