@@ -126,6 +126,10 @@ export interface MomentsFitOutcome {
  */
 export const ZERO_START_KICK = 0.1;
 
+/** The upper-limit profile: its first step from the minimum, in µ_B (each step doubles), and how far it looks. */
+export const UPPER_LIMIT_STEP = 0.1;
+export const UPPER_LIMIT_CAP = 10;
+
 /** A weighted residual below which a fit is exact (noise-free data): the alternation's and the engine's line. */
 const EXACT_FIT_RWP = 1e-6;
 
@@ -176,13 +180,43 @@ export interface ZeroStartTest {
   readonly kickedValues: Readonly<Record<string, number>>;
   /**
    * The fit whose result is reported, and whose rounds the outcome carries:
-   * the kicked fit (kept), or the zero-start fit re-run from its end with the
-   * rows held at 0 (not kept).
+   * the kicked fit (every kicked row kept); the kicked fit with the rows the
+   * one-at-a-time test dropped held at 0; or the zero-start fit re-run from
+   * its end with the rows held at 0 (none kept).
    */
-  readonly reported: "kicked" | "zero-start, rows held";
-  /** Rounds of the zero-start fit (the fit from the given start) and of the kicked fit. */
+  readonly reported: "kicked" | "kicked, rows held" | "zero-start, rows held";
+  /** The kicked rows kept and those held at 0, in row order. */
+  readonly keptRows: readonly string[];
+  readonly heldRows: readonly string[];
+  /** Each kicked row's own test (one at a time, q = 1) and, for a held row, the 95 % profile limit the data allow. */
+  readonly perRow: Readonly<Record<string, ZeroStartRow>>;
+  /** Rounds of the zero-start fit (the fit from the given start), of the kicked fit, and of the fit reported. */
   readonly zeroStartRounds: number;
   readonly kickedRounds: number;
+  readonly reportedRounds: number;
+}
+
+/**
+ * One kicked row's test, q = 1: χ² with it held at 0 against χ² with it free
+ * (in the fit reported for a kept row; in the step that dropped it for a held
+ * one), by the ranking's Hamilton test at 5 %.
+ */
+export interface ZeroStartRow {
+  readonly kept: boolean;
+  /** Null where the fits report no χ². */
+  readonly deltaChi2: number | null;
+  /** Null where the fits report no χ², or both are exact (noise-free data). */
+  readonly f: number | null;
+  readonly fCritical: number | null;
+  /** Kept rows: the likelihood-ratio significance √(Δχ²/(χ²/ν)), in σ. */
+  readonly z: number | null;
+  /**
+   * Held rows: the largest |value| (µ_B) the data allow, the 95 % one-parameter
+   * profile limit (upperLimitOf). Null when it is not given, and
+   * `upperLimitNote` says why.
+   */
+  readonly upperLimit?: number | null;
+  readonly upperLimitNote?: "no χ²" | "exact" | "above cap";
 }
 
 /** Moment rows the data cannot orient: a direction in them changes the fit by nothing. */
@@ -293,7 +327,7 @@ function mergeFamilies(families: readonly (readonly string[])[]): string[][] {
  * Where the fits report no χ², the ranking's fallback: kept only when the
  * agreement is lower by more than RANK_TIE_WR.
  */
-function zeroStartTest(zero: AlternationOutcome, kicked: AlternationOutcome, rows: readonly string[], freeCount: number): Omit<ZeroStartTest, "kick" | "kickedValues" | "reported" | "zeroStartRounds" | "kickedRounds"> & { readonly equallyGood: boolean } {
+function zeroStartTest(zero: AlternationOutcome, kicked: AlternationOutcome, rows: readonly string[], freeCount: number): Omit<ZeroStartTest, "kick" | "kickedValues" | "reported" | "zeroStartRounds" | "kickedRounds" | "keptRows" | "heldRows" | "perRow" | "reportedRounds"> & { readonly equallyGood: boolean } {
   const q = rows.length;
   const a = noiseOf(zero.result);
   const b = noiseOf(kicked.result);
@@ -320,6 +354,91 @@ function zeroStartTest(zero: AlternationOutcome, kicked: AlternationOutcome, row
     fCritical: fCritical(RANK_NOISE_ALPHA, q, b.dof),
     z: q === 1 && deltaChi2 > 0 ? Math.sqrt(deltaChi2 / noise) : null,
   };
+}
+
+type Run = (rows: readonly RefinementParameter[], ids?: readonly string[]) => Promise<AlternationOutcome | null>;
+const exactFit = (o: AlternationOutcome): boolean => (o.result.agreement.rWeighted ?? 1) < EXACT_FIT_RWP;
+
+/**
+ * One row's test, q = 1: `without` (the row held at 0) against `withRow`, by
+ * the ranking's Hamilton test (withinNoiseOfBest at RANK_NOISE_ALPHA). The
+ * row is required when `without` is not within the noise of `withRow`. Both
+ * exact: not required. No χ²: the ranking's fallback, required when wR is
+ * lower by more than RANK_TIE_WR.
+ */
+function rowTest(withRow: AlternationOutcome, without: AlternationOutcome, freeCount: number): ZeroStartRow {
+  const a = noiseOf(without.result);
+  const b = noiseOf(withRow.result);
+  if (exactFit(withRow) && exactFit(without)) return { kept: false, deltaChi2: (a.chi2 ?? 0) - (b.chi2 ?? 0), f: null, fCritical: null, z: null };
+  if (a.chi2 === undefined || b.chi2 === undefined || b.dof === undefined || !(b.dof > 0)) {
+    const wa = without.result.agreement.rWeighted;
+    const wb = withRow.result.agreement.rWeighted;
+    return { kept: wa !== undefined && wb !== undefined && wb < wa - RANK_TIE_WR, deltaChi2: null, f: null, fCritical: null, z: null };
+  }
+  const within = withinNoiseOfBest([
+    { id: "without", chi2: a.chi2, dof: b.dof + 1, parameters: freeCount - 1 },
+    { id: "with", chi2: b.chi2, dof: b.dof, parameters: freeCount },
+  ]);
+  const deltaChi2 = a.chi2 - b.chi2;
+  const noise = b.chi2 / b.dof;
+  const kept = within.has("with") && !within.has("without");
+  return { kept, deltaChi2, f: deltaChi2 / noise, fCritical: fCritical(RANK_NOISE_ALPHA, 1, b.dof), z: kept && deltaChi2 > 0 ? Math.sqrt(deltaChi2 / noise) : null };
+}
+
+/** The rows with these held at 0 (fixed), every other row at its value in `values`. */
+const heldAt = (rows: readonly RefinementParameter[], values: Readonly<Record<string, number>>, held: Readonly<Record<string, number>>): RefinementParameter[] =>
+  rows.map((p) => (p.id in held ? { ...p, value: held[p.id]!, fixed: true } : { ...p, value: values[p.id] ?? p.value }));
+
+/**
+ * The largest |value| of a held row the data allow: the 95 % one-parameter
+ * profile limit. The row is held at m and every other free row refitted by the
+ * same moments fit; the limit is the largest m with
+ * χ²(m) − χ²_min ≤ F(0.05; 1, ν) · χ²_min/ν, χ²_min the lower of χ²(0) (the
+ * fit reported) and χ²(|kicked value|), ν the degrees of freedom with the row
+ * free: Hamilton's normalization, as the ranking's test. The profile steps
+ * from the minimum by UPPER_LIMIT_STEP, doubling, to UPPER_LIMIT_CAP, then
+ * bisects to UPPER_LIMIT_STEP/256. Not given for an exact (noise-free) fit, a
+ * fit without χ², or a limit beyond the cap. Null when cancelled.
+ */
+async function upperLimitOf(run: Run, rows: readonly RefinementParameter[], momentIds: readonly string[], base: AlternationOutcome, row: string, held: readonly string[], kickedValue: number): Promise<Pick<ZeroStartRow, "upperLimit" | "upperLimitNote"> | null> {
+  if (exactFit(base)) return { upperLimit: null, upperLimitNote: "exact" };
+  const b = noiseOf(base.result);
+  if (b.chi2 === undefined || b.dof === undefined || !(b.dof > 1)) return { upperLimit: null, upperLimitNote: "no χ²" };
+  const others = Object.fromEntries(held.filter((id) => id !== row).map((id) => [id, 0]));
+  const ids = momentIds.filter((id) => id !== row && !held.includes(id));
+  const chi2At = async (m: number): Promise<number | undefined | null> => {
+    const o = await run(heldAt(rows, base.values, { ...others, [row]: m }), ids);
+    return o === null ? null : noiseOf(o.result).chi2;
+  };
+  let minM = 0;
+  let minChi2 = b.chi2;
+  const mk = Math.abs(kickedValue);
+  if (mk > ZERO_AMPLITUDE) {
+    const c = await chi2At(mk);
+    if (c === null) return null;
+    if (c !== undefined && c < minChi2) { minM = mk; minChi2 = c; }
+  }
+  const nu = b.dof - 1;
+  const crit = fCritical(RANK_NOISE_ALPHA, 1, nu) * (minChi2 / nu);
+  let lo = minM;
+  let hi = NaN;
+  for (let step = UPPER_LIMIT_STEP; lo < UPPER_LIMIT_CAP; step *= 2) {
+    const m = Math.min(lo + step, UPPER_LIMIT_CAP);
+    const c = await chi2At(m);
+    if (c === null) return null;
+    if (c === undefined) return { upperLimit: null, upperLimitNote: "no χ²" };
+    if (c - minChi2 > crit) { hi = m; break; }
+    lo = m;
+  }
+  if (!Number.isFinite(hi)) return { upperLimit: null, upperLimitNote: "above cap" };
+  while (hi - lo > UPPER_LIMIT_STEP / 256) {
+    const mid = (lo + hi) / 2;
+    const c = await chi2At(mid);
+    if (c === null) return null;
+    if (c === undefined) return { upperLimit: null, upperLimitNote: "no χ²" };
+    if (c - minChi2 > crit) hi = mid; else lo = mid;
+  }
+  return { upperLimit: (lo + hi) / 2 };
 }
 
 /**
@@ -365,25 +484,69 @@ export async function runMomentsFit(problem: MomentsFitProblem, hooks: MomentsFi
     const kicked = await run(kickedRows);
     if (!kicked) return { cancelled: true };
     const { equallyGood, ...test } = zeroStartTest(zero, kicked, stuck, momentIds.length);
-    zeroStart = {
-      ...test, kick: ZERO_START_KICK, kickedValues: Object.fromEntries(stuck.map((id) => [id, kicked.values[id]!])),
-      reported: test.kept ? "kicked" : "zero-start, rows held", zeroStartRounds: zero.rounds, kickedRounds: kicked.rounds,
-    };
-    if (test.kept) {
+    const perRow: Record<string, ZeroStartRow> = {};
+    let keptRows: string[];
+    let current: AlternationOutcome = kicked;
+    if (stuck.length === 1) {
+      // One row: the joint test is its own.
+      perRow[stuck[0]!] = { kept: test.kept, deltaChi2: test.deltaChi2, f: test.f, fCritical: test.fCritical, z: test.z };
+      keptRows = test.kept ? [...stuck] : [];
+    } else {
+      // Several rows: one at a time, backward. From the kicked fit, hold each remaining row at 0 in turn; drop the one the data
+      // need least while the test (q = 1, the same 5 % F) says it is not required; refit; repeat. A row's test is that of the
+      // step that dropped it, or of the last step for a row kept.
+      let remaining = [...stuck];
+      const dropped: string[] = [];
+      while (remaining.length > 0) {
+        let least: { id: string; fit: AlternationOutcome; t: ZeroStartRow } | null = null;
+        const tried: Record<string, ZeroStartRow> = {};
+        for (const id of remaining) {
+          const fit = await run(heldAt(problem.rows, current.values, Object.fromEntries([...dropped, id].map((x) => [x, 0]))), momentIds.filter((x) => x !== id && !dropped.includes(x)));
+          if (!fit) return { cancelled: true };
+          const t = rowTest(current, fit, momentIds.length - dropped.length);
+          tried[id] = t;
+          const cost = t.deltaChi2 ?? (fit.result.agreement.rWeighted ?? Infinity);
+          const leastCost = least ? least.t.deltaChi2 ?? (least.fit.result.agreement.rWeighted ?? Infinity) : Infinity;
+          if (!least || (!t.kept && least.t.kept) || (t.kept === least.t.kept && cost < leastCost)) least = { id, fit, t };
+        }
+        if (least!.t.kept) {
+          for (const id of remaining) perRow[id] = tried[id]!;
+          break;
+        }
+        perRow[least!.id] = least!.t;
+        dropped.push(least!.id);
+        remaining = remaining.filter((x) => x !== least!.id);
+        current = least!.fit;
+      }
+      keptRows = stuck.filter((id) => !dropped.includes(id));
+    }
+    const heldRows = stuck.filter((id) => !keptRows.includes(id));
+    const reported: ZeroStartTest["reported"] = heldRows.length === 0 ? "kicked" : keptRows.length > 0 ? "kicked, rows held" : "zero-start, rows held";
+    if (heldRows.length === 0) {
       out = kicked;
-      rounds = { rounds: kicked.rounds, settled: kicked.settled, lastShiftOverEsd: kicked.lastShiftOverEsd };
+    } else if (keptRows.length > 0) {
+      out = current;
     } else {
       // Held at 0: the fit with the rows at 0, re-run from where it ended with them held (values unchanged; esds of the rest without the dead rows).
-      const held = new Set(stuck);
-      const heldRows = problem.rows.map((p) => ({ ...p, value: held.has(p.id) ? 0 : zero.values[p.id] ?? p.value, ...(held.has(p.id) ? { fixed: true } : {}) }));
-      const again = await run(heldRows, momentIds.filter((id) => !held.has(id)));
+      const again = await run(heldAt(problem.rows, zero.values, Object.fromEntries(heldRows.map((id) => [id, 0]))), momentIds.filter((id) => !heldRows.includes(id)));
       if (!again) return { cancelled: true };
       out = again;
-      // The rounds of the fit reported (the re-run); the zero-start fit's are in `zeroStart`.
-      rounds = { rounds: again.rounds, settled: again.settled, lastShiftOverEsd: again.lastShiftOverEsd };
       // A family the kicked fit found, where that fit is as good (within the noise both ways): the data do not determine the direction there either.
       if (equallyGood) for (const f of undeterminedFamilies(kicked.result, amplitudeIds)) families.push({ rows: f, alternative: Object.fromEntries(f.map((id) => [id, kicked.values[id]!])) });
     }
+    // The rounds of the fit reported; the zero-start and the kicked fits' are in `zeroStart`.
+    rounds = { rounds: out.rounds, settled: out.settled, lastShiftOverEsd: out.lastShiftOverEsd };
+    // Each held row: how large the data allow it to be.
+    for (const id of heldRows) {
+      const limit = await upperLimitOf(run, problem.rows, momentIds, out, id, heldRows, kicked.values[id] ?? 0);
+      if (!limit) return { cancelled: true };
+      perRow[id] = { ...perRow[id]!, ...limit };
+    }
+    zeroStart = {
+      ...test, kept: keptRows.length > 0, kick: ZERO_START_KICK, kickedValues: Object.fromEntries(stuck.map((id) => [id, kicked.values[id]!])),
+      reported, zeroStartRounds: zero.rounds, kickedRounds: kicked.rounds, reportedRounds: out.rounds,
+      keptRows, heldRows, perRow: Object.fromEntries(stuck.map((id) => [id, perRow[id]!])),
+    };
   }
   for (const f of undeterminedFamilies(out.result, amplitudeIds)) families.push({ rows: f });
   const undetermined: UndeterminedFamily[] = mergeFamilies(families.map((f) => f.rows)).map((rows) => {
@@ -393,7 +556,7 @@ export async function runMomentsFit(problem: MomentsFitProblem, hooks: MomentsFi
   });
   // No esd for a row held at 0, a row in an undetermined direction, or a dead row (the engine's esd 0 is no measurement).
   const dead = amplitudeIds.filter((id) => !((out.result.esd[id] ?? 1) > 0));
-  const noEsd = new Set([...(zeroStart && !zeroStart.kept ? zeroStart.rows : []), ...undetermined.flatMap((f) => f.rows), ...dead]);
+  const noEsd = new Set([...(zeroStart?.heldRows ?? []), ...undetermined.flatMap((f) => f.rows), ...dead]);
   const esd: Record<string, number> = {};
   for (const p of problem.rows) if (isMagneticModelParameterKind(p.kind) && out.result.esd[p.id] !== undefined && !noEsd.has(p.id)) esd[p.id] = out.result.esd[p.id]!;
   const esdIncludes = out.result.diagnostics?.esdIncludes ?? [];
@@ -425,30 +588,60 @@ const listOf = (names: readonly string[]): string => (names.length <= 1 ? names.
  * Empty when the fit had neither. The page's "?" and MCP's `reading` both
  * read these, so the two surfaces say the same.
  */
-/** Which fit a moments fit's outcome reports, in two or three words for a readout line; null without a zero-start test. */
+/** Which fit a moments fit's outcome reports, in a few words for a readout line; null without a zero-start test. */
 export function reportedFitLabel(z: ZeroStartTest | null | undefined): string | null {
-  return z ? (z.kept ? "kicked fit" : "zero-start fit, held at 0") : null;
+  if (!z) return null;
+  if (z.reported === "kicked") return "kicked fit";
+  if (z.reported === "kicked, rows held") return `kicked fit, ${z.heldRows.length} held at 0`;
+  return "zero-start fit, held at 0";
 }
 
+const sig2 = (x: number): string => Number(x.toPrecision(2)).toString();
+
+/** One kicked row's test in words, for inside parentheses: "Δχ² 0.966, F 0.931 ≤ 3.85 at 5 %". */
+function rowTestWords(t: ZeroStartRow): string {
+  if (t.deltaChi2 === null) return `the fits report no χ²; wR ${t.kept ? "fell" : "did not fall"} by more than the ranking's tie`;
+  if (t.f === null) return "both fits are exact (noise-free data)";
+  return `Δχ² ${sig3(t.deltaChi2)}, F ${sig3(t.f)} ${t.kept ? ">" : "≤"} ${sig3(t.fCritical!)} at 5 %`;
+}
+
+/** A held row's upper limit in words. */
+function upperLimitWords(t: ZeroStartRow): string {
+  if (t.upperLimit !== undefined && t.upperLimit !== null) return ` The data allow up to ${sig2(t.upperLimit)} µB (95 % profile limit).`;
+  if (t.upperLimitNote === "above cap") return ` The data allow more than ${UPPER_LIMIT_CAP} µB (95 % profile limit).`;
+  if (t.upperLimitNote === "exact") return " No 95 % profile limit is given: the fit is exact (noise-free data).";
+  if (t.upperLimitNote === "no χ²") return " No 95 % profile limit is given: the fits report no χ².";
+  return "";
+}
+
+/**
+ * What the zero-start test and the undetermined directions mean, in words:
+ * one sentence each, rows named by `name` (the page's labels, MCP's ids).
+ * Empty when the fit had neither. The page's "?", the Copilot's view and
+ * result line, and MCP's `reading` all read these, so the surfaces say the same.
+ */
 export function zeroStartSentences(out: Pick<MomentsFitOutcome, "zeroStart" | "undetermined">, name: (id: string) => string = (id) => id): string[] {
   const words: string[] = [];
   const z = out.zeroStart;
   if (z) {
-    const rows = z.rows;
-    const n = rows.length;
-    const test = z.deltaChi2 === null
-      ? `the fits report no χ²; wR ${z.kept ? "fell" : "did not fall"} by more than the ranking's tie`
-      : z.f === null
-        ? "both fits are exact (noise-free data)"
-        : `Δχ² ${sig3(z.deltaChi2)} for ${z.q} amplitude${z.q === 1 ? "" : "s"}, F ${sig3(z.f)} ${z.kept ? ">" : "≤"} ${sig3(z.fCritical!)} at 5 %`;
-    const it = n === 1 ? "it" : "them";
-    const started = `${listOf(rows.map(name))} started at 0, where the fit cannot move ${it}; kicked to ${z.kick} µB`;
     const r = (k: number): string => `${k} round${k === 1 ? "" : "s"}`;
-    if (z.kept) {
-      words.push(`${started}, ${n === 1 ? "it is" : "they are"} kept: the data require ${it} (${test}${z.z !== null ? `; ${sig3(z.z)}σ by Δχ², not value/esd, which reads twice that for a component the intensity has only squared` : ""}). ${n === 1 ? "Its sign is" : "Their signs are"} a domain choice. The fit reported is the kicked fit (${r(z.kickedRounds)}; the zero-start fit took ${r(z.zeroStartRounds)}).`);
-    } else {
-      words.push(`${started}, ${n === 1 ? "it is" : "they are"} not required by the data (${test}) and ${n === 1 ? "is" : "are"} held at 0, with no esd. The fit reported is the zero-start fit, re-run from its end with ${it} held (the zero-start fit took ${r(z.zeroStartRounds)}, the kicked fit ${r(z.kickedRounds)}).`);
+    for (const id of z.rows) {
+      const t = z.perRow[id]!;
+      const test = rowTestWords(t);
+      const started = `${name(id)} started at 0, where the fit cannot move it; kicked to ${z.kick} µB`;
+      if (t.kept) {
+        words.push(`${started}, it is kept: the data require it (${test}${t.z !== null ? `; ${sig3(t.z)}σ by Δχ², not value/esd, which reads twice that for a component the intensity has only squared` : ""}). Its sign is a domain choice.`);
+      } else {
+        words.push(`${started}, it is not required by the data (${test}); held at 0, with no esd.${upperLimitWords(t)}`);
+      }
     }
+    const held = listOf(z.heldRows.map(name));
+    const it = z.heldRows.length === 1 ? "it" : "them";
+    words.push(z.reported === "kicked"
+      ? `The fit reported is the kicked fit (${r(z.kickedRounds)}; the zero-start fit took ${r(z.zeroStartRounds)}).`
+      : z.reported === "kicked, rows held"
+        ? `The fit reported is the kicked fit with ${held} held at 0 (${r(z.reportedRounds)}; the zero-start fit took ${r(z.zeroStartRounds)}, the kicked fit ${r(z.kickedRounds)}).`
+        : `The fit reported is the zero-start fit, re-run from its end with ${it} held (the zero-start fit took ${r(z.zeroStartRounds)}, the kicked fit ${r(z.kickedRounds)}).`);
   }
   for (const f of out.undetermined) {
     const alt = f.alternative ? Object.entries(f.alternative) : [];

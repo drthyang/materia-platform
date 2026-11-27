@@ -330,7 +330,7 @@ export function momentFitReadout(agreementLabel: string, wR: number, rounds: Mom
 function roundsView(rounds: MomentRounds | null): { count: number; settled: boolean; lastShiftOverEsd: number; esd: Readonly<Record<string, number>>; esdIncludes: boolean; heldAtZero?: readonly string[]; undetermined?: readonly string[]; notes?: readonly string[] } | undefined {
   if (!rounds || (rounds.count === 0 && rounds.esdIncludes.length === 0)) return undefined;
   const undetermined = (rounds.undetermined ?? []).flatMap((f) => f.rows);
-  const heldAtZero = rounds.zeroStart && !rounds.zeroStart.kept ? rounds.zeroStart.rows.filter((id) => !undetermined.includes(id)) : [];
+  const heldAtZero = (rounds.zeroStart?.heldRows ?? []).filter((id) => !undetermined.includes(id));
   const words = zeroStartSentences({ zeroStart: rounds.zeroStart ?? null, undetermined: rounds.undetermined ?? [] });
   return {
     count: rounds.count, settled: rounds.settled, lastShiftOverEsd: rounds.lastShiftOverEsd, esd: rounds.esd, esdIncludes: rounds.esdIncludes.length > 0,

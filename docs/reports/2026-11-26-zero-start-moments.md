@@ -32,10 +32,21 @@ which the ranking also uses: the ranking is not kicked.
    says its χ² is lower beyond the noise. Its significance is reported from
    Δχ², z = √(Δχ²/(χ²/ν)) for one row: for a component the intensity has only
    squared, value/esd reads about 2z. Its sign is a domain choice.
-4. Otherwise the rows are held at 0 with no esd ("not required by the data"),
-   and the fit is re-run from its end with them held, so the other esds include
-   the scale and the background again.
-5. Both fits exact (noise-free): not kept.
+4. Several kicked rows (the owner's choice, 2026-11-26): one at a time,
+   backward. From the kicked fit, each remaining row is held at 0 in turn; the
+   one the data need least is dropped while the same test (q = 1) says it is
+   not required, the fit is redone, and so on. Each row reports its own test.
+5. A row not kept is held at 0 with no esd ("not required by the data"); with
+   none kept, the fit is re-run from the zero-start fit's end with the rows
+   held, so the other esds include the scale and the background again. The
+   rounds shown are those of the fit reported, and the fit is named.
+6. Each held row gets the largest |value| the data allow: the 95 %
+   one-parameter profile limit (the row held at m, every other free row
+   refitted by the same fit; the largest m with
+   χ²(m) − χ²_min ≤ F(0.05; 1, ν)·χ²_min/ν, χ²_min the lower of χ²(0) and
+   χ²(|kicked value|), ν with the row free). Not given for an exact fit, a fit
+   without χ², or above 10 µB (said so).
+7. Both fits exact (noise-free): not kept.
 
 ## "Direction not determined"
 
@@ -63,9 +74,21 @@ another point of the circle cos My² + sin My² = 4 with the same χ²
 | b1, k = (½ 0 0) | (3, 0, 2) | My held at 0 (noise-free: the 0.167 µB of the investigation, F 3.31 < 3.85) |
 | b2, k = 0, Pc | (3, 0, 2) | My held at 0 |
 
+## Under model error (the gate's negative control)
+
+Synthetic b1 and b2 (true My = 0) with an error the fit does not model, 4
+noise seeds each: every Uiso ×1.2; the width 10 % wider (held in the fit);
+two background humps and a low-angle rise the fit's six terms cannot follow;
+the Fe³⁺ form factor in the data, Mn²⁺ in the fit; and all four. A truly zero
+My was kept in 3 of 40 fits (Fe³⁺ 2/8, Uiso 1/8, the rest 0/8), against 2 of
+40 expected from a 5 % test: about 5 % to 8 %. The real component of a1 and a2
+(1.5 µB) was kept in 48 of 48. Held rows' 95 % limits: a4 (true 0.5 µB) 0.81
+to 0.97 µB, so a hold there does not exclude the truth; b1 0.44 to 0.56; b2
+0.64 to 0.83 µB.
+
 ## Limits
 
-- Several kicked rows are tested together: one the data do not need can be
-  kept with one they do.
+- The test assumes the rest of the model is right: under model error a truly
+  zero component is kept somewhat more often than 5 % (above).
 - A direction determined only weakly, with no null direction, is not caught.
 - The single-crystal and magnetic-PDF moment fits do not kick.

@@ -232,11 +232,11 @@ describe("refine_moments holds k", () => {
     { parameterId: "width", kind: "peakWidth", targetId: "pat" },
   ];
   /** A helix's pattern (2 µB on each quadrature) with counting noise from a fixed seed (none: noise-free). */
-  function pattern(noise = true): PowderPattern {
+  function pattern(noise = true, extra: Record<string, number> = {}): PowderPattern {
     const truth = build_magnetic_model({ structure, ionLabels: ["Fe1"], k: K, moment: 2 });
     const grid = Array.from({ length: 1200 }, (_, i) => 8 + (i * 112) / 1199);
     const empty: PowderPattern = { id: "pat", name: "p", xUnit: "twoTheta", radiation: { kind: "neutron", wavelength: 1.8 }, wavelength: 1.8, points: grid.map((x) => ({ x, yObs: 0 })) };
-    const values: Record<string, number> = { mom_Fe1_0: 2, mom_Fe1_1q: 2 };
+    const values: Record<string, number> = { mom_Fe1_0: 2, mom_Fe1_1q: 2, ...extra };
     const sim = magneticPowderComponents(structure, truth.magnetic, empty, [...nuc, ...truth.parameters.map((p) => ({ ...p, value: values[p.id] ?? 0 }))], [...nucBindings, ...truth.bindings]);
     let state = 12345;
     const gauss = (): number => {
@@ -302,7 +302,12 @@ describe("refine_moments holds k", () => {
     // The same |M| on y on both members of the family, to 1 %: 2 µB, the truth.
     expect(Math.abs(Math.hypot(alt.mom_Fe1_1!, alt.mom_Fe1_1q!) - Math.hypot(held.moments.mom_Fe1_1!, held.moments.mom_Fe1_1q!))).toBeLessThan(0.02);
     expect(Math.abs(Math.hypot(held.moments.mom_Fe1_1!, held.moments.mom_Fe1_1q!) - 2)).toBeLessThan(0.02);
-    expect(held.reading).toContain("mom_Fe1_1, mom_Fe1_2 and mom_Fe1_2q started at 0, where the fit cannot move them; kicked to 0.1 µB, they are not required by the data (Δχ² −");
+    // One sentence per row, each with its own test (q = 1, one at a time) and the 95 % profile limit the data allow.
+    for (const id of ["mom_Fe1_1", "mom_Fe1_2", "mom_Fe1_2q"]) expect(held.reading).toMatch(new RegExp(`${id} started at 0, where the fit cannot move it; kicked to 0\\.1 µB, it is not required by the data \\(Δχ² [−\\d.]+, F [−\\d.e]+ ≤ 3\\.85 at 5 %\\); held at 0, with no esd\\. The data allow up to [\\d.]+ µB \\(95 % profile limit\\)\\.`));
+    expect(held.zeroStart!.heldRows).toEqual(["mom_Fe1_1", "mom_Fe1_2", "mom_Fe1_2q"]);
+    // mom_Fe1_1 is on the helix's circle: the data allow it up to the helix's 2 µB; Mz, which the data do not have, much less.
+    expect(Math.abs(held.zeroStart!.perRow.mom_Fe1_1!.upperLimit! - 2)).toBeLessThan(0.05);
+    expect(held.zeroStart!.perRow.mom_Fe1_2!.upperLimit!).toBeLessThan(0.3);
     expect(held.reading).toContain("The data do not determine the direction of mom_Fe1_1 and mom_Fe1_1q (an equally good fit puts mom_Fe1_1 ");
     // The flags of the moment rows come back as the builder set them.
     expect(held.parameters.filter((p) => p.kind === "momentMode").every((p) => p.fixed)).toBe(true);
@@ -319,9 +324,28 @@ describe("refine_moments holds k", () => {
     const r = await refine_moments({ structure, pattern: pattern(false), profile: { shape: "gaussian" }, magnetic: noK.magnetic, parameters: [...nuc, ...rowsOf(noK, false)], bindings: [...nucBindings, ...noK.bindings], phaseGaugeParameterId: noK.phaseGaugeParameterId! });
     expect(r.zeroStart).toMatchObject({ rows: ["mom_Fe1_1", "mom_Fe1_2", "mom_Fe1_2q"], kept: false, f: null });
     expect(r.directionNotDetermined?.map((f) => f.rows)).toEqual([["mom_Fe1_1", "mom_Fe1_1q"]]);
-    expect(r.reading).toContain("they are not required by the data (both fits are exact (noise-free data)) and are held at 0, with no esd.");
+    expect(r.reading).toContain("mom_Fe1_2 started at 0, where the fit cannot move it; kicked to 0.1 µB, it is not required by the data (both fits are exact (noise-free data)); held at 0, with no esd. No 95 % profile limit is given: the fit is exact (noise-free data).");
     for (const id of ["mom_Fe1_1", "mom_Fe1_1q", "mom_Fe1_2", "mom_Fe1_2q"]) expect(r.esd[id], id).toBeUndefined();
   }, 60_000);
+
+  it("with a real Mz of 1 µB: three rows kicked, tested one at a time; one Mz row kept, the two the data do not need held at 0", async () => {
+    const noK = build_magnetic_model({ structure, ionLabels: ["Fe1"], k: K, moment: 2 });
+    const r = await refine_moments({ structure, pattern: pattern(true, { mom_Fe1_2: 1 }), profile: { shape: "gaussian" }, magnetic: noK.magnetic, parameters: [...nuc, ...rowsOf(noK, false)], bindings: [...nucBindings, ...noK.bindings], phaseGaugeParameterId: noK.phaseGaugeParameterId! });
+    const z = r.zeroStart!;
+    expect(z.rows).toEqual(["mom_Fe1_1", "mom_Fe1_2", "mom_Fe1_2q"]);
+    // The joint test of the three would keep all three (Δχ² in the thousands); one at a time drops the two the data do not need.
+    expect(z.f!).toBeGreaterThan(z.fCritical!);
+    expect(z.keptRows).toHaveLength(1);
+    expect(["mom_Fe1_2", "mom_Fe1_2q"]).toContain(z.keptRows[0]);
+    expect(z.heldRows).toContain("mom_Fe1_1");
+    expect(z.reported).toBe("kicked, rows held");
+    // |Mz| is the truth's 1 µB, all in the kept row (cosine or sine: the helix's phase lets either carry it).
+    expect(Math.abs(Math.hypot(r.moments.mom_Fe1_2!, r.moments.mom_Fe1_2q!) - 1)).toBeLessThan(0.03);
+    for (const id of z.heldRows) expect(r.moments[id], id).toBe(0);
+    expect(z.perRow[z.keptRows[0]!]!.z!).toBeGreaterThan(10);
+    expect(r.reading).toContain(`The fit reported is the kicked fit with ${z.heldRows.join(" and ")} held at 0 (`);
+    console.log(`[mcp-moments] helix + Mz: kept ${z.keptRows.join(", ")}, held ${z.heldRows.join(", ")} · ${r.reading}`);
+  }, 120_000);
 
   it("a two-arm model without the phase gauge's id is refused: the tool does not guess the row", async () => {
     const data = pattern();

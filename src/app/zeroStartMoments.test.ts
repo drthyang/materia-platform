@@ -94,6 +94,7 @@ describe("Refine moments from a zero start: kick, then test (independent MnWO4, 
       expect(rounds.undetermined).toEqual([]);
       const readout = momentFitReadout("wR", wR, rounds, labels);
       expect(readout.details).toContain(`${labels[ids.y]} started at 0, where the fit cannot move it; kicked to 0.1 µB, it is kept: the data require it (Δχ² `);
+      expect(z.perRow[ids.y]!.upperLimit).toBeUndefined();
       // The rounds shown are the reported fit's, and the line says which fit that is.
       expect(z.reported).toBe("kicked");
       expect(rounds.count).toBe(z.kickedRounds);
@@ -114,7 +115,11 @@ describe("Refine moments from a zero start: kick, then test (independent MnWO4, 
       for (const [id, t] of [[ids.x, 3], [ids.z, 2]] as const) expect(Math.abs(Math.abs(v.resolvedAmps[id]!) - t) / rounds.esd[id]!, labels[id]).toBeLessThan(3);
       const readout = momentFitReadout("wR", wR, rounds, labels);
       expect(readout.details).toContain(`${labels[ids.y]} started at 0, where the fit cannot move it; kicked to 0.1 µB, it is not required by the data (Δχ² `);
-      expect(readout.details).toContain(") and is held at 0, with no esd. The fit reported is the zero-start fit, re-run from its end with it held (the zero-start fit took ");
+      // The owner's wording (2026-11-26), with the 95 % profile limit the data allow on the held row.
+      const limit = z.perRow[ids.y]!.upperLimit!;
+      expect(limit).toBeGreaterThan(0.3);
+      expect(limit).toBeLessThan(0.8);
+      expect(readout.details).toContain(` ≤ 3.85 at 5 %); held at 0, with no esd. The data allow up to ${Number(limit.toPrecision(2))} µB (95 % profile limit). The fit reported is the zero-start fit, re-run from its end with it held (the zero-start fit took `);
       expect(z.reported).toBe("zero-start, rows held");
       expect(readout.line).toMatch(new RegExp(` · zero-start fit, held at 0, settled in ${rounds.count} rounds?$`));
       console.log(`[zero-start] b1 seed ${seed} line: ${readout.line} · zero-start fit ${z.zeroStartRounds} rounds, kicked fit ${z.kickedRounds}`);
@@ -123,6 +128,7 @@ describe("Refine moments from a zero start: kick, then test (independent MnWO4, 
       const chosen = magneticView(step.handle.state()).chosen as { parameters: string[]; momentsFit: string };
       expect(chosen.parameters).toContain(`${ids.y} = 0 (held at 0: not required by the data)`);
       expect(chosen.momentsFit).toContain(`; the esds include the scale and the background. ${ids.y} started at 0, where the fit cannot move it; kicked to 0.1 µB, it is not required by the data (Δχ² `);
+      expect(chosen.momentsFit).toContain("; held at 0, with no esd. The data allow up to ");
       console.log(`[zero-start] b1 seed ${seed}: ${Object.values(ids).map((id) => `${labels[id]} ${v.resolvedAmps[id]!.toFixed(3)}${rounds.esd[id] === undefined ? "" : `(${rounds.esd[id]!.toFixed(3)})`}`).join(", ")} · the kicked fit put My at ${z.kickedValues[ids.y]!.toFixed(3)}: Δχ² ${z.deltaChi2!.toFixed(2)}, F ${z.f!.toFixed(2)} ≤ ${z.fCritical!.toFixed(2)}`);
     }, 60_000);
   }

@@ -467,8 +467,13 @@ approximate, however plausible its output looks.
   searches first), and it holds k: a k component passed free is not refined.
 - Refine moments (page and MCP) kicks an amplitude the fit leaves at exactly 0
   to 0.1 µB and keeps it only when Hamilton's test at 5 % says the data
-  require it; several such amplitudes are tested together, so one the data do
-  not need can be kept with one they do. A kept amplitude's sign is a domain
+  require it (several such amplitudes one at a time, backward). The test
+  assumes the model is right otherwise: on synthetic MnWO₄ with an error the
+  fit does not model (Uiso, width, background shape, form factor), a truly
+  zero component was kept in 3 of 40 fits, against 2 of 40 expected from a 5 %
+  test. A held amplitude is not shown to be zero: the result gives the 95 %
+  profile limit the data allow (up to about 1 µB for a 0.5 µB ferromagnetic
+  component at k = 0 in those tests). A kept amplitude's sign is a domain
   choice. "Direction not determined" is read from the null directions of the
   moments step's covariance (and of the kicked fit, when that is not kept);
   a direction the data determine only weakly, without a null direction, is

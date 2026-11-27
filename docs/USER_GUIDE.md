@@ -478,6 +478,21 @@ the **allowed** row.
    - The page's scale and background rows take the re-refined values, as one
      History step. A model already shown or continued on the refinement page
      follows the fitted moments.
+   - An amplitude the fit leaves at exactly 0 (it has no gradient there: the
+     intensity is quadratic in it) is kicked to 0.1 µ_B and refitted. It is
+     kept only if Hamilton's test at 5 % says the data require it; with several
+     such amplitudes, each is tested on its own, the least needed dropped first.
+     A kept amplitude's significance is given from Δχ² (its value/esd reads
+     about twice that), and its sign is a domain choice. One not required is
+     held at 0, with no esd, and the **?** gives the largest value the data
+     allow (the 95 % profile limit): "held at 0" does not mean "zero". The line
+     says which fit it reports (`kicked fit` or `zero-start fit, held at 0`).
+     Under model errors the fit does not include (ADPs, peak width, background
+     shape, form factor), a component that is truly zero was kept in about 5 %
+     to 8 % of synthetic tests (docs/reports/2026-11-26-zero-start-moments.md).
+   - Where the powder cannot fix a direction (a helix's cosine and sine on one
+     axis), the **?** says "direction not determined" and gives no esd for
+     those amplitudes.
    - **Cancel** stops the fit and leaves everything as it was.
    - `not settled after 10 rounds` means a moment was still moving: a
      component the data do not determine. Tie or hold it.
