@@ -35,7 +35,8 @@ release fixes bugs.
   (bank 4 only) with bank 4 of the bundled NOMAD 2023A instrument file, opening
   on a converged one-phase Rietveld fit (Chebyshev background of 7 terms,
   isotropic B per site, the three position modes, the sample profile refined,
-  the whole window): wR 2.50 %, GoF 5.89, a = 10.3757(1) Å. Data, origin and
+  the window ending at d 1.873 Å, below two peaks at the long-TOF end that no
+  phase explains): wR 2.50 %, GoF 5.90, a = 10.3757(1) Å. Data, origin and
   result: `examples/gata4se8-nomad-300k/README.md`.
 - **The instrument follows the data's bank.** With an instrument file of
   several banks loaded (any file, the NOMAD default included), choosing

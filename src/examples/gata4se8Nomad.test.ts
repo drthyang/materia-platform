@@ -15,7 +15,7 @@ const demo = gata4se8NomadExample();
 const session = bundledSession(demo);
 const page: PowderPage = { session, instrument: demo.instrument, instrumentLoaded: true, result: null, snapshot: snapshotOf(session) };
 const BASE = ["scale", "bkg0", "bkg1", "bkg2", "bkg3", "bkg4", "bkg5", "bkg6", "cell_a"];
-const STRUCTURE = ["B_Ga1", "B_Ta1", "B_Se1", "B_Se17", "pos_Ta1_0", "pos_Se1_0", "pos_Se17_0"];
+const STRUCTURE = ["B_Ga1", "B_Ta1", "B_Se1", "B_Se2", "pos_Ta1_0", "pos_Se1_0", "pos_Se2_0"];
 
 describe("the bundled GaTa₄Se₈ NOMAD example", () => {
   it("is bank 4 of the data with bank 4 of the NOMAD 2023A instrument file, the file's profile held", () => {
@@ -41,13 +41,15 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     expect(session.powderParams.filter((p) => !p.fixed && !p.expression).map((p) => p.id)).toEqual(BASE);
   });
 
-  it("shows the recorded agreement on screen: wR 2.50 % over 2361 points in the whole window", () => {
+  it("shows the recorded agreement on screen: wR 2.50 % over 2334 points in its window", () => {
     const curves = powderPageCurves(session, demo.fitRange).curves;
-    // The window is the whole pattern; below d 0.209 Å the file's profile gives no peak, and those 545 points are left out (THY-90).
-    expect(observationsIn(curves, demo.fitRange, session)).toBe(2361);
+    // The window ends at 16905.49 µs (d 1.873 Å), below two peaks no phase explains; below d 0.209 Å the file's profile gives no peak, and those 545 points are left out (THY-90).
+    expect(demo.fitRange.max).toBe(16905.488658956);
+    expect(demo.fitRange.min).toBe(demo.pattern.points[0]!.x);
+    expect(observationsIn(curves, demo.fitRange, session)).toBe(2334);
     expect((100 * weightedR(session, curves, demo.fitRange)).toFixed(2)).toBe("2.50");
-    // GoF over the nine rows the example opens with free (the refinement's own, with sixteen free, is 5.89: below).
-    expect(curvesGoodnessOfFit(session, curves, demo.fitRange).toFixed(2)).toBe("5.88");
+    // GoF over the nine rows the example opens with free (the refinement's own, with sixteen free, is 5.90: below).
+    expect(curvesGoodnessOfFit(session, curves, demo.fitRange).toFixed(2)).toBe("5.89");
   });
 
   it("refined from where it opens, with the structure rows free, converges in place with no near-null direction", async () => {
@@ -59,13 +61,13 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     expect(r.status).toBe("converged");
     expect(r.diagnostics?.svdZeroCount ?? 0).toBe(0);
     expect((100 * r.agreement.rWeighted!).toFixed(2)).toBe("2.50");
-    expect(r.agreement.goodnessOfFit!.toFixed(2)).toBe("5.89");
+    expect(r.agreement.goodnessOfFit!.toFixed(2)).toBe("5.90");
     // Nothing moves by more than a tenth of its esd.
     for (const id of [...BASE, ...STRUCTURE]) {
       const esd = r.esd[id]!;
       expect(Math.abs(r.parameters[id]! - demo.refinedParams[id]!), id).toBeLessThan(0.1 * esd);
     }
-    // a = 10.3757(1) Å; B = 8π²U for U Ga 0.0044(6), Ta 0.0045(2), Se17 0.0053(4), Se1 0.0059(4) Å².
+    // a = 10.3757(1) Å; B = 8π²U for U Ga 0.0044(6), Ta 0.0044(2), Se1 0.0058(4), Se2 0.0053(4) Å².
     expect(r.parameters.cell_a!.toFixed(4)).toBe("10.3757");
     expect(r.esd.cell_a!).toBeLessThan(0.00015);
   }, 120_000);

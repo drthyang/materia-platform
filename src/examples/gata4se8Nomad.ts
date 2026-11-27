@@ -24,8 +24,9 @@ export const NOMAD_DATA_NAME = "NOM_GaTa4Se8_at_300K_bank4.gsa";
 export const NOMAD_BANK = 4;
 
 // The owner's starting model (MATERIA 0.5.1 project "GaTa4Se8-NOMAD-300K-bank4",
-// structure "3D"): F-43m with the origin at Ga (4c) and its site labels, the ADP
-// of each site made isotropic (B = 8π²U, U the owner's diagonal U). It is the
+// structure "3D"): F-43m with the origin at Ga (4c) and its site labels, except
+// that its second Se site, "Se17" there, is named Se2 here; the ADP of each site
+// made isotropic (B = 8π²U, U the owner's diagonal U). It is the
 // lacunar-spinel structure of examples/mcp/gata4se8.cif, written from another
 // origin and hand (the same powder pattern), with the owner's own values.
 export const GATA4SE8_NOMAD_CIF = `data_GaTa4Se8
@@ -48,7 +49,7 @@ loop_
   Ga Ga1  0.25      0.75      0.75      1 0.008453
   Ta Ta1  0.64772   0.85228   0.85228   1 0.00422
   Se Se1  0.886164  0.886164  0.886164  1 0.00674
-  Se Se17 0.384737  0.884736  0.884736  1 0.00548
+  Se Se2  0.384737  0.884736  0.884736  1 0.00548
 `;
 
 export interface GaTa4Se8NomadExample {
@@ -66,19 +67,27 @@ export interface GaTa4Se8NomadExample {
   readonly rawInstrument: { readonly name: string; readonly text: string; readonly bank: number; readonly bundledDefault: string };
 }
 
-// TOF window: the whole pattern, its first and last points (d ≈ 0.13–1.92 Å at
-// the file's difC). Below d 0.209 Å the file's profile gives no peak (σ² ≤ 0),
-// so the page leaves those 545 points out of the fit and of wR (THY-90): the fit
-// counts 2361 points. check_fit_range proposes a cut at 4434 µs (d 0.49 Å),
-// where the lines stop being resolved, to fit faster, and calls it a large cut
-// to put to the user first; the example keeps the whole window.
-const FIT_RANGE = { min: 1137.280204904, max: 17339.013883802 };
+// TOF window: from the pattern's first point (d ≈ 0.13 Å at the file's difC) to
+// 16905.49 µs (d 1.873 Å). Below d 0.209 Å the file's profile gives no peak
+// (σ² ≤ 0), so the page leaves those 545 points out of the fit and of wR
+// (THY-90): the fit counts 2334 points. The long-TOF end is cut below two peaks
+// that no phase explains (check_fit_range, on the data: at 17209 and 17274 µs,
+// d ≈ 1.91 Å, the stronger 9σ; each one data point wide, narrower than a line
+// of this instrument there). The first rises from 17145 µs; the cut is one peak
+// support below that (2.3548σ + γ + 1/α + 1/β of the profile at that TOF, file
+// rows and the refined size: 231 µs), on the last data point below, 16905.49 µs.
+// It is clear of the nearest GaTa₄Se₈ lines (440 at 16553 µs, its support
+// ending at 16771 µs; 333/511 at 18013 µs, its support starting at 17764 µs).
+// The 27 points above it are left out. check_fit_range proposes a cut at
+// 4434 µs (d 0.49 Å), where the lines stop being resolved, to fit faster, and
+// calls it a large cut to put to the user first; the example keeps that end.
+const FIT_RANGE = { min: 1137.280204904, max: 16905.488658956 };
 
 const BACKGROUND: { readonly type: BackgroundType; readonly terms: number } = { type: "chebyshev", terms: 7 };
 
-// Snapshot of a converged refinement inside FIT_RANGE: Rw 2.504 %, GoF 5.886
+// Snapshot of a converged refinement inside FIT_RANGE: Rw 2.495 %, GoF 5.898
 // with sixteen free rows (scale, seven Chebyshev terms, a, the four B_iso and the
-// three position modes), a = 10.37571(10) Å; status "converged", no near-null
+// three position modes), a = 10.37572(10) Å; status "converged", no near-null
 // SVD direction (the owner's 0.5.1 project, with ten background terms and a
 // narrower window, stalled with one). Made 2026-11-27 through the page's own
 // refine (headless, testSupport/agentHeadless.ts), from the model above with
@@ -86,21 +95,21 @@ const BACKGROUND: { readonly type: BackgroundType; readonly terms: number } = { 
 // alternately the sample profile (Lorentzian microstrain and size; the
 // Gaussian microstrain held at 0, as it correlates with the background) and
 // the structure (B_iso, positions), each with scale, background and a, five
-// times each; the last structure stage moved nothing by more than 0.004 esd.
+// times each; the last structure stage moved nothing by more than 0.005 esd.
 // The profile stages put the Lorentzian microstrain at its lower bound, 0,
-// and the size at 0.0383(9) µm. The example opens with the rows the spec
+// and the size at 0.0384(9) µm. The example opens with the rows the spec
 // frees (scale, background, a) free and the rest held at these values. Keyed
 // by parameter id, applied after the spec is rebuilt from the model.
 const REFINED_PARAMS: Record<string, number> = {
-  scale: 3.739914928256204e-05,
-  bkg0: 0.4728262944562172,
-  bkg1: 0.12470767911744665,
-  bkg2: 0.02092535286864399,
-  bkg3: -0.004405276174414972,
-  bkg4: 0.030522364382653024,
-  bkg5: 0.006294250075158005,
-  bkg6: 0.01293435204091998,
-  cell_a: 10.375714020520446,
+  scale: 0.00003731959019619424,
+  bkg0: 0.47467845110001994,
+  bkg1: 0.12739806776741466,
+  bkg2: 0.02396065930480788,
+  bkg3: -0.0026104066912052792,
+  bkg4: 0.032566208897163135,
+  bkg5: 0.0071533371202941185,
+  bkg6: 0.013716532851531758,
+  cell_a: 10.375722843496254,
   tof_difC: 9068.553459758095,
   tof_difA: -23.07639352718455,
   tof_difB: 0,
@@ -117,19 +126,19 @@ const REFINED_PARAMS: Record<string, number> = {
   tof_gamZ: 0,
   tofSampleGauss: 0,
   tofSampleLorentz: 0,
-  tofSampleSize: 0.038337818248458604,
+  tofSampleSize: 0.03844925775546365,
   zero: -3.196819630450491,
-  B_Ga1: 0.34591603045950775,
-  B_Ta1: 0.3525643223874158,
-  B_Se1: 0.4630038599557445,
-  B_Se17: 0.4178084958721391,
-  pos_Ta1_0: -0.00019952878116347427,
-  pos_Se1_0: -0.00015636378232948607,
-  pos_Se17_0: 0.0004118379703184346,
+  B_Ga1: 0.3489573765820661,
+  B_Ta1: 0.3504330358174063,
+  B_Se1: 0.4601028444982398,
+  B_Se2: 0.4165920542781746,
+  pos_Ta1_0: -0.0001865511179297992,
+  pos_Se1_0: -0.00016481635772059558,
+  pos_Se2_0: 0.0004175746291828129,
   occ_Ga1: 1,
   occ_Ta1: 1,
   occ_Se1: 1,
-  occ_Se17: 1,
+  occ_Se2: 1,
 };
 
 let cached: GaTa4Se8NomadExample | null = null;
