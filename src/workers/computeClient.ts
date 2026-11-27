@@ -364,6 +364,7 @@ export class ComputeClient {
         ...(req.eta !== undefined ? { eta: req.eta } : {}),
         ...(req.fitRange ? { fitRange: req.fitRange } : {}),
         ...(req.tof ? { tof: req.tof } : {}),
+        ...(req.lowAngleFirst ? { lowAngleFirst: true } : {}),
       }));
     }
     return new Promise<LeBailPrefitResult>((resolve, reject) => {

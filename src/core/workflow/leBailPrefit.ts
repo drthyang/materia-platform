@@ -28,7 +28,10 @@ import type { ParameterBinding, RefinementParameter } from "@/core/refinement/ty
 import type { AxialDivergence, PeakShape } from "@/core/diffraction/profile";
 import type { FitRange } from "@/core/workflow/powder";
 import { applyParameters } from "@/core/workflow/apply";
-import { leBailExtract, tofFwhmAt, tofShapeAt, type Caglioti, type LeBailPhase, type LeBailTofProfile, type TofCalibration } from "@/core/workflow/leBail";
+import { dRange, dToX, leBailExtract, tofFwhmAt, tofShapeAt, type Caglioti, type LeBailPhase, type LeBailTofProfile, type TofCalibration } from "@/core/workflow/leBail";
+import { generateReflections } from "@/core/diffraction/reflections";
+import { minMax } from "@/core/math/extent";
+import { LE_BAIL_UNSETTLED } from "@/core/diagnostics/thresholds";
 import { resolveTies } from "@/core/refinement/constraints";
 import { weightsFromSigma, applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
@@ -121,6 +124,13 @@ export interface LeBailPrefitOptions {
   readonly extraPhases?: readonly LeBailPhase[];
   /** Constant wavelength: the instrument's resolution curve (leBail.ts `caglioti`). */
   readonly caglioti?: Caglioti;
+  /**
+   * The Prefit's wider reach: on a 2θ pattern, a fit that does not settle
+   * (Rwp ≥ LE_BAIL_UNSETTLED) is tried again from the low-angle end up, and
+   * the better of the two kept (`lowAngleLadder`). Off by default: the cell
+   * check reports the plain fit, as the Agent is told.
+   */
+  readonly lowAngleFirst?: boolean;
 }
 
 export interface LeBailPrefitResult {
@@ -222,6 +232,11 @@ function medianStep(x: readonly number[]): number {
  * preserved). Returns the refined cell + free cell-parameter values to seed a
  * subsequent structural refinement. Pure and synchronous — run it in the compute
  * worker (each evaluation extracts intensities over the whole pattern).
+ *
+ * With `lowAngleFirst` (the Prefit), a fit from the start that does not settle
+ * on a 2θ pattern is tried again from the low-angle end up (`lowAngleLadder`),
+ * and the better of the two is returned. A fit that settles is returned as it
+ * stands, so every such result is the plain fit's to the last digit.
  */
 export function leBailCellPrefit(
   structure: StructureModel,
@@ -229,6 +244,82 @@ export function leBailCellPrefit(
   cellParameters: readonly RefinementParameter[],
   cellBindings: readonly ParameterBinding[],
   options: LeBailPrefitOptions = {},
+): LeBailPrefitResult {
+  const direct = leBailCellFit(structure, pattern, cellParameters, cellBindings, options);
+  if (!options.lowAngleFirst || !direct.refined || !(direct.rWeighted >= LE_BAIL_UNSETTLED)) return direct;
+  const ladder = lowAngleLadder(structure, pattern, cellParameters, cellBindings, options);
+  return ladder && ladder.rWeighted < direct.rWeighted ? ladder : direct;
+}
+
+/** The ladder's windows: the upper end at these fractions of the pattern's tan θ, then the whole pattern. */
+const LADDER_TAN_FRACTIONS = [1 / 4, 1 / 2] as const;
+/** A window holds at least this many reflection families per free cell parameter (and at least six). */
+const LADDER_FAMILIES_PER_PARAMETER = 3;
+
+/**
+ * A cell further off than the Le Bail fit follows, fitted from the low-angle
+ * end up. A strain ε moves a 2θ line by 2·tan θ·ε (radians) while the lines
+ * stay about as wide, so it is the high-angle lines that are mispositioned by
+ * more than their width: there each misplaced reflection's free intensity
+ * takes the area of whatever line its tail reaches (the partition), and the
+ * fit settles in a false minimum (Mn₃Ga from a +1.2 % / −0.8 % cell: Rwp
+ * several hundred per cent, the a axis 0.9 % off). Each window halves the
+ * largest tan θ, so a quarter-tan θ window follows a strain four times larger
+ * than the whole pattern does. The windows run up to tan θ_max/4 and
+ * tan θ_max/2 (each widened to hold enough reflection families of the cell
+ * it starts from to determine every free cell parameter: a window with one
+ * line let an undetermined c wander to 30 Å), each seeding the next with its
+ * cell and width; the whole pattern last, as the plain fit. Null where there
+ * is no ladder: not a 2θ pattern, or no window short of the whole pattern
+ * holds enough families.
+ */
+function lowAngleLadder(
+  structure: StructureModel,
+  pattern: PowderPattern,
+  cellParameters: readonly RefinementParameter[],
+  cellBindings: readonly ParameterBinding[],
+  options: LeBailPrefitOptions,
+): LeBailPrefitResult | null {
+  if (pattern.xUnit !== "twoTheta" || pattern.points.length === 0) return null;
+  const { min: xMin, max: xMax } = minMax(pattern.points.map((p) => p.x));
+  const lo = Math.max(xMin, options.fitRange?.min ?? -Infinity);
+  const hi = Math.min(xMax, options.fitRange?.max ?? Infinity);
+  if (!(hi > lo) || !(hi < 180)) return null;
+  const freeCount = cellParameters.filter((p) => !p.fixed && !p.expression).length;
+  const need = Math.max(6, LADDER_FAMILIES_PER_PARAMETER * freeCount);
+  const tanHi = Math.tan((hi * Math.PI) / 360);
+  const { dMin, dMax } = dRange(pattern);
+  let params: RefinementParameter[] = cellParameters.map((p) => ({ ...p }));
+  let fwhm0 = options.fwhm0;
+  let stages = 0;
+  for (const f of LADDER_TAN_FRACTIONS) {
+    const cell = applyParameters(structure, cellBindings, resolveTies(params, Object.fromEntries(params.map((p) => [p.id, p.value])))).model.cell;
+    let lines: number[];
+    try {
+      lines = generateReflections(cell, structure.spaceGroup, dMin, dMax).map((r) => dToX(pattern, r.d)).filter((x) => x >= lo && x <= hi).sort((a, b) => a - b);
+    } catch {
+      return null;
+    }
+    if (lines.length <= need) break;
+    // Past the need-th family, halfway to the next.
+    const edge = Math.max((Math.atan(tanHi * f) * 360) / Math.PI, (lines[need - 1]! + lines[need]!) / 2);
+    if (!(edge < hi)) break;
+    const stage = leBailCellFit(structure, pattern, params, cellBindings, { ...options, fitRange: { min: lo, max: edge }, ...(fwhm0 !== undefined ? { fwhm0 } : {}) });
+    params = params.map((p) => (stage.cellValues[p.id] !== undefined ? { ...p, value: stage.cellValues[p.id]! } : p));
+    fwhm0 = stage.fwhm;
+    stages++;
+  }
+  if (stages === 0) return null;
+  return leBailCellFit(structure, pattern, params, cellBindings, { ...options, ...(fwhm0 !== undefined ? { fwhm0 } : {}) });
+}
+
+/** One Le Bail cell fit from the cell parameters' values (leBailCellPrefit without the ladder). */
+function leBailCellFit(
+  structure: StructureModel,
+  pattern: PowderPattern,
+  cellParameters: readonly RefinementParameter[],
+  cellBindings: readonly ParameterBinding[],
+  options: LeBailPrefitOptions,
 ): LeBailPrefitResult {
   const x = pattern.points.map((p) => p.x);
   const yObs = pattern.points.map((p) => p.yObs);

@@ -107,6 +107,8 @@ export interface LeBailPrefitRequest {
   readonly fitRange?: { readonly min?: number; readonly max?: number };
   /** TOF diffractometer calibration — required for a TOF pattern. */
   readonly tof?: TofCalibration;
+  /** The Prefit's wider reach on 2θ: an unsettled fit tried again from the low-angle end up (leBailPrefit.ts). */
+  readonly lowAngleFirst?: boolean;
 }
 
 export interface RefineSingleCrystalRequest {

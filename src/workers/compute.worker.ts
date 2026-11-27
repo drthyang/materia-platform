@@ -92,6 +92,7 @@ async function handle(req: ComputeRequest): Promise<ComputeResponse> {
         ...(req.eta !== undefined ? { eta: req.eta } : {}),
         ...(req.fitRange ? { fitRange: req.fitRange } : {}),
         ...(req.tof ? { tof: req.tof } : {}),
+        ...(req.lowAngleFirst ? { lowAngleFirst: true } : {}),
       });
       return { requestId: req.requestId, ok: true, leBail };
     }

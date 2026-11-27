@@ -945,7 +945,8 @@ export interface ThoroughOutcome {
  *  1. A Le Bail cell pre-fit (single phase, a cell row free; on TOF with the
  *     diffractometer's calibration): the cell against peak positions with free
  *     intensities, so a wrong starting cell cannot trap the structural solve.
- *     Its cell is seeded back, and on 2θ its zero seeds a free zero.
+ *     Its cell is seeded back, and on 2θ its zero seeds a free zero. On 2θ a
+ *     fit that does not settle is tried again from the low-angle end up.
  *  2. Multi-start: a baseline fit and perturbed restarts, the lowest χ² kept.
  * With a magnetic model applied, the search runs over the moment subspace
  * instead. `onStage` says when the Le Bail stage starts (the page shows it before the fit runs).
@@ -989,6 +990,8 @@ export async function thoroughFit(client: PowderCompute, page: PowderPageModel, 
       ...(s.powderProfile.eta !== undefined ? { eta: s.powderProfile.eta } : {}),
       ...windowRequest(page),
       ...(tofCal ? { tof: tofCal } : {}),
+      // A start further off than the plain fit follows (the cell check sends it here): from the low-angle end up.
+      lowAngleFirst: true,
     });
     if (pre.refined) {
       // The Le Bail fit refines its own zero on a 2θ pattern, so its cell is
