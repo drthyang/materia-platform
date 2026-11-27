@@ -37,8 +37,9 @@ describe("staged powder fit — a TOF profile stage with the zero free", () => {
   it("re-fixes the zero that trades with the cell and keeps the peak shape refined", { timeout: 120_000 }, () => {
     const structure = exampleStructure();
     const step = 0.0008; // Δt/t of a log-binned TOF histogram
-    // 30–110 ms: on MnWO₄ this window leaves the zero and the cell lengths entangled enough (esd(cell_a) ≈ 6× with the zero free) for the guard to act.
-    const xs = Array.from({ length: Math.floor(Math.log(110000 / 30000) / step) }, (_, i) => 30000 * Math.exp(i * step));
+    // 45–120 ms: on MnWO₄ this window leaves the zero and the cell lengths entangled enough (esd(cell_a) ≈ 7× with the zero free) for the guard to act.
+    // (30–110 ms did, ≈ 6×, while no reflection was calculated below the data's short-d end; with the lines whose tails reach into the data drawn, THY-90, it gives ≈ 4×.)
+    const xs = Array.from({ length: Math.floor(Math.log(120000 / 45000) / step) }, (_, i) => 45000 * Math.exp(i * step));
     const start: InstrumentParameters = {
       kind: "tof", difC: 22585.8, difA: -5, difB: 0, zero: 0,
       alpha: 0.13, beta0: 0.0128, beta1: -0.0065, betaQ: 0.0617, sig0: 40, sig1: 0, sig2: 465, sigQ: 0,

@@ -463,6 +463,7 @@ function leBailCellFit(
         ...(options.tof ? { tof: options.tof } : {}),
         ...(tofProfile ? { tofProfile } : {}),
         ...(extras.length ? { extraPhases: extraAt(resolved) } : {}),
+        ...(options.fitRange ? { fitRange: options.fitRange } : {}),
       });
       return Float64Array.from(lb.yCalc);
     },

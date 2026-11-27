@@ -26,9 +26,9 @@ import type { PowderPattern } from "@/core/diffraction/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { resolveTies } from "@/core/refinement/constraints";
-import { applyParameters } from "@/core/workflow/apply";
+import { applyParameters, type AppliedModel } from "@/core/workflow/apply";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
-import { placePeaks, reflectionDRange, type PowderProfile } from "@/core/workflow/powder";
+import { magneticDRange, placePeaks, reflectionDRange, type PowderProfile } from "@/core/workflow/powder";
 import { phaseBindingsFor } from "@/core/workflow/multiPhase";
 import { magneticPhaseBindings } from "@/core/workflow/magneticPowder";
 import { generateReflections } from "@/core/diffraction/reflections";
@@ -177,7 +177,8 @@ export function powderReflectionObsCalc(
   // and is the model the magnetic satellites ride on.
   const appliedPrimary = applyParameters(structure, bindingsFor(structure.id), resolved);
   const bkg = x.map((xv) => evaluateBackground(xv, appliedPrimary.background, bgType, xMin, xMax));
-  const { dMin, dMax } = reflectionDRange(pattern, appliedPrimary);
+  // Each phase's nuclear list as the fit draws it (it follows the window), the satellites over their own range.
+  const nuclearRange = (applied: AppliedModel): { dMin: number; dMax: number } => reflectionDRange(pattern, applied, fitRange ?? undefined);
 
   // Nuclear peaks for every phase. Each phase gets its own cell, atoms, and any
   // per-phase anisotropic microstrain; the profile/background are shared. Pass
@@ -188,6 +189,7 @@ export function powderReflectionObsCalc(
   const components: Component[] = [];
   for (const ph of phaseList) {
     const applied = ph.index === 0 ? appliedPrimary : applyParameters(ph.structure, bindingsFor(ph.id), resolved);
+    const { dMin, dMax } = nuclearRange(applied);
     const reflections = generateReflections(applied.model.cell, applied.model.spaceGroup, dMin, dMax);
     const intensities = powderPeakIntensities(applied.model, pattern.radiation, reflections, applied.scale, applied.po, applyLorentz);
     reflections.forEach((r, i) => {
@@ -217,7 +219,8 @@ export function powderReflectionObsCalc(
     const magScale = appliedPrimary.scale * magFactor;
     const mags: Component[] = [];
     // Each line's |F_M⊥|² summed over its family's members, as the powder pattern has it.
-    for (const s of satelliteIntensities(appliedPrimary.model, appliedMag, dMin, dMax)) {
+    const mag = magneticDRange(pattern, appliedPrimary);
+    for (const s of satelliteIntensities(appliedPrimary.model, appliedMag, mag.dMin, mag.dMax)) {
       const lp = lorentzPolarization(pattern.radiation, s.d);
       mags.push({
         kind: "magnetic", h: s.h, k: s.k, l: s.l, d: s.d,

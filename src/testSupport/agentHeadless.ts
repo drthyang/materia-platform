@@ -74,7 +74,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
   /** The window as the app applies it: only when it narrows the pattern. */
   const activeWindow = (): FitWindow | null => {
     if (!fitRange) return null;
-    const extent = extentOf(powderPageCurves(held.session).curves.x);
+    const extent = extentOf(held.session.pattern.points.map((p) => p.x));
     return fitRange.min > extent.min || fitRange.max < extent.max ? { ...fitRange } : null;
   };
   const page = (): PowderPageModel => ({ session: held.session, instrument: specInstrumentOf(held), fitRange: activeWindow(), result: held.result });
@@ -84,8 +84,8 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
   };
   const state = (): PowderLiveState => {
     const { session: s, result } = held;
-    const { curves } = powderPageCurves(s);
     const window = activeWindow();
+    const { curves } = powderPageCurves(s, window);
     return {
       structure: s.structure,
       extraPhases: s.extraPhases,
@@ -112,7 +112,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       },
       curves,
       d: s.pattern.xUnit === "dSpacing" ? curves.x : convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", pageAxis(s, shown)),
-      observationCount: observationsIn(curves, window),
+      observationCount: observationsIn(curves, window, s),
       axis: pageAxis(s, shown),
       source: "test",
       restraints: restraintRequest(s).restraints ?? [],

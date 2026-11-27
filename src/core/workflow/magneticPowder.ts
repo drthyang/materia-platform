@@ -24,7 +24,7 @@ import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { phaseBindingsFor, type PowderPhase } from "@/core/workflow/multiPhase";
-import { buildPeaks, createPeakBuilder, createTofWidthGuard, placePeaks, powderPointWeights, reflectionDRange } from "@/core/workflow/powder";
+import { buildPeaks, createPeakBuilder, createTofWidthGuard, magneticDRange, modelledFitRange, placePeaks, powderPointWeights, startValues } from "@/core/workflow/powder";
 import { satelliteIntensities } from "@/core/magnetic/powderAverage";
 import { lorentzPolarization } from "@/core/diffraction/intensity";
 import { synthesizePattern } from "@/core/diffraction/profile";
@@ -109,8 +109,10 @@ function createCombinedPeakBuilder(
   pattern: PowderPattern,
   bindings: readonly ParameterBinding[],
   applyLorentz = true,
+  fitRange?: FitRange,
 ): (values: Readonly<Record<string, number>>) => Peaks {
-  const nuclearFor = createPeakBuilder(pattern, bindings, applyLorentz);
+  // The nuclear list follows the fit window (reflectionRange); the satellites keep their own range (magneticDRange).
+  const nuclearFor = createPeakBuilder(pattern, bindings, applyLorentz, fitRange);
   const magGeomIds = [...new Set(bindings.filter((b) => MAGNETIC_GEOMETRY_KINDS.has(b.kind)).map((b) => b.parameterId))];
   const magScaleBinding = bindings.find((b) => b.kind === "magneticScale");
   let lastKey: string | null = null;
@@ -132,7 +134,7 @@ function createCombinedPeakBuilder(
     const magFactor = magScaleBinding ? values[magScaleBinding.parameterId] ?? 1 : 1;
     const magScale = applied.scale * magFactor;
 
-    const { dMin, dMax } = reflectionDRange(pattern, applied);
+    const { dMin, dMax } = magneticDRange(pattern, applied);
     let key = `${dMin}|${dMax}`;
     for (const id of magGeomIds) key += `|${values[id]}`;
     if (key !== lastKey) {
@@ -161,7 +163,7 @@ function unitMagneticIntensities(
   appliedMag: MagneticModel,
   pattern: PowderPattern,
 ): { d: number; intensity: number }[] {
-  const { dMin, dMax } = reflectionDRange(pattern, applied);
+  const { dMin, dMax } = magneticDRange(pattern, applied);
   return satelliteIntensities(applied.model, appliedMag, dMin, dMax)
     .map((s) => ({ d: s.d, intensity: lorentzPolarization(pattern.radiation, s.d) * s.squared }));
 }
@@ -228,7 +230,11 @@ export function buildMagneticPowderProblem(
   // The pattern's points weighted as in the single-phase nuclear problem: none
   // on an excluded plateau or outside the fit range, so the nuclear + magnetic
   // co-refinement optimizes the points the page scores.
-  const weights = powderPointWeights(pattern, fitRange);
+  // No point is fitted where a phase's nuclear list stops short of it (a validity limit, reflectionRange).
+  const primary = extraPhases.length > 0 ? magneticPhaseBindings(bindings, structure.id) : bindings;
+  const start = resolveTies(parameters, startValues(parameters));
+  const startApplied = [applyParameters(structure, primary, start), ...extraPhases.map((phase) => applyParameters(phase.structure, phaseBindingsFor(bindings, phase.id), start))];
+  const weights = powderPointWeights(pattern, modelledFitRange(pattern, startApplied, fitRange));
 
   // Multi-phase: the magnetic (primary) phase sees only its own + shared +
   // magnetic bindings, and each extra phase contributes its nuclear peaks
@@ -237,10 +243,10 @@ export function buildMagneticPowderProblem(
   // cross-apply onto the magnetic phase's model.
   const applyLorentz = profile.lorentz ?? true;
   const primaryBindings = extraPhases.length > 0 ? magneticPhaseBindings(bindings, structure.id) : bindings;
-  const combinedFor = createCombinedPeakBuilder(structure, magnetic, pattern, primaryBindings, applyLorentz);
+  const combinedFor = createCombinedPeakBuilder(structure, magnetic, pattern, primaryBindings, applyLorentz, fitRange);
   const extraBuilders = extraPhases.map((phase) => {
     const phaseBindings = phaseBindingsFor(bindings, phase.id);
-    return { phase, phaseBindings, peaksFor: createPeakBuilder(pattern, phaseBindings, applyLorentz) };
+    return { phase, phaseBindings, peaksFor: createPeakBuilder(pattern, phaseBindings, applyLorentz, fitRange) };
   });
 
   const widthGuard = createTofWidthGuard(pattern, parameters, primaryBindings, (v) => applyParameters(structure, primaryBindings, resolveTies(parameters, v)));

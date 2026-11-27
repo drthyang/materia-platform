@@ -127,6 +127,32 @@ release fixes bugs.
 
 ### Changed
 
+- **Reflections at short d on time of flight follow the fit window (THY-90).**
+  The fixed floor at d = 0.5 Å is gone: a TOF reflection list reaches the fit
+  window's short-d edge less one peak support, and stops earlier only where
+  the peak terms define no peak (σ², α or β not positive, an instrument file
+  extrapolated past its standard's range). X-ray lists stop at d = 0.25 Å
+  (sin θ/λ = 2.0 Å⁻¹, the form-factor table's range). Points a list does not
+  reach are left out of the fit and of wR, GoF and the point count; before,
+  they were fitted with the background alone, which biased the background and
+  the ADPs. A line under the plot toolbar says where the reflections stop and
+  why, how many points are left out, and, when the window reaches well below
+  the last resolved lines, the d to trim it at; `check_fit_range` proposes
+  that trim ("unresolved-lines") and `get_state` and `check_fit_range` carry
+  the line (`reflectionsTo`). The Prefit's Le Bail list and the tick rows take
+  the same range. Magnetic satellites keep d ≥ 0.5 Å. A refinement step that
+  makes the page's own TOF widths invalid inside the data is rejected, as one
+  on an instrument file's already was.
+- **The bundled Mn₃Ga demo moves: wR 4.24 % → 3.88 %, GoF 3.23 → 2.96.** Its
+  window starts at d = 0.414 Å, and 160 of its reflection families were not
+  calculated. The snapshot is re-made with the same steps: B(Mn)
+  1.096 → 1.008(25) Å², B(Ga) 0.961 → 0.922(14) Å², MnO 3.33(7) → 3.31(6) wt %.
+- A fresh time-of-flight page still fits the whole pattern, so data that
+  reach far below their last resolved lines refine more slowly than before
+  (the bundled POWGEN pattern to 0.150 Å: about 15 ms per pattern against
+  2 ms with the demo's window); trimming the window as suggested restores it.
+
+
 - **Refine moments runs as rounds** (powder page). The moments with every
   nuclear row held, then the scale and the background with the moments held,
   then the moments again, until no moment moves by 0.1 of its esd; at most

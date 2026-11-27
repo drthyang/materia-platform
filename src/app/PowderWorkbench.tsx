@@ -91,6 +91,7 @@ import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { fileProfileCardNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
+import { scoredWindow, shortDNote, shortDReading, tickDRanges } from "@/app/shortD";
 import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel, defaultUncovered, instrumentCardChip } from "@/app/defaultInstruments";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
 import { agentInstrumentNotes, bankCoverage, bundleInstrumentNote, holdNote, overrideLabel, startingPointWarning } from "@/app/bankFollow";
@@ -380,7 +381,12 @@ export function PowderWorkbench({
   // What the page plots and scores (powderPage.ts): the NUCLEAR curves (every
   // phase's profile, no magnetic term: the magnetic page draws its candidate on
   // top of these), and those plus the APPLIED magnetic model's contribution.
-  const pageCurves = useMemo(() => powderPageCurves(session), [session]);
+  // The reflection lists follow the fit window, as the fit's do (core/workflow/powder.ts reflectionRange).
+  const pageCurves = useMemo(
+    () => powderPageCurves(session, fitRange),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for fitRange
+    [session, fitRange?.min, fitRange?.max],
+  );
   const nuclearCurves = pageCurves.nuclear;
 
   // The MAGNETIC contribution of a model (satellites at G ± k, or the k = 0
@@ -475,11 +481,13 @@ export function PowderWorkbench({
   );
   const validationInclude = useMemo(() => {
     const excluded = excludedPointMask(curves.yObs);
+    // The window the list reaches (app/shortD.ts), as wR counts it.
+    const scored = scoredWindow(session, fitRangeActive ? fitRange : null);
     return curves.x.map((xv, i) =>
       !excluded[i] &&
       !(powderIsTof && (curves.yCalc[i] ?? 0) <= 0) &&
-      !(fitRangeActive && (xv < fitRange!.min || xv > fitRange!.max)));
-  }, [curves, powderIsTof, fitRangeActive, fitRange]);
+      !(scored && (xv < scored.min || xv > scored.max)));
+  }, [curves, powderIsTof, fitRangeActive, fitRange, session]);
   // Fit-range handles live in display space; convert to/from the native window.
   const displayFitRange = useMemo(
     () => convertInterval(effectiveFitRange, pattern.xUnit, effectiveUnit, axisCtx),
@@ -493,12 +501,20 @@ export function PowderWorkbench({
   // Bragg reflection ticks (in the current display unit). Nuclear phase always;
   // a magnetic row appears when the session carries a magnetic model. The d-range
   // is floored so very-high-Q (tiny-d) reflections don't explode the tick count.
+  // Each row over the range its reflections are calculated (app/shortD.ts tickDRanges): the nuclear lists follow the window.
+  const tickRanges = useMemo(
+    () => tickDRanges(session, fitRangeActive ? fitRange : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for fitRange
+    [session, fitRangeActive, fitRange?.min, fitRange?.max],
+  );
   const phaseTicks = useMemo(() => {
     const dA = convertAxisValue(patternExtent.min, pattern.xUnit, "dSpacing", axisCtx);
     const dB = convertAxisValue(patternExtent.max, pattern.xUnit, "dSpacing", axisCtx);
     if (!Number.isFinite(dA) || !Number.isFinite(dB)) return [];
-    const dMin = Math.max(Math.min(dA, dB), 0.4);
-    const dMax = Math.max(dA, dB);
+    // A TOF page with no calibration of its own (view only) converts with the overlay's: the old floor there.
+    const fallback = { dMin: Math.max(Math.min(dA, dB), 0.4), dMax: Math.max(dA, dB) };
+    const rangeOf = (i: number): { dMin: number; dMax: number } => tickRanges?.nuclear[i] ?? fallback;
+    const { dMin, dMax } = rangeOf(0);
     const toX = (d: number): number => convertAxisValue(d, "dSpacing", effectiveUnit, axisCtx);
     // Use the *refined* cell of each phase so the ticks track the calculated
     // pattern after a refinement (the base structures keep their loaded cells).
@@ -512,13 +528,15 @@ export function PowderWorkbench({
     ];
     // One Bragg-tick row per additional crystallographic phase, coloured distinctly.
     session.extraPhases.forEach((ph, i) => {
-      phases.push(nuclearPhaseTicks(refinedPhases[i + 1] ?? ph, dMin, dMax, toX, { id: ph.id, label: ph.name || `phase ${i + 2}`, color: PHASE_COLORS[(i + 1) % PHASE_COLORS.length]! }));
+      const r = rangeOf(i + 1);
+      phases.push(nuclearPhaseTicks(refinedPhases[i + 1] ?? ph, r.dMin, r.dMax, toX, { id: ph.id, label: ph.name || `phase ${i + 2}`, color: PHASE_COLORS[(i + 1) % PHASE_COLORS.length]! }));
     });
     if (liveMagnetic) {
-      phases.push(magneticPhaseTicks(base, liveMagnetic, dMin, dMax, toX, { id: "magnetic", label: "magnetic", color: MAGNETIC_COLOR }));
+      const m = tickRanges?.magnetic ?? fallback;
+      phases.push(magneticPhaseTicks(base, liveMagnetic, m.dMin, m.dMax, toX, { id: "magnetic", label: "magnetic", color: MAGNETIC_COLOR }));
     }
     return phases;
-  }, [refinedPhases, structure, session.extraPhases, liveMagnetic, patternExtent, pattern.xUnit, effectiveUnit, axisCtx]);
+  }, [refinedPhases, structure, session.extraPhases, liveMagnetic, patternExtent, pattern.xUnit, effectiveUnit, axisCtx, tickRanges]);
 
   // Manually added residual peaks (clicked on the magnetic page's pattern):
   // stored as d-spacings; height/significance are sampled from the residual at
@@ -887,6 +905,12 @@ export function PowderWorkbench({
   // stays live as parameters are edited.
   const activeWindow = fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null;
   const weightedR = (c: { x: number[]; yObs: number[]; yCalc: number[] }): number => weightedROf(session, c, activeWindow);
+  // Where the reflection list stops at short d and why, the points it leaves out of the fit, and a trim worth making (app/shortD.ts).
+  const shortD = useMemo(
+    () => (tofViewOnly ? null : shortDNote(shortDReading(session, activeWindow))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for activeWindow
+    [session, tofViewOnly, activeWindow?.min, activeWindow?.max],
+  );
   // The page's single wR readout.
   const wRpct = (100 * weightedR(curves)).toFixed(2);
   // The nuclear-only agreement the magnetic page compares its candidates against.
@@ -931,7 +955,7 @@ export function PowderWorkbench({
       xLabel: displayXLabel,
       dToX: (d: number): number => convertAxisValue(d, "dSpacing", effectiveUnit, axisCtx),
       xToD: (x: number): number => convertAxisValue(x, effectiveUnit, "dSpacing", axisCtx),
-      // Same tiny-d floor as the refinement plot's tick rows.
+      // The magnetic page keeps its rows from 0.4 Å (THY-90 changed no magnetic range).
       dRange: { min: Math.max(Math.min(dA, dB), 0.4), max: Math.max(dA, dB) },
       nuclearTicks: phaseTicks.filter((p) => p.kind === "nuclear"),
       fitRange: displayFitRange,
@@ -1126,7 +1150,7 @@ export function PowderWorkbench({
   // The page as the Agent's tools read it (agent/port.ts PowderLiveState): the
   // Agent port's state, and what the report's judgment reads (reportJudgment.ts).
   const liveState = (): PowderLiveState => {
-    const observations = observationsIn(curves, activeWindow);
+    const observations = observationsIn(curves, activeWindow, session);
     return {
       structure,
       extraPhases: session.extraPhases,
@@ -1670,6 +1694,12 @@ export function PowderWorkbench({
                     )}
                   </div>
                 )}
+                {plotMode === "curves" && shortD && (
+                  <div data-testid="short-d-note" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: shortD.warn ? theme.warnInk : theme.secondary, marginBottom: 4 }}>
+                    <span>{shortD.line}</span>
+                    <InfoBadge width={340} text={shortD.detail} />
+                  </div>
+                )}
                 {plotMode === "structure" ? (() => {
                   // Multi-phase: a phase picker chooses which unit cell to show.
                   // Use the REFINED phases (parameters applied: cell, positions,
@@ -2136,7 +2166,7 @@ function QualityPanel({
     curves,
     d: d ?? null,
     axis,
-    observationCount: observationsIn(curves, fitRange ?? null),
+    observationCount: observationsIn(curves, fitRange ?? null, { structure, extraPhases: extraPhases ?? [], pattern, powderParams: params, powderBindings: bindings }),
     restraints,
     zeroAdp,
     settings: { backgroundTerms, backgroundType },

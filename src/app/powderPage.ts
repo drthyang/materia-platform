@@ -61,6 +61,7 @@ import { annotateExtraPeaks, detectExtraPeaks } from "@/core/magnetic/extraPeaks
 import { markResolvedPeaks } from "@/core/diagnostics/assessment";
 import { axisContext, availableDisplayUnits, convertAxisArray, convertAxisValue, tofCalibrationOf, type AxisContext } from "@/visualization/axisUnits";
 import { minMax } from "@/core/math/extent";
+import { scoredWindow, type ShortDPage } from "@/app/shortD";
 
 /** The fit window on the pattern's own axis. */
 export interface FitWindow {
@@ -796,7 +797,9 @@ export function refinedPhasesOf(s: Session): StructureModel[] {
  * plus the applied magnetic model's contribution. A TOF pattern with GSAS-II's
  * overlay shows that overlay.
  */
-export function powderPageCurves(s: Session): { nuclear: PowderCurves; curves: PowderCurves } {
+export function powderPageCurves(s: Session, window?: FitWindow | null): { nuclear: PowderCurves; curves: PowderCurves } {
+  // The reflection lists follow the fit window, as the fit's do (core/workflow/powder.ts reflectionRange).
+  const fitRange = window ? { min: window.min, max: window.max } : undefined;
   const pattern = s.pattern;
   const tofOverlay = pattern.xUnit === "tof" && s.powderOverlay;
   let nuclear: PowderCurves;
@@ -808,9 +811,9 @@ export function powderPageCurves(s: Session): { nuclear: PowderCurves; curves: P
     const yCalc = s.powderOverlay!.calc;
     nuclear = { x, yObs, yCalc, yBackground: s.powderOverlay!.background, diff: yObs.map((o, i) => o - (yCalc[i] ?? 0)) };
   } else if (s.extraPhases.length > 0) {
-    nuclear = multiPhaseCurves([{ structure: s.structure, id: s.structure.id }, ...phaseListOf(s)], pattern, s.powderParams, s.powderBindings, s.powderProfile);
+    nuclear = multiPhaseCurves([{ structure: s.structure, id: s.structure.id }, ...phaseListOf(s)], pattern, s.powderParams, s.powderBindings, s.powderProfile, fitRange);
   } else {
-    nuclear = powderCurves(s.structure, pattern, s.powderParams, s.powderBindings, s.powderProfile);
+    nuclear = powderCurves(s.structure, pattern, s.powderParams, s.powderBindings, s.powderProfile, fitRange);
   }
   const mag = s.magnetic;
   if (!mag || mag.moments.length === 0 || pattern.points.length === 0 || tofOverlay) return { nuclear, curves: nuclear };
@@ -826,8 +829,9 @@ export function powderPageCurves(s: Session): { nuclear: PowderCurves; curves: P
  * only where the reference calc > 0), so it matches the refinement's at
  * convergence and stays live as parameters are edited.
  */
-export function weightedR(s: Session, c: { readonly x: readonly number[]; readonly yObs: readonly number[]; readonly yCalc: readonly number[] }, window: FitWindow | null): number {
+export function weightedR(s: Session, c: { readonly x: readonly number[]; readonly yObs: readonly number[]; readonly yCalc: readonly number[] }, fitWindow: FitWindow | null): number {
   const tof = s.pattern.xUnit === "tof";
+  const window = scoredWindow(s, fitWindow);
   const excluded = excludedPointMask(c.yObs);
   let num = 0, den = 0;
   for (let i = 0; i < c.yObs.length; i++) {
@@ -850,8 +854,9 @@ export function weightedR(s: Session, c: { readonly x: readonly number[]; readon
  * it, for a page with no refinement of its own (a demo opened on its converged
  * snapshot), so the card's GoF and the Validation view's agree.
  */
-export function curvesGoodnessOfFit(s: Session, c: { readonly x: readonly number[]; readonly yObs: readonly number[]; readonly yCalc: readonly number[] }, window: FitWindow | null): number {
+export function curvesGoodnessOfFit(s: Session, c: { readonly x: readonly number[]; readonly yObs: readonly number[]; readonly yCalc: readonly number[] }, fitWindow: FitWindow | null): number {
   const tof = s.pattern.xUnit === "tof";
+  const window = scoredWindow(s, fitWindow);
   const excluded = excludedPointMask(c.yObs);
   let chi2 = 0, n = 0;
   for (let i = 0; i < c.yObs.length; i++) {
@@ -869,8 +874,9 @@ export function curvesGoodnessOfFit(s: Session, c: { readonly x: readonly number
   return n > 0 ? Math.sqrt(chi2 / Math.max(n - free, 1)) : 0;
 }
 
-/** The points a fit uses: not excluded, inside the window. */
-export function observationsIn(c: { readonly x: readonly number[]; readonly yObs: readonly number[] }, window: FitWindow | null): number {
+/** The points a fit uses: not excluded, inside the window (with the session: the window the list reaches, scoredWindow). */
+export function observationsIn(c: { readonly x: readonly number[]; readonly yObs: readonly number[] }, fitWindow: FitWindow | null, s?: ShortDPage): number {
+  const window = s ? scoredWindow(s, fitWindow) : fitWindow;
   const excluded = excludedPointMask(c.yObs);
   let n = 0;
   c.x.forEach((x, i) => {
@@ -887,6 +893,11 @@ export function extentOf(xs: readonly number[]): FitWindow {
 // ── the fits the page runs ─────────────────────────────────────────────────
 
 const windowRequest = (page: PowderPageModel): { fitRange?: FitWindow } => (page.fitRange ? { fitRange: { min: page.fitRange.min, max: page.fitRange.max } } : {});
+/** The window the reflection list reaches (scoredWindow): the Prefit's, which has no validity limits of its own. */
+const scoredWindowRequest = (page: PowderPageModel): { fitRange?: FitWindow } => {
+  const w = scoredWindow(page.session, page.fitRange);
+  return w ? { fitRange: { min: w.min, max: w.max } } : {};
+};
 
 /** The magnetic co-refinement's spec: nuclear + the applied magnetic model on the shared scale. */
 function magneticSpec(page: PowderPageModel) {
@@ -988,7 +999,8 @@ export async function thoroughFit(client: PowderCompute, page: PowderPageModel, 
       cellBindings: s.powderBindings.filter((b) => isCell(b.kind)),
       shape: s.powderProfile.shape,
       ...(s.powderProfile.eta !== undefined ? { eta: s.powderProfile.eta } : {}),
-      ...windowRequest(page),
+      // The window the Rietveld list reaches (app/shortD.ts), so the Prefit fits the same points.
+      ...scoredWindowRequest(page),
       ...(tofCal ? { tof: tofCal } : {}),
       // A start further off than the plain fit follows (the cell check sends it here): from the low-angle end up.
       lowAngleFirst: true,

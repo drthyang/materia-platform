@@ -48,12 +48,12 @@ describe("magnetic powder problem — multi-phase routing (Mn₃Ga + MnO demo)",
     const applied = applyParameters(s.structure, magneticPhaseBindings(s.powderBindings, s.structure.id), values);
     // Refined hexagonal Mn₃Ga cell — an unrouted apply would leave a = b = c =
     // 4.4561 (MnO's cubic constraint written across all three lengths).
-    expect(applied.model.cell.a).toBeCloseTo(5.41964, 4);
-    expect(applied.model.cell.c).toBeCloseTo(4.37367, 4);
-    expect(applied.scale).toBeCloseTo(1.37952, 4);
+    expect(applied.model.cell.a).toBeCloseTo(5.41965, 4);
+    expect(applied.model.cell.c).toBeCloseTo(4.37365, 4);
+    expect(applied.scale).toBeCloseTo(1.35599, 4);
     // MnO's own B/occ for the colliding "Mn1" label must not leak in.
     const mn1 = applied.model.sites.find((site) => site.label === "Mn1")!;
-    expect(mn1.adp.kind === "isotropic" ? mn1.adp.bIso : NaN).toBeCloseTo(1.09589, 4);
+    expect(mn1.adp.kind === "isotropic" ? mn1.adp.bIso : NaN).toBeCloseTo(1.00845, 4);
   });
 
   it("the magnetic problem reproduces the two-phase nuclear pattern (zero moments)", () => {

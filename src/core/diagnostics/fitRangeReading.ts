@@ -31,6 +31,8 @@ export interface FitRangeSource {
   /** A d (Å) on the pattern's own axis. */
   readonly xOf: (d: number) => number;
   readonly window: { readonly min: number; readonly max: number } | null;
+  /** The window reaches well below the last resolved lines (app/shortD.ts): where they stop, on the axis and in d. */
+  readonly unresolvedBelow?: { readonly x: number; readonly d: number };
 }
 
 /** The data's ends read on the curves given: every phase's reflections placed on the pattern's own axis. */
@@ -54,6 +56,7 @@ export function readFitRange(src: FitRangeSource): DataRangeReading {
     shortD: src.unit === "tof" || src.unit === "dSpacing" ? "low" : "high",
     excluded: excludedPointMask(src.yObs),
     window: src.window,
+    ...(src.unresolvedBelow ? { unresolvedBelow: src.unresolvedBelow } : {}),
   });
 }
 

@@ -80,13 +80,25 @@ function dRange(pattern: PowderPattern): { dMin: number; dMax: number } {
   }
 }
 
-/** Smallest d-spacing (Å) modelled for a TOF pattern. The data extends to very
- *  high Q (tiny d); enumerating every reflection there is pointless (the peaks
- *  overlap into the background) and costly, so the modelled range is floored. */
-const TOF_DMIN_FLOOR = 0.5;
+/**
+ * Smallest d-spacing (Å) of the magnetic satellites on a TOF pattern. Nuclear
+ * reflections no longer stop here: they follow the fit window
+ * (`reflectionRange`, THY-90). The satellites keep it (the owner's decision of
+ * 2026-11-26): at 0.5 Å every ⟨j0⟩ in the table is below 0.025, and three rows
+ * grow without bound far below it.
+ */
+export const TOF_DMIN_FLOOR = 0.5;
 
-/** d-range covered by a TOF pattern, from its TOF extent and calibration. */
-function tofDRange(
+/**
+ * Smallest d-spacing (Å) of an X-ray reflection list: sin θ/λ = 2.0 Å⁻¹, the
+ * end of the range the four-Gaussian form-factor table is valid over (its own
+ * file, DABAX f0_InterTables.dat: "only valid in the interval
+ * 0 ≤ sin(θ)/λ < 2.0 Å⁻¹").
+ */
+export const XRAY_FORM_FACTOR_DMIN = 0.25;
+
+/** The d-range covered by a TOF pattern, from its TOF extent and calibration. */
+function tofDataDRange(
   pattern: PowderPattern,
   cal: { difC: number; difA: number; difB: number },
   zero: number,
@@ -97,7 +109,7 @@ function tofDRange(
   const span = minMax(xs);
   const dLo = dFromTof(p, span.min);
   const dHi = dFromTof(p, span.max);
-  return { dMin: Math.max(Math.min(dLo, dHi), TOF_DMIN_FLOOR), dMax: Math.max(dLo, dHi) };
+  return { dMin: Math.min(dLo, dHi), dMax: Math.max(dLo, dHi) };
 }
 
 /** The widths of a TOF peak at one d-spacing, when the instrument file gives the profile. */
@@ -151,9 +163,14 @@ export function tofWidthsAt(applied: AppliedModel, d: number): TofWidths {
   return { alpha, beta, sig2, gamma, gammaAsGiven, invalid };
 }
 
-/** d-spacings spread evenly in log d over the pattern's reflection range, for checking a file's widths over the data. */
+/** The d-range (Å) the pattern's points cover, with the applied calibration on TOF. */
+function dataDRange(pattern: PowderPattern, applied: AppliedModel): { dMin: number; dMax: number } {
+  return pattern.xUnit === "tof" && applied.tof !== undefined ? tofDataDRange(pattern, applied.tof, applied.zeroShift) : dRange(pattern);
+}
+
+/** d-spacings spread evenly in log d over the data's d-range, for checking a file's widths over the data. */
 function tofWidthGrid(pattern: PowderPattern, applied: AppliedModel, n = 512): number[] {
-  const { dMin, dMax } = reflectionDRange(pattern, applied);
+  const { dMin, dMax } = dataDRange(pattern, applied);
   if (!(dMax > dMin)) return [dMin];
   const step = Math.log(dMax / dMin) / (n - 1);
   return Array.from({ length: n }, (_, i) => dMin * Math.exp(i * step));
@@ -207,7 +224,7 @@ export function tofNegativeLorentzian(pattern: PowderPattern, applied: AppliedMo
 /** The reflections of the applied model that an instrument file's profile gives no peak for, in the data's range. */
 export function tofReflectionsLeftOut(pattern: PowderPattern, applied: AppliedModel): { h: number; k: number; l: number; d: number; which: "σ²" | "α" | "β" }[] {
   if (pattern.xUnit !== "tof" || !applied.tof || !applied.tofFile) return [];
-  const { dMin, dMax } = reflectionDRange(pattern, applied);
+  const { dMin, dMax } = dataDRange(pattern, applied);
   const out: { h: number; k: number; l: number; d: number; which: "σ²" | "α" | "β" }[] = [];
   for (const r of generateReflections(applied.model.cell, applied.model.spaceGroup, dMin, dMax)) {
     const which = tofWidthsAt(applied, r.d).invalid;
@@ -217,17 +234,20 @@ export function tofReflectionsLeftOut(pattern: PowderPattern, applied: AppliedMo
 }
 
 /**
- * A refinement problem's check on an instrument file's TOF widths. Built from
- * the problem's starting values; called on every model the fit evaluates.
+ * A refinement problem's check on the TOF peak widths (an instrument file's
+ * profile, or the page's own refinable one). Built from the problem's starting
+ * values; called on every model the fit evaluates.
  *
- * - Where the file's widths are already invalid at the start, the reflections
- *   are left out (buildTofFilePeaks) and the fit goes on.
+ * - Where the widths are already invalid at the start, the reflections are
+ *   left out (at the short-d end the list stops there, reflectionRange;
+ *   elsewhere buildTofFilePeaks leaves them out) and the fit goes on.
  * - A step that makes a width invalid somewhere in the data's d-range where it
  *   was valid at the start is outside the model's domain: the engine rejects
- *   it as it rejects a cell length ≤ 0.
+ *   it as it rejects a cell length ≤ 0. The points the fit weighs were chosen
+ *   at the start (modelledFitRange), so the list may not shrink under them.
  *
- * It does nothing unless a `tofFileProfile` row is free: held, the file's
- * widths cannot change.
+ * It does nothing unless a `tofFileProfile` or `tofProfile` row is free: held,
+ * the widths cannot change.
  */
 export function createTofWidthGuard(
   pattern: PowderPattern,
@@ -238,19 +258,19 @@ export function createTofWidthGuard(
   const none = (): void => {};
   if (pattern.xUnit !== "tof") return none;
   const freeIds = new Set(parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
-  const freeFileRows = bindings.filter((b) => b.kind === "tofFileProfile" && freeIds.has(b.parameterId));
-  if (freeFileRows.length === 0) return none;
+  const freeRows = bindings.filter((b) => (b.kind === "tofFileProfile" || b.kind === "tofProfile") && freeIds.has(b.parameterId));
+  if (freeRows.length === 0) return none;
   const start: Record<string, number> = {};
   for (const p of parameters) start[p.id] = p.value;
   const baseline = applyAt(start);
-  if (!baseline.tof || !baseline.tofFile) return none;
+  if (!baseline.tof || (!baseline.tofFile && !baseline.tofProfile)) return none;
   const grid = tofWidthGrid(pattern, baseline);
-  const validAtStart = grid.map((d) => tofWidthsAt(baseline, d).invalid === null);
+  const validAtStart = grid.map((d) => tofWidthInvalidAt(baseline, d) === null);
   return (applied) => {
-    if (!applied.tof || !applied.tofFile) return;
+    if (!applied.tof) return;
     for (let i = 0; i < grid.length; i++) {
       if (!validAtStart[i]) continue;
-      const which = tofWidthsAt(applied, grid[i]!).invalid;
+      const which = tofWidthInvalidAt(applied, grid[i]!);
       if (which) throw new ModelDomainError(`the TOF profile gives ${which} ≤ 0 at d = ${grid[i]!.toFixed(3)} Å, inside the data's range`);
     }
   };
@@ -332,15 +352,265 @@ function buildTofPeaks(
   return peaks;
 }
 
-/** d-range (Å) spanned by the pattern, CW or TOF (uses the applied calibration). */
-export function reflectionDRange(pattern: PowderPattern, applied: AppliedModel): { dMin: number; dMax: number } {
-  return pattern.xUnit === "tof" && applied.tof !== undefined
-    ? tofDRange(pattern, applied.tof, applied.zeroShift)
-    : dRange(pattern);
+/** What ends a reflection list at short d. */
+export type ShortDStop =
+  /** TOF: the fit window's short-d edge less one peak support (the data's end when the window is the whole pattern). */
+  | "window"
+  /** TOF: below this d the peak terms give a non-positive width, so no peak is defined. */
+  | "profile"
+  /** X-rays: the form-factor table's range ends here (XRAY_FORM_FACTOR_DMIN). */
+  | "xray"
+  /** Constant wavelength (and a TOF pattern with no calibration): the data's own range. */
+  | "data";
+
+/** The d-range (Å) a pattern's reflection list covers, and why it ends where it does. */
+export interface ReflectionRange {
+  readonly dMin: number;
+  readonly dMax: number;
+  readonly stop: ShortDStop;
+  /** With stop "profile": the width that is not positive just below dMin. */
+  readonly which?: "σ²" | "α" | "β";
+  /** The d (Å) of the fit window's short-d edge: the data's own end when the window is the whole pattern. */
+  readonly windowD: number;
+  /**
+   * With stop "profile" or "xray": the points at shorter d than this are not
+   * fully modelled and are left out of the fit (modelledFitRange). "profile":
+   * dMin itself, since below it no peak is defined to reach the points above.
+   * "xray": one peak support above dMin, so that every point kept has the
+   * tails of all its lines. Absent when the list reaches the window.
+   */
+  readonly fittedFrom?: number;
 }
 
-export function buildPeaks(pattern: PowderPattern, applied: AppliedModel, applyLorentz = true): ProfilePeak[] {
-  const { dMin, dMax } = reflectionDRange(pattern, applied);
+/** TOF at d with the applied calibration and zero. */
+function tofAt(applied: AppliedModel, d: number): number {
+  const c = applied.tof!;
+  return c.difC * d + c.difA * d * d + c.difB / d + applied.zeroShift;
+}
+
+/** d at a TOF with the applied calibration and zero. */
+function dAtTof(applied: AppliedModel, t: number): number {
+  const c = applied.tof!;
+  return dFromTof({ kind: "tof", difC: c.difC, difA: c.difA, difB: c.difB, zero: applied.zeroShift }, t);
+}
+
+/** d at a position on a constant-wavelength pattern's axis (NaN where it has none). */
+function dAtX(pattern: PowderPattern, x: number): number {
+  const wl = pattern.wavelength ?? (pattern.radiation.kind !== "neutron-tof" ? pattern.radiation.wavelength : 1.54);
+  switch (pattern.xUnit) {
+    case "twoTheta": return wl / (2 * Math.sin((x / 2) * (Math.PI / 180)));
+    case "dSpacing": return x;
+    case "q": return (2 * Math.PI) / x;
+    case "tof": return NaN;
+  }
+}
+
+/** The d-spacing (Å) at a position on the pattern's axis, with the applied calibration and zero; NaN where it has none. */
+export function dAtPosition(pattern: PowderPattern, applied: AppliedModel, x: number): number {
+  if (pattern.xUnit === "tof") return applied.tof ? dAtTof(applied, x) : NaN;
+  return dAtX(pattern, x - applied.zeroShift);
+}
+
+/**
+ * The two ends, on the pattern's axis, of the support of one reflection at d:
+ * PEAK_WINDOW_FWHM widths each side of every peak placePeaks draws for it
+ * (sub-peaks and a Kα₂ line included). Null where no peak is defined.
+ */
+function supportAt(pattern: PowderPattern, applied: AppliedModel, d: number): { lo: number; hi: number } | null {
+  const peaks = placePeaks(pattern, applied, [{ d, intensity: 1 }]);
+  if (peaks.length === 0) return null;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const p of peaks) {
+    lo = Math.min(lo, p.center - PEAK_WINDOW_FWHM * p.fwhm);
+    hi = Math.max(hi, p.center + PEAK_WINDOW_FWHM * p.fwhm);
+  }
+  return Number.isFinite(lo) && Number.isFinite(hi) ? { lo, hi } : null;
+}
+
+/**
+ * Which TOF peak width is not positive at d, or null when the peak is defined.
+ * An instrument file's profile: tofWidthsAt. The page's own refinable profile
+ * (no file): the same widths before the 10⁻⁶ floor buildTofPeaks applies, a
+ * rise or decay checked only when the model has terms for it, σ² only when it
+ * is negative (zero is the limit of a pure exponential pair).
+ */
+export function tofWidthInvalidAt(applied: AppliedModel, d: number): "σ²" | "α" | "β" | null {
+  if (!applied.tof) return null;
+  if (applied.tofFile) return tofWidthsAt(applied, d).invalid;
+  const tp = applied.tofProfile;
+  if (!tp) return null;
+  const d2 = d * d;
+  let sig2 = tp.sig0 + tp.sig1 * d2 + tp.sig2 * d2 * d2 + tp.sigQ * d;
+  if (applied.mustrainIso !== undefined && applied.mustrainIso > 0) {
+    const s = isotropicStrainSigmaTof(d, applied.tof, applied.mustrainIso);
+    sig2 += s * s;
+  }
+  const alphaGiven = tp.alpha0 !== 0 || tp.alpha1 !== 0;
+  const betaGiven = tp.beta0 !== 0 || tp.beta1 !== 0 || tp.betaQ !== 0;
+  if (sig2 < 0) return "σ²";
+  if (alphaGiven && !(tp.alpha0 + tp.alpha1 / d > 0)) return "α";
+  if (betaGiven && !(tp.beta0 + tp.beta1 / (d2 * d2) + tp.betaQ / d2 > 0)) return "β";
+  return null;
+}
+
+/**
+ * Where the TOF peak terms first define a peak, scanning up from dLo: null
+ * when they do at dLo already; else the shortest d above which they do (to
+ * 10⁻⁹ relative), and the width that fails just below it. A stretch of
+ * invalid widths that does not reach dLo is not this function's business
+ * (buildTofFilePeaks leaves those reflections out; tofWidthProblems names them).
+ */
+function profileValidFrom(applied: AppliedModel, dLo: number, dHi: number): { d: number; which: "σ²" | "α" | "β" } | null {
+  let which = tofWidthInvalidAt(applied, dLo);
+  if (!which || !(dHi > dLo)) return null;
+  const n = 512;
+  const step = Math.log(dHi / dLo) / (n - 1);
+  let bad = dLo;
+  let good = NaN;
+  for (let i = 1; i < n; i++) {
+    const d = dLo * Math.exp(i * step);
+    const w = tofWidthInvalidAt(applied, d);
+    if (!w) {
+      good = d;
+      break;
+    }
+    bad = d;
+    which = w;
+  }
+  if (Number.isNaN(good)) return { d: dHi, which };
+  for (let i = 0; i < 60 && good - bad > 1e-9 * good; i++) {
+    const mid = 0.5 * (bad + good);
+    const w = tofWidthInvalidAt(applied, mid);
+    if (w) {
+      bad = mid;
+      which = w;
+    } else {
+      good = mid;
+    }
+  }
+  return { d: good, which };
+}
+
+/**
+ * The reflection list of a TOF pattern reaches no further below the window's
+ * edge than this fraction of the edge's d, whatever the peak support says (a
+ * decay rate that nears zero makes the support run away).
+ */
+const SUPPORT_REACH_LIMIT = 0.5;
+
+/**
+ * The list's short-d end on a grid of 10⁻⁴ in ln d, rounded outward (down for
+ * a support's reach, up for a validity limit): a width that moves a little
+ * (a profile column's finite difference) leaves the same list, so the
+ * structure factors stay cached (createPeakBuilder).
+ */
+const SNAP = 1e-4;
+const snapDown = (d: number): number => Math.exp(Math.floor(Math.log(d) / SNAP) * SNAP);
+const snapUp = (d: number): number => Math.exp(Math.ceil(Math.log(d) / SNAP) * SNAP);
+
+/** A TOF pattern's list: to the window's short-d edge less one peak support, stopped earlier where the peak terms give no peak. */
+function tofReflectionRange(pattern: PowderPattern, applied: AppliedModel, window?: FitRange): ReflectionRange {
+  const data = tofDataDRange(pattern, applied.tof!, applied.zeroShift);
+  const xs = minMax(pattern.points.map((p) => p.x));
+  const xEdge = Math.min(Math.max(window?.min ?? xs.min, xs.min), xs.max);
+  const windowD = dAtTof(applied, xEdge);
+  // The shortest d whose support still reaches the edge: x(d) + reach above x(d) = xEdge, by fixed point.
+  // Converged: the reflection there just reaches the edge. Not converged in 20 steps: the shortest d tried.
+  let lowest = windowD;
+  let d = windowD;
+  let converged = false;
+  for (let i = 0; i < 20 && !converged; i++) {
+    const s = supportAt(pattern, applied, d);
+    if (!s) break;
+    const next = dAtTof(applied, xEdge - (s.hi - tofAt(applied, d)));
+    if (!(next > 0) || !Number.isFinite(next)) break;
+    lowest = Math.min(lowest, next);
+    converged = Math.abs(next - d) <= 1e-9 * d;
+    d = next;
+  }
+  let dList = converged ? d : lowest;
+  dList = snapDown(Math.max(dList, SUPPORT_REACH_LIMIT * windowD));
+  const valid = profileValidFrom(applied, dList, data.dMax);
+  if (valid) {
+    const from = snapUp(valid.d);
+    return { dMin: from, dMax: data.dMax, stop: "profile", which: valid.which, windowD, fittedFrom: from };
+  }
+  return { dMin: dList, dMax: data.dMax, stop: "window", windowD };
+}
+
+/**
+ * The reflection list's d-range (THY-90, the owner's rule of 2026-11-26).
+ *
+ * - Time of flight: from the fit window's short-d edge less one peak support
+ *   (the lines just outside the window are drawn, so every point in it has
+ *   all its lines), stopped earlier only where the peak terms define no peak
+ *   (a non-positive σ², α or β below some d: an instrument file's polynomials
+ *   extrapolated past the range they were fitted on). No window: the whole
+ *   pattern.
+ * - Constant wavelength: the data's range, to d = 0.25 Å at most for X-rays
+ *   (XRAY_FORM_FACTOR_DMIN).
+ *
+ * Points the list does not reach are left out of the fit (modelledFitRange).
+ */
+export function reflectionRange(pattern: PowderPattern, applied: AppliedModel, window?: FitRange): ReflectionRange {
+  if (pattern.xUnit === "tof" && applied.tof !== undefined && pattern.points.length > 0) return tofReflectionRange(pattern, applied, window);
+  const data = dRange(pattern);
+  if (pattern.radiation.kind === "xray" && data.dMin < XRAY_FORM_FACTOR_DMIN && data.dMax > XRAY_FORM_FACTOR_DMIN) {
+    const s = supportAt(pattern, applied, XRAY_FORM_FACTOR_DMIN);
+    // The long-d end of the support: low 2θ or low Q, high d on a d axis.
+    const reach = s ? dAtX(pattern, (pattern.xUnit === "dSpacing" ? s.hi : s.lo) - applied.zeroShift) : XRAY_FORM_FACTOR_DMIN;
+    const fittedFrom = Number.isFinite(reach) && reach > XRAY_FORM_FACTOR_DMIN ? reach : XRAY_FORM_FACTOR_DMIN;
+    return { dMin: XRAY_FORM_FACTOR_DMIN, dMax: data.dMax, stop: "xray", windowD: data.dMin, fittedFrom };
+  }
+  return { ...data, stop: "data", windowD: data.dMin };
+}
+
+/** The reflection list's d-range (reflectionRange without the reasons). */
+export function reflectionDRange(pattern: PowderPattern, applied: AppliedModel, window?: FitRange): { dMin: number; dMax: number } {
+  const r = reflectionRange(pattern, applied, window);
+  return { dMin: r.dMin, dMax: r.dMax };
+}
+
+/**
+ * The magnetic satellites' d-range: the data's range, floored at
+ * TOF_DMIN_FLOOR on time of flight, as before THY-90 (the owner's decision:
+ * no magnetic number moves).
+ */
+export function magneticDRange(pattern: PowderPattern, applied: AppliedModel): { dMin: number; dMax: number } {
+  if (pattern.xUnit !== "tof" || applied.tof === undefined) return dRange(pattern);
+  const data = tofDataDRange(pattern, applied.tof, applied.zeroShift);
+  return { dMin: Math.max(data.dMin, TOF_DMIN_FLOOR), dMax: data.dMax };
+}
+
+/**
+ * The fit window the points are weighted in: the window asked for, narrowed
+ * where a phase's reflection list stops short of it (a validity limit), so
+ * that no point is fitted where the model draws nothing. The narrowest over
+ * the phases given (each phase's own applied model). Undefined bounds are
+ * the pattern's own ends, as in FitRange.
+ */
+export function modelledFitRange(pattern: PowderPattern, applied: readonly AppliedModel[], window?: FitRange): FitRange | undefined {
+  let from = -Infinity;
+  for (const a of applied) {
+    const r = reflectionRange(pattern, a, window);
+    if (r.fittedFrom !== undefined && r.fittedFrom > from) from = r.fittedFrom;
+  }
+  if (!(from > 0) || applied.length === 0) return window;
+  const a = applied[0]!;
+  // The cut on the pattern's own axis: short d is low TOF and low d, high 2θ and high Q.
+  if (pattern.xUnit === "tof" || pattern.xUnit === "dSpacing") {
+    const cut = pattern.xUnit === "tof" ? (a.tof ? tofAt(a, from) : NaN) : from + a.zeroShift;
+    if (!Number.isFinite(cut)) return window;
+    return { ...(window ?? {}), min: Math.max(window?.min ?? -Infinity, cut) };
+  }
+  const cut = dToX(pattern, from) + a.zeroShift;
+  if (!Number.isFinite(cut)) return window;
+  return { ...(window ?? {}), max: Math.min(window?.max ?? Infinity, cut) };
+}
+
+export function buildPeaks(pattern: PowderPattern, applied: AppliedModel, applyLorentz = true, window?: FitRange): ProfilePeak[] {
+  const { dMin, dMax } = reflectionDRange(pattern, applied, window);
   const reflections = generateReflections(applied.model.cell, applied.model.spaceGroup, dMin, dMax);
   const intensities = powderPeakIntensities(applied.model, pattern.radiation, reflections, applied.scale, applied.po, applyLorentz);
   return placePeaks(pattern, applied, intensities);
@@ -385,13 +655,14 @@ export function createPeakBuilder(
   pattern: PowderPattern,
   bindings: readonly ParameterBinding[],
   applyLorentz = true,
+  window?: FitRange,
 ): (applied: AppliedModel, resolved: Readonly<Record<string, number>>, injected?: InjectedStructureFactors) => ProfilePeak[] {
   const geomIds = [...new Set(bindings.filter((b) => GEOMETRY_BINDING_KINDS.has(b.kind)).map((b) => b.parameterId))];
   let lastKey: string | null = null;
   let unitIntensities: ReturnType<typeof powderPeakIntensities> = [];
 
   return (applied, resolved, injected) => {
-    const { dMin, dMax } = reflectionDRange(pattern, applied);
+    const { dMin, dMax } = reflectionDRange(pattern, applied, window);
     let unit: ReturnType<typeof powderPeakIntensities>;
     // Injected |F|² path (GPU evaluator): recompute the unit intensities from the
     // supplied structure factors — same intensity assembly, |F|² sourced off-core.
@@ -570,8 +841,8 @@ interface DerivativeReflection {
   readonly partials: ReturnType<typeof nuclearStructureFactorPartials>;
 }
 
-function derivativeReflections(applied: AppliedModel, pattern: PowderPattern, applyLorentz: boolean): DerivativeReflection[] {
-  const { dMin, dMax } = reflectionDRange(pattern, applied);
+function derivativeReflections(applied: AppliedModel, pattern: PowderPattern, applyLorentz: boolean, window?: FitRange): DerivativeReflection[] {
+  const { dMin, dMax } = reflectionDRange(pattern, applied, window);
   const reflections = generateReflections(applied.model.cell, applied.model.spaceGroup, dMin, dMax);
   const radiation = pattern.radiation;
   return reflections.map((r) => {
@@ -634,6 +905,13 @@ export function powderPointWeights(pattern: PowderPattern, fitRange?: FitRange):
   );
 }
 
+/** Every parameter at its current value (id → value). */
+export function startValues(parameters: readonly RefinementParameter[]): Record<string, number> {
+  const values: Record<string, number> = {};
+  for (const p of parameters) values[p.id] = p.value;
+  return values;
+}
+
 export function buildPowderProblem(
   structure: StructureModel,
   pattern: PowderPattern,
@@ -645,15 +923,17 @@ export function buildPowderProblem(
 ): RefinementProblem {
   const xValues = pattern.points.map((p) => p.x);
   const observations = Float64Array.from([...pattern.points.map((p) => p.yObs), ...restraints.map((r) => r.target)]);
+  const applyAt = (v: Readonly<Record<string, number>>): AppliedModel => applyParameters(structure, bindings, resolveTies(parameters, v));
   const weights = new Float64Array(observations.length);
-  weights.set(powderPointWeights(pattern, fitRange), 0);
+  // No point is fitted where the reflection list stops short of it (a validity limit, reflectionRange).
+  weights.set(powderPointWeights(pattern, modelledFitRange(pattern, [applyAt(startValues(parameters))], fitRange)), 0);
   for (let i = 0; i < restraints.length; i++) {
     const sigma = Math.max(restraints[i]!.sigma, 1e-12);
     weights[xValues.length + i] = 1 / (sigma * sigma);
   }
   const applyLorentz = profile.lorentz ?? true;
-  const peaksFor = createPeakBuilder(pattern, bindings, applyLorentz);
-  const widthGuard = createTofWidthGuard(pattern, parameters, bindings, (v) => applyParameters(structure, bindings, resolveTies(parameters, v)));
+  const peaksFor = createPeakBuilder(pattern, bindings, applyLorentz, fitRange);
+  const widthGuard = createTofWidthGuard(pattern, parameters, bindings, applyAt);
 
   const calculate = (values: Readonly<Record<string, number>>, options?: CalculateOptions): Float64Array => {
     const resolved = resolveTies(parameters, values);
@@ -721,7 +1001,7 @@ export function buildPowderProblem(
           const kinds = freeParams.map(kindOf);
           if (kinds.every((k) => k === null)) return kinds.map(() => null);
           // One structure-factor pass shared by every analytic column.
-          const refl = derivativeReflections(applied, pattern, applyLorentz);
+          const refl = derivativeReflections(applied, pattern, applyLorentz, fitRange);
           return freeParams.map((p, i) => {
             const kind = kinds[i];
             if (!kind) return null;
@@ -750,8 +1030,10 @@ export function powderCurves(
   parameters: readonly RefinementParameter[],
   bindings: readonly ParameterBinding[],
   profile: PowderProfile = { shape: "gaussian" },
+  fitRange?: FitRange,
 ): PowderCurves {
-  const problem = buildPowderProblem(structure, pattern, parameters, bindings, profile);
+  // The list follows the window as the fit's does, so the curve drawn is the one fitted.
+  const problem = buildPowderProblem(structure, pattern, parameters, bindings, profile, [], fitRange);
   const values: Record<string, number> = {};
   for (const p of parameters) values[p.id] = p.value;
   const yCalc = problem.calculate(values);
