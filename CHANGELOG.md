@@ -9,6 +9,21 @@ release fixes bugs.
 
 ### Added
 
+- **Calibrate a time-of-flight instrument from a standard (Agent).** With a
+  NIST SRM 640e silicon standard loaded on the powder page and a GSAS-II
+  instrument file as the starting point, the Copilot's new `export_instrument`
+  calibrates every bank of the data file in GSAS-II's convention (the
+  standard's certified cell held, size 1 µm and Lorentzian microstrain 1000
+  held; difC, zero, difA when the bank's d-range separates it, α β₀ β₁,
+  σ₀ σ₁ σ₂, X Y, then the standard's U_iso, alternating until settled) and
+  offers the calibrated `.instprm`: one `#Bank N` block per bank, the starting
+  file's other lines kept, the standard and the convention on each bank's
+  header line. Terms a bank cannot separate are held and named; a flagged bank
+  is left out of the file unless named. It asks for the measurement
+  temperature and, away from 22.5 °C, the standard's cell at it. Nothing on the
+  page changes: difC, difA and the zero are still held in a sample refinement.
+  Not yet: LaB₆ (SRM 660c), constant wavelength, the temperature correction,
+  FullProf `.irf`. Fit windows start at d ≥ 0.5 Å plus four peak widths.
 - **The instrument follows the data's bank.** With an instrument file of
   several banks loaded (any file, the NOMAD default included), choosing
   another data bank switches the instrument to the file's bank for it (by

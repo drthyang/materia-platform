@@ -153,6 +153,17 @@ leaves out; its "?" gives the details. Time-of-flight data need a TOF instrument
 without one, the pattern is view-only. On load, only the scale, the background
 and the cell are free, so the first **Refine** is safe.
 
+**Calibrate the instrument from a standard (Copilot).** Load the data of a
+NIST SRM 640e silicon standard (time of flight, every bank in one GSAS
+histogram) with your instrument file as the starting point, and ask the
+Copilot to calibrate the instrument. It asks for the temperature the data were
+measured at (and, away from 22.5 °C, the silicon cell at that temperature),
+calibrates each bank in GSAS-II's convention (the certified cell held, size
+1 µm and Lorentzian microstrain 1000 held), reports each term with its esd and
+any bank it could not calibrate cleanly, and offers the calibrated `.instprm`
+to save. The page itself does not change. LaB₆, constant-wavelength data and
+the thermal-expansion correction are not available yet.
+
 **Default instrument parameters (NOMAD).** For NOMAD data loaded without an
 instrument file, the **Instrument** card offers **Use default NOMAD parameters
 (2023A)**. The data are recognised by the line `# Instrument: NOMAD` in the
