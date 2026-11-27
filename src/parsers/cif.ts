@@ -13,6 +13,7 @@ import { composeOperations, operationKey, parseMagneticSymmetryOperation, parseS
 import { IDENTITY3 } from "@/core/math/mat3";
 import { completeSpaceGroup, SpaceGroupSettingError } from "@/core/crystal/spaceGroups";
 import { EIGHT_PI_SQUARED } from "@/core/crystal/adp";
+import { snapToSpecialPositions, type SiteSnap } from "@/core/crystal/specialPositions";
 import { elementFromLetters, elementsForLabel, formulaElements, labelUsesCase, type LabelContext } from "@/core/crystal/elements";
 
 /** Strip the parenthetical esd and parse: "5.41317(8)" → 5.41317. */
@@ -558,18 +559,27 @@ function nameUnnamedDisorders(sites: AtomSite[]): AtomSite[] {
  * fits several settings; `options.spaceGroupSetting` picks one of the latter.
  */
 export function parseCif(text: string, id = "structure", options: CifParseOptions = {}): StructureModel {
+  return parseCifWithSnaps(text, id, options).structure;
+}
+
+/**
+ * parseCif, with the sites it moved onto their special positions: a site the
+ * engine reads as special (within 1e-3) is placed on it exactly, so a file's
+ * rounded 0.3333 is 1/3 for every path that reads it (specialPositions.ts).
+ */
+export function parseCifWithSnaps(text: string, id = "structure", options: CifParseOptions = {}): { readonly structure: StructureModel; readonly snapped: readonly SiteSnap[] } {
   const { items, loops } = parseCifBlocks(text);
   const name = phaseName(items);
   const cell = parseCell(items);
   const cellSu = parseCellSu(items);
-  return {
+  return snapToSpecialPositions({
     id,
     name,
     cell,
     ...(cellSu ? { cellSu } : {}),
     spaceGroup: parseSpaceGroup(items, loops, cell, options.spaceGroupSetting),
     sites: parseSites(items, loops),
-  };
+  });
 }
 
 /**
@@ -670,6 +680,8 @@ function parseMoments(loops: Loop[]): MagneticMoment[] {
 export interface MagneticCifResult {
   readonly structure: StructureModel;
   readonly magnetic: MagneticModel | null;
+  /** The sites moved onto their special positions (parseCifWithSnaps). */
+  readonly snapped: readonly SiteSnap[];
 }
 
 /**
@@ -683,13 +695,14 @@ export function parseMagneticCif(text: string, id = "structure", options: CifPar
   const name = phaseName(items);
   const magSg = parseMagneticSpaceGroup(items, loops);
   const cell = parseCell(items);
-  const structure: StructureModel = {
+  // The sites on their special positions under the group the structure carries (the BNS group's spatial parts for an mCIF).
+  const { structure, snapped } = snapToSpecialPositions({
     id,
     name,
     cell,
     spaceGroup: magSg ?? parseSpaceGroup(items, loops, cell, options.spaceGroupSetting),
     sites: parseSites(items, loops),
-  };
+  });
   // Moments are only used with the BNS operations below, so a file without
   // them never has its moment loop read. diffpy's explicit-P1 mCIFs declare a
   // symmform column that no row fills; their structure reads, as before.
@@ -704,7 +717,7 @@ export function parseMagneticCif(text: string, id = "structure", options: CifPar
     magSg && moments.length > 0
       ? { id: `${id}-mag`, structureId: id, propagation: [[0, 0, 0]], moments, operations: magSg.operations }
       : null;
-  return { structure, magnetic };
+  return { structure, magnetic, snapped };
 }
 
 /**

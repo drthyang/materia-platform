@@ -28,7 +28,9 @@ import { downloadText } from "@/app/download";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { PdfPattern, PdfScatteringType, SingleCrystalDataset } from "@/core/diffraction/types";
 import type { InstrumentConstants } from "@/core/diffraction/instrument";
-import { parseMagneticCif, parseCif } from "@/parsers/cif";
+import { parseMagneticCif, parseCifWithSnaps } from "@/parsers/cif";
+import type { SiteSnap } from "@/core/crystal/specialPositions";
+import { snapNote } from "@/app/snapNote";
 import { looksLikeShelxIns, parseShelxIns, shelxNotes } from "@/parsers/shelxIns";
 import { SpaceGroupSettingError, type SpaceGroupSettingInfo } from "@/core/crystal/spaceGroups";
 import { parsePowderData } from "@/parsers/powderData";
@@ -567,6 +569,14 @@ export function App(): JSX.Element {
         : null,
     );
   }
+  /** The sites a structure file's load placed exactly on their special positions, said in the notice bar. */
+  function showSnapNote(snapped: readonly SiteSnap[], file: string): void {
+    const note = snapNote(snapped, file);
+    if (note) {
+      setNotice(note);
+      setMessage(note);
+    }
+  }
   /** A CIF that loads clears the notice of one that did not. */
   function clearCifNotice(): void {
     setNotice(null);
@@ -594,8 +604,9 @@ export function App(): JSX.Element {
           return;
         }
         setStructureFile(null);
-        const { structure: parsed, magnetic } = parseMagneticCif(text, "loaded", spaceGroupSetting ? { spaceGroupSetting } : {});
+        const { structure: parsed, magnetic, snapped } = parseMagneticCif(text, "loaded", spaceGroupSetting ? { spaceGroupSetting } : {});
         clearCifNotice();
+        showSnapNote(snapped, file.name);
         if (magnetic) {
           // Drive the powder view from the magnetic structure so the plot shows
           // the nuclear + magnetic pattern and reflection ticks.
@@ -759,8 +770,9 @@ export function App(): JSX.Element {
   function onAddPhase(file: File, spaceGroupSetting?: string): void {
     file.text().then((text) => {
       try {
-        const raw = parseCif(text, `phase-${Date.now().toString(36)}`, spaceGroupSetting ? { spaceGroupSetting } : {});
+        const { structure: raw, snapped } = parseCifWithSnaps(text, `phase-${Date.now().toString(36)}`, spaceGroupSetting ? { spaceGroupSetting } : {});
         clearCifNotice();
+        showSnapNote(snapped, file.name);
         // Fall back to a composition name (e.g. "MnO") when the CIF omits _pd_phase_name.
         const name = raw.name && raw.name !== "structure"
           ? raw.name
