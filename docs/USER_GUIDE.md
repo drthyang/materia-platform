@@ -266,7 +266,9 @@ again. If a conclusion rests on that B, sample its posterior first
 The engine is local and needs a reasonable start
 ([REFINEMENT_ENGINE.md](./REFINEMENT_ENGINE.md)). The button on the left of
 **Refine** keeps the best of several starts. It reads **Prefit ↻** before a
-refinement result exists: a Le Bail cell pre-fit, then broad restarts. Once a fit
+refinement result exists: a Le Bail cell pre-fit, then broad restarts. On 2θ
+data, a Le Bail fit that does not settle is fitted again from the low angles
+up, where a wrong cell misplaces the lines least. Once a fit
 exists it reads **Escape min ↻**: a few restarts around the fit, for when
 **Refine** has stalled.
 

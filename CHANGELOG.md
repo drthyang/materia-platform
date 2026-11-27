@@ -161,6 +161,14 @@ release fixes bugs.
   inactive; before, the reason went to the console and the row showed
   "Active ✓" ([report](docs/reports/2026-11-26-activate-failure-visible.md)).
 
+- **The Prefit finds a cell a few per cent off on 2θ data.** Its Le Bail
+  stage often ended at a false cell when the start was off by more than the
+  lines' width at high angle (the Mn₃Ga demo from a +1.2 % / −0.8 % cell:
+  Rwp several hundred per cent, a 0.9 % off). When that fit does not settle,
+  it is now fitted again from the low angles up, and the better result is
+  kept. A Le Bail fit that settles, the cell check, and every other result
+  are unchanged to the last digit
+  ([report](docs/reports/2026-11-26-prefit-low-angle-ladder.md)).
 - **Symmetry modes no longer lose real distortions.** The mode basis built
   from a structure's own group projected out every direction all its sites
   allow, not only the rigid translations; where such a direction is not fixed
