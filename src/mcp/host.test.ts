@@ -209,7 +209,8 @@ describe("MCP host — an LLM-sized powder loop over a real client", () => {
     }
   });
 
-  it("export_bundle writes the refined model into outDir, safely", async () => {
+  // The bundled POWGEN pattern reaches d = 0.150 Å, and with no fit window its reflections are calculated there (THY-90): the four cycles take seconds.
+  it("export_bundle writes the refined model into outDir, safely", { timeout: 60_000 }, async () => {
     writeFileSync(join(dir, "powgen.prm"), "POWGEN instrument, verbatim\n");
     const s = await call("parse_structure", { path: join(dir, "mn3ga.cif") });
     const p = await call("parse_powder_data", { path: MN3GA_DAT });
