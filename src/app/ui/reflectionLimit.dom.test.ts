@@ -53,16 +53,15 @@ afterEach(() => {
 function Shell({ start, text = GSA }: { readonly start: PowderPage; readonly text?: string }): ReactElement {
   const [page, setPage] = useState(start);
   const [client] = useState(() => new ComputeClient());
-  return createElement(
-    WorkbenchErrorBoundary,
-    { resetKeys: [page.session] },
-    createElement(PowderWorkbench, {
+  return createElement(WorkbenchErrorBoundary, {
+    resetKeys: [page.session],
+    children: createElement(PowderWorkbench, {
       page, setPage, ownStructure: true, client, active: true, step: 0, onStep: () => undefined, setMessage: () => undefined,
       exportsRef: { current: null }, onLoadData: () => undefined, onLoadCif: () => undefined, onAddPhase: () => undefined,
       onRemovePhase: () => undefined, onClearStructures: () => undefined, onLoadInstrument: () => undefined,
       onDataBank: (bank: number) => setPage((p) => landData(p, toBank(p, bank, text), `Loaded data ${NAME}, bank ${bank}`, "chooser").page),
     }),
-  );
+  });
 }
 
 const text = (): string => host?.textContent ?? "";
