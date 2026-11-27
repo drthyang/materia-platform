@@ -18,3 +18,11 @@ export function snapNote(snapped: readonly SiteSnap[], file?: string): string | 
   const more = n > LISTED ? `, and ${n - LISTED} more` : "";
   return `Placed ${n === 1 ? "1 site" : `${n} sites`} exactly on ${n === 1 ? "its special position" : "their special positions"} (${file ? `${file} rounds` : "the file rounds"} ${n === 1 ? "it" : "them"}): ${listed.join(", ")}${more}.`;
 }
+
+/** The notice for sites a SHELX file ties by a free variable, which the snap leaves as read (shelxIns.ts), or null. */
+export function tiedNote(labels: readonly string[]): string | null {
+  if (labels.length === 0) return null;
+  return labels.length === 1
+    ? `${labels[0]} left as read: its coordinates are tied by a free variable.`
+    : `${labels.join(", ")} left as read: their coordinates are tied by free variables.`;
+}

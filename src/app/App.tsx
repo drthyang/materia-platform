@@ -30,7 +30,7 @@ import type { PdfPattern, PdfScatteringType, SingleCrystalDataset } from "@/core
 import type { InstrumentConstants } from "@/core/diffraction/instrument";
 import { parseMagneticCif, parseCifWithSnaps } from "@/parsers/cif";
 import type { SiteSnap } from "@/core/crystal/specialPositions";
-import { snapNote } from "@/app/snapNote";
+import { snapNote, tiedNote } from "@/app/snapNote";
 import { snapProjectStructures } from "@/app/snapOnOpen";
 import { looksLikeShelxIns, parseShelxIns, shelxNotes } from "@/parsers/shelxIns";
 import { SpaceGroupSettingError, type SpaceGroupSettingInfo } from "@/core/crystal/spaceGroups";
@@ -573,8 +573,8 @@ export function App(): JSX.Element {
     );
   }
   /** The sites a structure file's load placed exactly on their special positions, said in the notice bar. */
-  function showSnapNote(snapped: readonly SiteSnap[], file: string): void {
-    const note = snapNote(snapped, file);
+  function showSnapNote(snapped: readonly SiteSnap[], file: string, leftAsRead: readonly string[] = []): void {
+    const note = [snapNote(snapped, file), tiedNote(leftAsRead)].filter((n): n is string => n !== null).join(" ") || null;
     if (note) {
       setNotice(note);
       setMessage(note);
@@ -596,9 +596,9 @@ export function App(): JSX.Element {
       try {
         // A SHELX instruction file (.ins, or the .res SHELXL writes): the model, its λ and its refinement instructions.
         if (/\.(ins|res)$/i.test(file.name) || looksLikeShelxIns(text)) {
-          const { structure: parsed, instructions, snapped } = parseShelxIns(text, "loaded");
+          const { structure: parsed, instructions, snapped, leftAsRead } = parseShelxIns(text, "loaded");
           clearCifNotice();
-          showSnapNote(snapped, file.name);
+          showSnapNote(snapped, file.name, leftAsRead);
           setStructureFile({ name: file.name, wavelength: instructions.wavelength, ...(instructions.hklf !== undefined ? { hklf: instructions.hklf } : {}), notes: shelxNotes(instructions) });
           setPage(structurePage({ ...parsed, id: "loaded" }));
           setOwnStructure(true);

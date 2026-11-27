@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dataExists, dataPath } from "@/testSupport/data";
 import { looksLikeShelxIns, parseShelxIns, shelxNotes, shelxValue } from "@/parsers/shelxIns";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
-import { snapNote } from "@/app/snapNote";
+import { snapNote, tiedNote } from "@/app/snapNote";
 
 /** A small SHELX file in P2₁/c: a site on the inversion centre, a continued line, a PART pair tied by FVAR, a riding hydrogen, and a listing after END. */
 const INS = `TITL test in P2(1)/c
@@ -43,6 +43,24 @@ describe("SHELX instruction files", () => {
     // The general positions as printed, and a file already exact read as before.
     expect(off.structure.sites.slice(1)).toEqual(parseShelxIns(INS, "t").structure.sites.slice(1));
     expect(parseShelxIns(INS, "t").snapped).toEqual([]);
+  });
+
+  it("leaves a site whose coordinate a free variable ties as read, so a tied pair stays together, and says so", () => {
+    // Free variable 3 = 0.0002 gives Fe1's x (2e-4 off the inversion centre, special within 1e-3) and O1's x:
+    // snapping Fe1 alone would pull the pair apart, so neither moves.
+    const tied = INS.replace("FVAR 1.5 0.7", "FVAR 1.5 0.7 0.0002").replace("FE1 4 0.0 0.0 0.0", "FE1 4 31.0 0.0 0.0").replace("O1 3 0.1 0.2 0.3", "O1 3 31.0 0.2 0.3");
+    const m = parseShelxIns(tied, "t");
+    const fe1 = m.structure.sites.find((s) => s.label === "Fe1")!;
+    const o1 = m.structure.sites.find((s) => s.label === "O1")!;
+    expect(fe1.position).toEqual([0.0002, 0, 0]);
+    expect(o1.position[0]).toBe(fe1.position[0]);
+    expect(m.snapped).toEqual([]);
+    expect(m.leftAsRead).toEqual(["Fe1"]);
+    expect(tiedNote(m.leftAsRead)).toBe("Fe1 left as read: its coordinates are tied by a free variable.");
+    // The same offset written as a plain number is snapped, as before.
+    expect(parseShelxIns(INS.replace("FE1 4 0.0 0.0 0.0", "FE1 4 0.0002 0.0 0.0"), "t").leftAsRead).toEqual([]);
+    expect(tiedNote([])).toBeNull();
+    expect(tiedNote(["Se1", "Se2"])).toBe("Se1, Se2 left as read: their coordinates are tied by free variables.");
   });
 
   it("knows one from a CIF", () => {
