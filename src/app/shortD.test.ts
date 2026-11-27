@@ -54,3 +54,17 @@ describe("the whole POWGEN pattern", () => {
     expect(state.data.reflectionsTo).toBe(view.reflectionsTo);
   });
 });
+
+describe("the line's words", () => {
+  it("names the width a profile stop fails on, the points left out, and a trim when the window still reaches far below", () => {
+    const n = shortDNote({ range: { dMin: 0.3214, dMax: 6, stop: "profile", which: "β", windowD: 0.15, fittedFrom: 0.3214 }, leftOut: 952, leftOutBelow: 0.3214, trim: { d: 0.449, linesBelow: 404, lines: 686 } })!;
+    expect(n.warn).toBe(true);
+    expect(n.line).toBe("Reflections stop at d 0.321 Å: below it the profile gives β ≤ 0, no peak. 952 points at shorter d are left out of the fit and wR. Lines are resolved down to d 0.449 Å: trimming the window there would fit faster.");
+    expect(n.detail).toContain("The 952 points of the fit window below d 0.321 Å are not fitted and not counted in wR, GoF or the point count");
+  });
+
+  it("says where an X-ray list ends and why", () => {
+    const n = shortDNote({ range: { dMin: 0.25, dMax: 3, stop: "xray", windowD: 0.2, fittedFrom: 0.2531 }, leftOut: 120, leftOutBelow: 0.2531 })!;
+    expect(n.line).toBe("Reflections stop at d 0.250 Å (sin θ/λ = 2.0 Å⁻¹), the end of the X-ray form-factor table. 120 points at shorter d are left out of the fit and wR.");
+  });
+});

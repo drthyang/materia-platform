@@ -127,13 +127,19 @@ export function shortDNote(r: ShortDReading | null): { line: string; detail: str
   const leftDetail = r.leftOut > 0
     ? ` The ${points(r.leftOut)} of the fit window below d ${fmtD(r.leftOutBelow!)} Å are not fitted and not counted in wR, GoF or the point count, as the refinement leaves them out.`
     : "";
+  const trim = r.trim
+    ? ` Lines are resolved down to d ${fmtD(r.trim.d)} Å: trimming the window there would fit faster.`
+    : "";
+  const trimDetail = r.trim
+    ? ` Below d ${fmtD(r.trim.d)} Å neighbouring lines lie less than one line width apart and merge: ${r.trim.linesBelow} of the ${r.trim.lines} distinct lines in the window are there. They are calculated, so the fit is complete, but each one costs time. Move the window's short-d handle to about ${fmtD(r.trim.d)} Å, or ask the Copilot to check the fit range.`
+    : "";
   if (range.stop === "profile") {
     return {
-      line: `Reflections stop at d ${fmtD(range.dMin)} Å: below it the profile gives ${range.which} ≤ 0, no peak.${left}`,
+      line: `Reflections stop at d ${fmtD(range.dMin)} Å: below it the profile gives ${range.which} ≤ 0, no peak.${left}${trim}`,
       detail: [
         `Below d ${fmtD(range.dMin)} Å the peak terms (the instrument file's, or the profile rows') give a non-positive ${range.which}: no peak is defined there, so no reflection is calculated below it.${leftDetail}`,
         "An instrument file is fitted over the d-range of its standard; below that its terms are an extrapolation.",
-        `To fit that part of the data, use an instrument file calibrated to shorter d; otherwise set the fit window above ${fmtD(range.dMin)} Å.`,
+        `To fit that part of the data, use an instrument file calibrated to shorter d; otherwise set the fit window above ${fmtD(range.dMin)} Å.${trimDetail}`,
       ].join(" "),
       warn: r.leftOut > 0,
     };
@@ -145,12 +151,6 @@ export function shortDNote(r: ShortDReading | null): { line: string; detail: str
       warn: r.leftOut > 0,
     };
   }
-  const trim = r.trim
-    ? ` Lines are resolved down to d ${fmtD(r.trim.d)} Å: trimming the window there would fit faster.`
-    : "";
-  const trimDetail = r.trim
-    ? ` Below d ${fmtD(r.trim.d)} Å neighbouring lines lie less than one line width apart and merge: ${r.trim.linesBelow} of the ${r.trim.lines} distinct lines in the window are there. They are calculated, so the fit is complete, but each one costs time. Move the window's short-d handle to about ${fmtD(r.trim.d)} Å, or ask the Copilot to check the fit range.`
-    : "";
   return {
     line: `Reflections down to d ${fmtD(range.dMin)} Å, one peak support below the fit window's edge (${fmtD(range.windowD)} Å).${trim}`,
     detail: `The fit window sets the shortest d: every reflection whose peak reaches a point in the window is calculated, none below. A narrower window at short d calculates fewer.${trimDetail}`,
@@ -158,8 +158,9 @@ export function shortDNote(r: ShortDReading | null): { line: string; detail: str
   };
 }
 
-/** The same words in one string, for get_state and check_fit_range. */
+/** The same words in one string, for get_state and check_fit_range: the "?" only when points are left out or a trim is suggested. */
 export function shortDText(r: ShortDReading | null): string | null {
   const n = shortDNote(r);
-  return n ? `${n.line} ${n.detail}` : null;
+  if (!n) return null;
+  return n.warn || r?.trim ? `${n.line} ${n.detail}` : n.line;
 }

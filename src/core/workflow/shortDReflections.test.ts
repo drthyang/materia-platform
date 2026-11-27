@@ -44,7 +44,7 @@ function tofPattern(dLo = 0.25, dHi = 3.3): PowderPattern {
 function tofSetUp(change: (p: RefinementParameter) => RefinementParameter = (p) => p) {
   const structure = parseCif(SI, "si");
   const pattern = tofPattern();
-  const spec = buildPowderSpec(structure, pattern, { kind: "tof", difC: DIFC, alpha1: 0.6, beta0: 0.04, beta1: 0.005, sig1: 30 }, true, 2);
+  const spec = buildPowderSpec(structure, pattern, { kind: "tof", difC: DIFC, alpha: 0.6, beta0: 0.04, beta1: 0.005, sig1: 30 }, true, 2);
   const params = spec.params.map(change);
   const applied = applyParameters(structure, spec.bindings, resolveTies(params, startValues(params)));
   return { structure, pattern, params, bindings: spec.bindings, profile: spec.profile, applied };
