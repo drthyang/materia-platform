@@ -67,7 +67,7 @@ Step by step: [set up the Copilot](docs/COPILOT_SETUP.md).
 
 ## Try it in 2 minutes
 
-Both demos are public data and open on a converged fit.
+The three demos (**Mn₃Ga neutron TOF**, **GaTa₄Se₈ neutron TOF** from NOMAD bank 4, and **GaTa₄Se₈ X-ray G(r)**) are public data and open on a converged fit.
 
 1. **Rietveld.** On the start page click the **Mn₃Ga neutron TOF** demo, then **Refine**: a two-phase
    fit at wR 3.88 %, with the MnO impurity's weight fraction and its esd. **Validation** gives the

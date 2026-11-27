@@ -285,9 +285,13 @@ export interface BundledPowderExample {
   readonly refinedParams: Readonly<Record<string, number>>;
   readonly backgroundTerms?: number;
   readonly backgroundType?: BackgroundType;
+  /** The data and instrument files as loaded, kept in the session as a loaded file's are (the Instrument card reads them). */
+  readonly rawData?: Session["rawData"];
+  readonly rawInstrument?: Session["rawInstrument"];
 }
 
-/** The session a bundled demo opens with (`loadedSession` with the demo's own values and background). */
+/** The session a bundled demo opens with (`loadedSession` with the demo's own values and background, and its files). */
 export function bundledSession(ex: BundledPowderExample): Session {
-  return loadedSession(ex.structure, ex.pattern, ex.instrument, ex.extraPhases ?? [], { ...ex.refinedParams }, ex.backgroundTerms ?? DEFAULT_BACKGROUND_TERMS, ex.backgroundType);
+  const session = loadedSession(ex.structure, ex.pattern, ex.instrument, ex.extraPhases ?? [], { ...ex.refinedParams }, ex.backgroundTerms ?? DEFAULT_BACKGROUND_TERMS, ex.backgroundType);
+  return { ...session, ...(ex.rawData ? { rawData: ex.rawData } : {}), ...(ex.rawInstrument ? { rawInstrument: ex.rawInstrument } : {}) };
 }
