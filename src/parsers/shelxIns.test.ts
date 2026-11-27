@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dataExists, dataPath } from "@/testSupport/data";
 import { looksLikeShelxIns, parseShelxIns, shelxNotes, shelxValue } from "@/parsers/shelxIns";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
+import { snapNote } from "@/app/snapNote";
 
 /** A small SHELX file in P2₁/c: a site on the inversion centre, a continued line, a PART pair tied by FVAR, a riding hydrogen, and a listing after END. */
 const INS = `TITL test in P2(1)/c
@@ -33,6 +34,17 @@ Q1 1 0.5 0.5 0.5 11.0 0.05 1.0
 `;
 
 describe("SHELX instruction files", () => {
+  it("places a site the engine reads as special exactly on it, as a CIF's is, and says which", () => {
+    // Fe1 printed 2e-4 off the inversion centre at the origin: special within the engine's 1e-3.
+    const off = parseShelxIns(INS.replace("FE1 4 0.0 0.0 0.0", "FE1 4 0.0002 0.0 0.0"), "t");
+    expect(off.structure.sites[0]!.position).toEqual([0, 0, 0]);
+    expect(off.snapped.map((s) => s.label)).toEqual(["Fe1"]);
+    expect(snapNote(off.snapped, "test.res")).toBe("Placed 1 site exactly on its special position (test.res rounds it): Fe1 moved 0.0010 Å.");
+    // The general positions as printed, and a file already exact read as before.
+    expect(off.structure.sites.slice(1)).toEqual(parseShelxIns(INS, "t").structure.sites.slice(1));
+    expect(parseShelxIns(INS, "t").snapped).toEqual([]);
+  });
+
   it("knows one from a CIF", () => {
     expect(looksLikeShelxIns(INS)).toBe(true);
     expect(looksLikeShelxIns("data_x\n_cell_length_a 5\nloop_\n_atom_site_label\nC1\n")).toBe(false);

@@ -31,6 +31,7 @@ import type { InstrumentConstants } from "@/core/diffraction/instrument";
 import { parseMagneticCif, parseCifWithSnaps } from "@/parsers/cif";
 import type { SiteSnap } from "@/core/crystal/specialPositions";
 import { snapNote } from "@/app/snapNote";
+import { snapProjectStructures } from "@/app/snapOnOpen";
 import { looksLikeShelxIns, parseShelxIns, shelxNotes } from "@/parsers/shelxIns";
 import { SpaceGroupSettingError, type SpaceGroupSettingInfo } from "@/core/crystal/spaceGroups";
 import { parsePowderData } from "@/parsers/powderData";
@@ -410,6 +411,8 @@ export function App(): JSX.Element {
     let reopenNote: string | null;
     try {
       snap = restoreHistoryStep(history, id);
+      // A step's structures are read as a project's are (snapProjectStructures); the open said which sites moved.
+      snap = { ...snap, structures: snapProjectStructures(snap.structures, snap.workspace).structures };
       const reopened = reopenedWorkspace(snap.structures, snap.workspace);
       snap = { ...snap, workspace: reopened.workspace };
       reopenNote = reopened.note;
@@ -593,8 +596,9 @@ export function App(): JSX.Element {
       try {
         // A SHELX instruction file (.ins, or the .res SHELXL writes): the model, its λ and its refinement instructions.
         if (/\.(ins|res)$/i.test(file.name) || looksLikeShelxIns(text)) {
-          const { structure: parsed, instructions } = parseShelxIns(text, "loaded");
+          const { structure: parsed, instructions, snapped } = parseShelxIns(text, "loaded");
           clearCifNotice();
+          showSnapNote(snapped, file.name);
           setStructureFile({ name: file.name, wavelength: instructions.wavelength, ...(instructions.hklf !== undefined ? { hklf: instructions.hklf } : {}), notes: shelxNotes(instructions) });
           setPage(structurePage({ ...parsed, id: "loaded" }));
           setOwnStructure(true);
@@ -853,8 +857,13 @@ export function App(): JSX.Element {
   function openProjectText(text: string, sourceName: string, fromFile = true): void {
     let file: ProjectFile;
     let reopenNote: string | null;
+    let snapped: readonly SiteSnap[];
     try {
       file = parseProject(text);
+      // Sites on their exact special positions, as a structure file's are on load (snapOnOpen.ts).
+      const snap = snapProjectStructures(file.structures, file.workspace);
+      file = { ...file, structures: snap.structures };
+      snapped = snap.snapped;
       // A PDF workspace on an earlier own-mode basis is converted (positions kept) or refused.
       const reopened = reopenedWorkspace(file.structures, file.workspace);
       file = { ...file, workspace: reopened.workspace };
@@ -876,7 +885,10 @@ export function App(): JSX.Element {
     const magneticPage = ws.technique !== "pdf" || (ws.pattern.scatteringType === "neutron" && structures.length === 1);
     setStep(magneticPage ? wantStep : 0);
     setProjectMeta({ title: file.metadata.title, createdAt: file.metadata.createdAt, ...(file.metadata.notes !== undefined ? { notes: file.metadata.notes } : {}) });
-    setNotice(reopenNote);
+    // The sites the open placed on their special positions: the same line a structure file's load shows.
+    const placed = snapNote(snapped, sourceName);
+    if (placed) setMessage(placed);
+    setNotice([reopenNote, placed].filter((x) => x !== null).join(" ") || null);
     // A project stores the resolved pattern, not the detector's reasoning.
     setDetection(null);
     // The file's own history, or a new one that starts at this open.
@@ -887,6 +899,9 @@ export function App(): JSX.Element {
     if (file.history) {
       markWanted.current = fromFile;
       setMarkRequest((n) => n + 1);
+      // The snap is a change from the file's current step: it is recorded as a step of its own, so it shows in the
+      // history and no later step carries it unnamed.
+      if (snapped.length > 0) requestStep("edit", `Placed ${snapped.length === 1 ? "1 site" : `${snapped.length} sites`} on special positions`);
     } else requestStep("open", `Opened ${sourceName}`, true, fromFile);
     setMessage(`Opened project “${file.metadata.title}” — ${TECHNIQUE_LABEL[ws.technique]}, saved by v${file.metadata.appVersion}${file.history ? `, ${file.history.steps.length} steps` : ""}.`);
   }

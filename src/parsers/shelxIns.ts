@@ -17,7 +17,9 @@
  *   instructions, for the page to apply or the Agent to read.
  *
  * Everything after END is ignored (a .res lists its difference-map peaks
- * there). Reference: the SHELXL manual (Sheldrick, 2008 and later).
+ * there). A site the engine reads as special (within 1e-3) is placed on its
+ * special position exactly, as a CIF's is (specialPositions.ts).
+ * Reference: the SHELXL manual (Sheldrick, 2008 and later).
  */
 
 import type { AtomSite, StructureModel, SymmetryOperation } from "@/core/crystal/types";
@@ -26,6 +28,7 @@ import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
 import { elementFromLetters } from "@/core/crystal/elements";
 import { expandGenerators, settingForOperations, spaceGroupFromSetting } from "@/core/crystal/spaceGroups";
 import { parseSymmetryOperation, siteMultiplicity } from "@/core/crystal/symmetry";
+import { snapToSpecialPositions, type SiteSnap } from "@/core/crystal/specialPositions";
 
 /** What the file asks of a refinement, beyond the structure. */
 export interface ShelxInstructions {
@@ -60,6 +63,8 @@ export interface ShelxInstructions {
 export interface ShelxModel {
   readonly structure: StructureModel;
   readonly instructions: ShelxInstructions;
+  /** The sites moved onto their exact special positions, as a CIF's are (specialPositions.ts). */
+  readonly snapped: readonly SiteSnap[];
 }
 
 /** The instructions SHELXL knows: a line starting with one is no atom. */
@@ -351,8 +356,13 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
   if (sites.length === 0) throw new Error("no atoms in the file");
 
   const name = title.split(/\s+in\s+/i)[0]!.trim() || id;
+  // The sites on their exact special positions, by the rule every structure file is read with (parseCif's):
+  // the file's coordinates are plain numbers here (a free-variable code is resolved above), so a snap changes
+  // no instruction; the occupancy's site share is the same at 1e-3 before and after.
+  const { structure, snapped } = snapToSpecialPositions({ id, name, cell, ...(cellSu ? { cellSu } : {}), spaceGroup, sites });
   return {
-    structure: { id, name, cell, ...(cellSu ? { cellSu } : {}), spaceGroup, sites },
+    structure,
+    snapped,
     instructions: {
       title,
       wavelength,
