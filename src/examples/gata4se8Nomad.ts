@@ -1,14 +1,15 @@
 /**
- * Bundled GaTa₄Se₈ NOMAD 300 K time-of-flight neutron dataset (bank 4): a
- * one-phase Rietveld example that opens on a converged fit. The data are
+ * Bundled GaTa₄Se₈ NOMAD 300 K time-of-flight neutron dataset: a one-phase
+ * Rietveld example that opens on a converged fit of bank 4. The data are
  * published (T.-H. Yang et al., Phys. Rev. Research 4, 033123 (2022); NOMAD,
- * IPTS-26313, run 160894); only bank 4 of the six-bank .gsa is shipped
- * (examples/gata4se8-nomad-300k/README.md). The instrument is bank 4 of the
+ * IPTS-26313, run 160894); the six-bank .gsa is shipped whole, as written, and
+ * kept in the session as a loaded multi-bank file is, so the Data card's bank
+ * chooser lists banks 1–6 (examples/gata4se8-nomad-300k/README.md). The instrument is bank 4 of the
  * NOMAD 2023A instrument file MATERIA ships as a default
  * (examples/instruments/nomad/), so the profile is the file's.
  */
 
-import patternText from "../../examples/gata4se8-nomad-300k/NOM_GaTa4Se8_at_300K_bank4.gsa?raw";
+import patternText from "../../examples/gata4se8-nomad-300k/NOM_GaTa4Se8_at_300K.gsa?raw";
 import instrumentText from "../../examples/instruments/nomad/NOMAD_2023A_five_banks_Shifter_Si_640e_instrument_file.instprm?raw";
 import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
@@ -19,7 +20,7 @@ import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { parseInstrumentFile } from "@/parsers/instrument";
 
 /** The data file's name, as the page shows it. */
-export const NOMAD_DATA_NAME = "NOM_GaTa4Se8_at_300K_bank4.gsa";
+export const NOMAD_DATA_NAME = "NOM_GaTa4Se8_at_300K.gsa";
 /** The NOMAD bank the example fits (in the data file and in the instrument file). */
 export const NOMAD_BANK = 4;
 
@@ -62,7 +63,7 @@ export interface GaTa4Se8NomadExample {
   readonly fitRange: { readonly min: number; readonly max: number };
   readonly backgroundType: BackgroundType;
   readonly backgroundTerms: number;
-  /** The two files as loaded, kept in the session as a loaded file's are. */
+  /** The two files as loaded (the whole six-bank data file), kept in the session as a loaded file's are. */
   readonly rawData: { readonly name: string; readonly text: string; readonly bank: number };
   readonly rawInstrument: { readonly name: string; readonly text: string; readonly bank: number; readonly bundledDefault: string };
 }
@@ -143,7 +144,7 @@ const REFINED_PARAMS: Record<string, number> = {
 
 let cached: GaTa4Se8NomadExample | null = null;
 
-/** The bundled GaTa₄Se₈ NOMAD bank-4 TOF example (parsed once, memoized). */
+/** The bundled GaTa₄Se₈ NOMAD TOF example, on bank 4 of the six-bank file (parsed once, memoized). */
 export function gata4se8NomadExample(): GaTa4Se8NomadExample {
   if (cached) return cached;
   const structure: StructureModel = { ...parseCif(GATA4SE8_NOMAD_CIF, "gata4se8"), id: "gata4se8", name: "GaTa₄Se₈" };

@@ -1,6 +1,6 @@
-# GaTa₄Se₈ at 300 K, NOMAD bank 4 (published data)
+# GaTa₄Se₈ at 300 K, NOMAD, six banks (published data)
 
-Neutron time-of-flight powder data of GaTa₄Se₈ at 300 K from the NOMAD diffractometer, bank 4, the data of the bundled example "GaTa₄Se₈ neutron TOF" on MATERIA's landing page. The data are published:
+Neutron time-of-flight powder data of GaTa₄Se₈ at 300 K from the NOMAD diffractometer, all six banks, the data of the bundled example "GaTa₄Se₈ neutron TOF" on MATERIA's landing page. The data are published:
 
 T.-H. Yang et al., Phys. Rev. Research 4, 033123 (2022).
 
@@ -10,13 +10,13 @@ A portion of this research used resources at the Spallation Neutron Source, a DO
 
 ## The file
 
-`NOM_GaTa4Se8_at_300K_bank4.gsa` is bank 4 of the six-bank GSAS file `NOM_GaTa4Se8_at_300K.gsa` (FXYE: time of flight in µs, intensity, esd). It keeps the file's header and bank 4's own lines (its flight path, 2θ and DIFC comment, and the `BANK 4` record) and its 2999 data lines with every number as written; only the column padding and the line ends are made plain (one space between columns, LF). No other bank is in the repository. MATERIA reads 2906 points of it: the points with neither counts nor an esd are left out, as for any GSAS file.
+`NOM_GaTa4Se8_at_300K.gsa` is the six-bank GSAS file (FXYE: time of flight in µs, intensity, esd) as written, byte for byte, line ends included. All six banks are included, 2999 data lines each; the refinement the example opens on is bank 4. The Data card's bank chooser lists banks 1–6, so another bank can be read from the example; the values on the page are kept on a switch, and no refinement of another bank is shipped. MATERIA reads 2906 points of bank 4: the points with neither counts nor an esd are left out, as for any GSAS file.
 
 ## The instrument
 
 The example uses bank 4 of the NOMAD 2023A instrument file that MATERIA ships as a default (`examples/instruments/nomad/`; its origin and limits are in `examples/instruments/nomad/README.md`). The file's profile and calibration rows are held at the file's values. The file belongs to run cycle 2023A; the Instrument card says so while it is in use.
 
-## The refinement the example opens on
+## The refinement the example opens on (bank 4)
 
 - Model: GaTa₄Se₈, F-43m, from the owner's model (origin at Ga, 4c; sites Ga1, Ta1, Se1, Se2, where Se2 is the owner's "Se17"), with an isotropic B per site.
 - Window: 1137–16905 µs, from the pattern's first point to d 1.873 Å. Below d 0.209 Å the instrument file gives no peak width (σ² ≤ 0), so no reflection is calculated there and those 545 points are left out of the fit and of wR: the fit counts 2334 points (d 0.209–1.873 Å).
