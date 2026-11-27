@@ -9,6 +9,7 @@ import { createMateriaServer, defaultRoots } from "@/mcp/host";
 import { RefStore, buildView, isRef, resolveRefs } from "@/mcp/refs";
 import { build_refinement, parse_powder_data, parse_structure, refine_powder } from "@/mcp/tools";
 import { MN3GA_CIF } from "@/examples/mn3ga";
+import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 
 /**
  * The transport a language model actually drives. The registry tests call the
@@ -29,6 +30,10 @@ const REQUEST_LIMIT = 2_000;
 const DATASETS = resolve(__dirname, "../examples/datasets");
 const MN3GA_DAT = "mn3ga_powgen_600k.dat";
 const TOF = { kind: "tof", difC: 22585.8 };
+// The bundled demo's fit window (d 0.414–5.03 Å). With no window the bundled POWGEN
+// pattern's reflections are calculated to its end, 0.150 Å (THY-90), and a refinement
+// takes seconds in one synchronous call; these tests check the host and the export, not short d.
+const WINDOW = mn3gaPowgenExample().fitRange;
 
 describe("RefStore / resolveRefs / buildView", () => {
   it("resolves refs into a stored value, JSON-Pointer escaped", () => {
@@ -172,7 +177,7 @@ describe("MCP host — an LLM-sized powder loop over a real client", () => {
 
     const b = await call("build_refinement", { structure: { ref: s.structure.ref }, pattern: { ref: p.pattern.ref }, instrument: TOF });
     expect(b.parameters.count).toBeGreaterThan(5);
-    const common = { structure: s.structure, pattern: p.pattern, instrument: TOF, bindings: b.bindings, profile: b.profile, maxIterations: 6 };
+    const common = { structure: s.structure, pattern: p.pattern, instrument: TOF, bindings: b.bindings, profile: b.profile, maxIterations: 6, fitRange: { ...WINDOW } };
     const free = ["scale", "bkg*", "cell_*"];
     const r = await call("refine_powder", { ...common, parameters: b.parameters, free });
     expect(r.result.status).toMatch(/converged|maxIterations|stalled/);
@@ -186,7 +191,7 @@ describe("MCP host — an LLM-sized powder loop over a real client", () => {
       const built = build_refinement({ structure, pattern, instrument: TOF as never });
       const re = new RegExp(`^(${free.map((f) => f.replace(/\*/g, ".*")).join("|")})$`);
       const parameters = built.parameters.map((q) => ({ ...q, fixed: !re.test(q.id) }));
-      return refine_powder({ structure, pattern, instrument: TOF as never, parameters, bindings: built.bindings, profile: built.profile, maxIterations: 6 });
+      return refine_powder({ structure, pattern, instrument: TOF as never, parameters, bindings: built.bindings, profile: built.profile, maxIterations: 6, fitRange: { ...WINDOW } });
     })();
     const agreement = await call("read_ref", { ref: `${r.result.ref}/agreement` });
     expect(agreement.value.rWeighted).toBeCloseTo(byValue.result.agreement.rWeighted!, 12);
@@ -200,7 +205,7 @@ describe("MCP host — an LLM-sized powder loop over a real client", () => {
     expect(Array.isArray(steps)).toBe(true);
 
     const window = await call("read_ref", { ref: `${r2.residual.ref}/d`, start: 10, end: 13 });
-    expect(window).toMatchObject({ length: 4613, start: 10, end: 13 });
+    expect(window).toMatchObject({ length: 3125, start: 10, end: 13 }); // the residual's points: those in the fit window
     expect(window.items).toHaveLength(3);
 
     for (const m of log) {
@@ -209,15 +214,14 @@ describe("MCP host — an LLM-sized powder loop over a real client", () => {
     }
   });
 
-  // The bundled POWGEN pattern reaches d = 0.150 Å, and with no fit window its reflections are calculated there (THY-90): the four cycles take seconds.
-  it("export_bundle writes the refined model into outDir, safely", { timeout: 60_000 }, async () => {
+  it("export_bundle writes the refined model into outDir, safely", async () => {
     writeFileSync(join(dir, "powgen.prm"), "POWGEN instrument, verbatim\n");
     const s = await call("parse_structure", { path: join(dir, "mn3ga.cif") });
     const p = await call("parse_powder_data", { path: MN3GA_DAT });
     const b = await call("build_refinement", { structure: s.structure, pattern: p.pattern, instrument: TOF });
     const r = await call("refine_powder", {
       structure: s.structure, pattern: p.pattern, instrument: TOF, parameters: b.parameters, bindings: b.bindings, profile: b.profile,
-      free: ["scale", "bkg*", "cell_*"], maxIterations: 4,
+      free: ["scale", "bkg*", "cell_*"], maxIterations: 4, fitRange: { ...WINDOW },
     });
     const args = {
       target: "gsas2", structure: s.structure, pattern: p.pattern, parameters: r.parameters, bindings: b.bindings,
