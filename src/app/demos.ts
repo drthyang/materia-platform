@@ -4,7 +4,7 @@
  * entry here plus its loader in the shell.
  */
 
-export type DemoId = "rietveld" | "pdf" | "magnetic";
+export type DemoId = "rietveld" | "nomad" | "pdf" | "magnetic";
 
 export interface DemoEntry {
   readonly id: DemoId;
@@ -23,6 +23,12 @@ export const DEMOS: readonly DemoEntry[] = [
     kicker: "Rietveld · reciprocal space",
     title: "Mn₃Ga neutron TOF",
     blurb: "Two-phase POWGEN fit at 600 K (paramagnetic, with a MnO impurity) · wR 3.9%",
+  },
+  {
+    id: "nomad",
+    kicker: "Rietveld · neutron TOF, NOMAD bank 4",
+    title: "GaTa₄Se₈ neutron TOF",
+    blurb: "NOMAD bank 4 at 300 K, converged fit · wR 2.5%",
   },
   {
     id: "magnetic",

@@ -29,8 +29,8 @@ describe("the landing page is the way to a demo", () => {
     for (const d of DEMOS.filter((x) => x.local)) expect(html).not.toContain(d.title);
   });
 
-  it("covers the demos the header menu used to offer: Rietveld, magnetic (local data) and PDF", () => {
-    expect(DEMOS.map((d) => d.id).sort()).toEqual(["magnetic", "pdf", "rietveld"]);
+  it("covers the demos the header menu used to offer (Rietveld, magnetic from local data, PDF) and the NOMAD Rietveld example", () => {
+    expect(DEMOS.map((d) => d.id).sort()).toEqual(["magnetic", "nomad", "pdf", "rietveld"]);
     expect(DEMOS.find((d) => d.id === "magnetic")?.local).toBe(true);
   });
 

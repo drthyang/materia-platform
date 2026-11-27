@@ -57,9 +57,9 @@ import { PdfWorkbench } from "@/app/PdfWorkbench";
 import { WorkbenchHeader, type Step, type ExportAction } from "@/app/ui/WorkbenchHeader";
 import { WorkbenchErrorBoundary } from "@/app/ui/WorkbenchErrorBoundary";
 import { color as theme, space } from "@/app/theme";
-import { newSession, loadedSession, bundledSession, emptySession, structureCarried, EMPTY_SOURCE, type Session } from "@/app/powderSession";
+import { newSession, loadedSession, bundledSession, emptySession, structureCarried, EMPTY_SOURCE, type BundledPowderExample, type Session } from "@/app/powderSession";
 import {
-  changed, emptyPage, snapshotOf, specInstrumentOf, withInstrumentConstants, withInstrumentFile, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
+  changed, emptyPage, snapshotOf, specInstrumentOf, withInstrumentConstants, withInstrumentFile, withPattern, withPhase, withPhases, withoutPhase, withStructure, type FitWindow, type PowderPage,
 } from "@/app/powderPage";
 import type { EngineExportsRef, WorkbenchExports } from "@/app/workbenchEngine";
 import { FOR_MOTIF_LABEL } from "@/app/forMotif";
@@ -690,8 +690,8 @@ export function App(): JSX.Element {
       );
       return;
     }
-    if (kind === "rietveld") {
-      const ex = mn3gaPowgenExample();
+    /** A bundled Rietveld demo: it opens on its converged fit, in its fit window. */
+    const openPowderDemo = (id: DemoId, ex: BundledPowderExample & { readonly fitRange: FitWindow }, message: string, label: string): void => {
       const session = bundledSession(ex);
       // It opens on a converged fit with no result of its own: the Validation view reads it as such.
       setPage({ session, instrument: ex.instrument, instrumentLoaded: true, result: null, snapshot: snapshotOf(session) });
@@ -705,9 +705,20 @@ export function App(): JSX.Element {
         return { token, powderView: { fitRange: ex.fitRange, displayUnit: null, manualPeakD: [], token } };
       });
       setStep(0);
-      setDemo("rietveld");
-      setMessage("Loaded the bundled Mn₃Ga + MnO POWGEN demo (two-phase TOF, converged fit).");
-      requestStep("load", "Mn₃Ga + MnO POWGEN demo", true, true);
+      setDemo(id);
+      setMessage(message);
+      requestStep("load", label, true, true);
+    };
+    if (kind === "rietveld") {
+      openPowderDemo("rietveld", mn3gaPowgenExample(), "Loaded the bundled Mn₃Ga + MnO POWGEN demo (two-phase TOF, converged fit).", "Mn₃Ga + MnO POWGEN demo");
+      return;
+    }
+    if (kind === "nomad") {
+      // Its data and instrument file are their own chunk, fetched when the demo is opened.
+      import("@/examples/gata4se8Nomad").then(
+        (mod) => openPowderDemo("nomad", mod.gata4se8NomadExample(), "Loaded the bundled GaTa₄Se₈ NOMAD demo (bank 4, 300 K TOF, converged fit).", "GaTa₄Se₈ NOMAD demo"),
+        (e: unknown) => setNotice(`The GaTa₄Se₈ NOMAD demo did not load — ${e instanceof Error ? e.message : String(e)}`),
+      );
       return;
     }
     const ex = gata4se8PdfExample();
