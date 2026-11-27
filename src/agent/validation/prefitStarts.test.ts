@@ -5,7 +5,6 @@ import { caseById, casePage } from "@/agent/validation/cases";
 import { readPowderTool } from "@/agent/powderTools";
 import { fakeHost, headlessHistory } from "@/testSupport/agentHeadless";
 import { leBailCellPrefit } from "@/core/workflow/leBailPrefit";
-import { LE_BAIL_UNSETTLED } from "@/core/diagnostics/thresholds";
 
 /**
  * The Prefit's Le Bail stage from a start further off than the plain Le Bail
@@ -86,10 +85,11 @@ describe("the Prefit's Le Bail stage, from a start further off than the plain fi
   });
 
   it.each([
-    // The case's own start first; then others up to 2 % off on either axis, each one the plain fit does not settle from.
+    // The case's own start first; then others up to 2 % off on either axis. On main's data the plain fit
+    // settles from none of them; whether it does is chance (on data simulated from the exactly placed
+    // sites it settles from a × 0.98, c × 1.02), so only the ladder's result is asserted.
     { a: 1.012, c: 0.992 }, { a: 0.988, c: 1 }, { a: 1.005, c: 0.98 }, { a: 0.98, c: 1.02 }, { a: 1.02, c: 1.02 }, { a: 0.98, c: 0.98 },
-  ])("a × $a, c × $c: the low-angle ladder finds the data's cell where the plain fit does not settle", (f) => {
-    expect(prefitLeBail(f, false).rWeighted).toBeGreaterThanOrEqual(LE_BAIL_UNSETTLED);
+  ])("a × $a, c × $c: the Prefit's Le Bail stage finds the data's cell", (f) => {
     const ladder = prefitLeBail(f, true);
     expect(ladder.rWeighted).toBeLessThan(0.05);
     expect(Math.abs(ladder.cell.a / TRUE_A - 1)).toBeLessThan(CELL_RELATIVE);
