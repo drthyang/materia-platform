@@ -21,7 +21,7 @@ import { magneticSubgroupLattice, latticeRepresentatives, maximalWithMoment, typ
 import { buildMagneticModel, momentFitRows, type MagneticModelBuild } from "@/core/magnetic/momentModel";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { fitMomentsWithRestarts, RANK_RESTARTS, type MomentFit } from "@/core/magnetic/momentRestarts";
-import { ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE, zeroStartSentences, type UndeterminedFamily, type ZeroStartTest } from "@/core/magnetic/momentsFit";
+import { ALTERNATION_MAX_ROUNDS, ALTERNATION_SHIFT_TOLERANCE, reportedFitLabel, zeroStartSentences, type UndeterminedFamily, type ZeroStartTest } from "@/core/magnetic/momentsFit";
 import { momentCartesian } from "@/core/magnetic/moment";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { resolveTies } from "@/core/refinement/constraints";
@@ -302,9 +302,12 @@ export function momentFitReadout(agreementLabel: string, wR: number, rounds: Mom
   // A fit with nothing between its moments steps (no free scale or background row) is one fit, as it was.
   if (!rounds || (rounds.count === 0 && rounds.esdIncludes.length === 0)) return { line: fit, warning: false, details: null };
   const n = `${rounds.count} round${rounds.count === 1 ? "" : "s"}`;
+  // Which fit is reported, where Refine moments kicked a row left at 0 (momentsFit.ts): the kicked fit, or the zero-start fit with it held.
+  const which = reportedFitLabel(rounds.zeroStart);
+  const tag = which ? `${which}, ` : "";
   const line = rounds.settled
-    ? `${fit} · settled in ${n}`
-    : `${fit} · not settled after ${n} (a moment still moved by ${rounds.lastShiftOverEsd.toFixed(2)} esd)`;
+    ? `${fit} · ${tag}settled in ${n}`
+    : `${fit} · ${tag}not settled after ${n} (a moment still moved by ${rounds.lastShiftOverEsd.toFixed(2)} esd)`;
   const esds = Object.entries(rounds.esd).filter(([, e]) => e > 0).map(([id, e]) => `${names[id] ?? id} ± ${e.toPrecision(2)}`);
   const zeroStart = zeroStartSentences({ zeroStart: rounds.zeroStart ?? null, undetermined: rounds.undetermined ?? [] }, (id) => names[id] ?? id);
   const directionOpen = (rounds.undetermined ?? []).length > 0;

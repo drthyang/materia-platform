@@ -94,6 +94,11 @@ describe("Refine moments from a zero start: kick, then test (independent MnWO4, 
       expect(rounds.undetermined).toEqual([]);
       const readout = momentFitReadout("wR", wR, rounds, labels);
       expect(readout.details).toContain(`${labels[ids.y]} started at 0, where the fit cannot move it; kicked to 0.1 µB, it is kept: the data require it (Δχ² `);
+      // The rounds shown are the reported fit's, and the line says which fit that is.
+      expect(z.reported).toBe("kicked");
+      expect(rounds.count).toBe(z.kickedRounds);
+      expect(readout.line).toMatch(/ · kicked fit, settled in \d+ rounds?$/);
+      expect(readout.details).toContain(`The fit reported is the kicked fit (${z.kickedRounds} rounds; the zero-start fit took ${z.zeroStartRounds} rounds).`);
       console.log(`[zero-start] a1 seed ${seed}: ${Object.values(ids).map((id) => `${labels[id]} ${v.resolvedAmps[id]!.toFixed(3)}(${rounds.esd[id]!.toFixed(3)})`).join(", ")}, wR ${(100 * wR).toFixed(2)} %, ${rounds.count} rounds · Δχ² ${z.deltaChi2!.toFixed(1)}, F ${z.f!.toFixed(1)} > ${z.fCritical!.toFixed(2)}, z ${z.z!.toFixed(1)}σ, value/esd ${(ratio * z.z!).toFixed(1)}`);
     }, 60_000);
 
@@ -109,7 +114,10 @@ describe("Refine moments from a zero start: kick, then test (independent MnWO4, 
       for (const [id, t] of [[ids.x, 3], [ids.z, 2]] as const) expect(Math.abs(Math.abs(v.resolvedAmps[id]!) - t) / rounds.esd[id]!, labels[id]).toBeLessThan(3);
       const readout = momentFitReadout("wR", wR, rounds, labels);
       expect(readout.details).toContain(`${labels[ids.y]} started at 0, where the fit cannot move it; kicked to 0.1 µB, it is not required by the data (Δχ² `);
-      expect(readout.details).toContain(") and is held at 0, with no esd.");
+      expect(readout.details).toContain(") and is held at 0, with no esd. The fit reported is the zero-start fit, re-run from its end with it held (the zero-start fit took ");
+      expect(z.reported).toBe("zero-start, rows held");
+      expect(readout.line).toMatch(new RegExp(` · zero-start fit, held at 0, settled in ${rounds.count} rounds?$`));
+      console.log(`[zero-start] b1 seed ${seed} line: ${readout.line} · zero-start fit ${z.zeroStartRounds} rounds, kicked fit ${z.kickedRounds}`);
       expect(readout.details).not.toMatch(new RegExp(`${labels[ids.y]!.replace(/[()]/g, "\\$&")} ± `));
       // The Copilot's view of the chosen model says why the row has no esd.
       const chosen = magneticView(step.handle.state()).chosen as { parameters: string[]; momentsFit: string };

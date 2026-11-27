@@ -174,6 +174,15 @@ export interface ZeroStartTest {
   readonly z: number | null;
   /** Where the kicked fit put the kicked rows: the answer when kept, the alternative the data did not require otherwise. */
   readonly kickedValues: Readonly<Record<string, number>>;
+  /**
+   * The fit whose result is reported, and whose rounds the outcome carries:
+   * the kicked fit (kept), or the zero-start fit re-run from its end with the
+   * rows held at 0 (not kept).
+   */
+  readonly reported: "kicked" | "zero-start, rows held";
+  /** Rounds of the zero-start fit (the fit from the given start) and of the kicked fit. */
+  readonly zeroStartRounds: number;
+  readonly kickedRounds: number;
 }
 
 /** Moment rows the data cannot orient: a direction in them changes the fit by nothing. */
@@ -284,7 +293,7 @@ function mergeFamilies(families: readonly (readonly string[])[]): string[][] {
  * Where the fits report no χ², the ranking's fallback: kept only when the
  * agreement is lower by more than RANK_TIE_WR.
  */
-function zeroStartTest(zero: AlternationOutcome, kicked: AlternationOutcome, rows: readonly string[], freeCount: number): Omit<ZeroStartTest, "kick" | "kickedValues"> & { readonly equallyGood: boolean } {
+function zeroStartTest(zero: AlternationOutcome, kicked: AlternationOutcome, rows: readonly string[], freeCount: number): Omit<ZeroStartTest, "kick" | "kickedValues" | "reported" | "zeroStartRounds" | "kickedRounds"> & { readonly equallyGood: boolean } {
   const q = rows.length;
   const a = noiseOf(zero.result);
   const b = noiseOf(kicked.result);
@@ -356,7 +365,10 @@ export async function runMomentsFit(problem: MomentsFitProblem, hooks: MomentsFi
     const kicked = await run(kickedRows);
     if (!kicked) return { cancelled: true };
     const { equallyGood, ...test } = zeroStartTest(zero, kicked, stuck, momentIds.length);
-    zeroStart = { ...test, kick: ZERO_START_KICK, kickedValues: Object.fromEntries(stuck.map((id) => [id, kicked.values[id]!])) };
+    zeroStart = {
+      ...test, kick: ZERO_START_KICK, kickedValues: Object.fromEntries(stuck.map((id) => [id, kicked.values[id]!])),
+      reported: test.kept ? "kicked" : "zero-start, rows held", zeroStartRounds: zero.rounds, kickedRounds: kicked.rounds,
+    };
     if (test.kept) {
       out = kicked;
       rounds = { rounds: kicked.rounds, settled: kicked.settled, lastShiftOverEsd: kicked.lastShiftOverEsd };
@@ -367,7 +379,8 @@ export async function runMomentsFit(problem: MomentsFitProblem, hooks: MomentsFi
       const again = await run(heldRows, momentIds.filter((id) => !held.has(id)));
       if (!again) return { cancelled: true };
       out = again;
-      rounds = { rounds: zero.rounds, settled: zero.settled && again.settled, lastShiftOverEsd: Math.max(zero.lastShiftOverEsd, again.lastShiftOverEsd) };
+      // The rounds of the fit reported (the re-run); the zero-start fit's are in `zeroStart`.
+      rounds = { rounds: again.rounds, settled: again.settled, lastShiftOverEsd: again.lastShiftOverEsd };
       // A family the kicked fit found, where that fit is as good (within the noise both ways): the data do not determine the direction there either.
       if (equallyGood) for (const f of undeterminedFamilies(kicked.result, amplitudeIds)) families.push({ rows: f, alternative: Object.fromEntries(f.map((id) => [id, kicked.values[id]!])) });
     }
@@ -412,6 +425,11 @@ const listOf = (names: readonly string[]): string => (names.length <= 1 ? names.
  * Empty when the fit had neither. The page's "?" and MCP's `reading` both
  * read these, so the two surfaces say the same.
  */
+/** Which fit a moments fit's outcome reports, in two or three words for a readout line; null without a zero-start test. */
+export function reportedFitLabel(z: ZeroStartTest | null | undefined): string | null {
+  return z ? (z.kept ? "kicked fit" : "zero-start fit, held at 0") : null;
+}
+
 export function zeroStartSentences(out: Pick<MomentsFitOutcome, "zeroStart" | "undetermined">, name: (id: string) => string = (id) => id): string[] {
   const words: string[] = [];
   const z = out.zeroStart;
@@ -425,10 +443,11 @@ export function zeroStartSentences(out: Pick<MomentsFitOutcome, "zeroStart" | "u
         : `Δχ² ${sig3(z.deltaChi2)} for ${z.q} amplitude${z.q === 1 ? "" : "s"}, F ${sig3(z.f)} ${z.kept ? ">" : "≤"} ${sig3(z.fCritical!)} at 5 %`;
     const it = n === 1 ? "it" : "them";
     const started = `${listOf(rows.map(name))} started at 0, where the fit cannot move ${it}; kicked to ${z.kick} µB`;
+    const r = (k: number): string => `${k} round${k === 1 ? "" : "s"}`;
     if (z.kept) {
-      words.push(`${started}, ${n === 1 ? "it is" : "they are"} kept: the data require ${it} (${test}${z.z !== null ? `; ${sig3(z.z)}σ by Δχ², not value/esd, which reads twice that for a component the intensity has only squared` : ""}). ${n === 1 ? "Its sign is" : "Their signs are"} a domain choice.`);
+      words.push(`${started}, ${n === 1 ? "it is" : "they are"} kept: the data require ${it} (${test}${z.z !== null ? `; ${sig3(z.z)}σ by Δχ², not value/esd, which reads twice that for a component the intensity has only squared` : ""}). ${n === 1 ? "Its sign is" : "Their signs are"} a domain choice. The fit reported is the kicked fit (${r(z.kickedRounds)}; the zero-start fit took ${r(z.zeroStartRounds)}).`);
     } else {
-      words.push(`${started}, ${n === 1 ? "it is" : "they are"} not required by the data (${test}) and ${n === 1 ? "is" : "are"} held at 0, with no esd.`);
+      words.push(`${started}, ${n === 1 ? "it is" : "they are"} not required by the data (${test}) and ${n === 1 ? "is" : "are"} held at 0, with no esd. The fit reported is the zero-start fit, re-run from its end with ${it} held (the zero-start fit took ${r(z.zeroStartRounds)}, the kicked fit ${r(z.kickedRounds)}).`);
     }
   }
   for (const f of out.undetermined) {
