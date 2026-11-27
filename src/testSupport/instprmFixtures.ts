@@ -125,10 +125,10 @@ export const SINGLE_BANK_INSTPRM = [
  * reduction that writes each bank's geometry in comment lines above its BANK
  * record. Made-up counts: a flat level plus a few Gaussian bumps. `difC` per
  * bank goes in the `DIFC` comment; a bank given as `{ bank, difC: null }` gets
- * no comment lines. Line ends alternate CRLF and LF by bank, as mixed files do.
+ * no comment lines. Each bank starts at `start` µs (500 + 100 × bank unless given). Line ends alternate CRLF and LF by bank, as mixed files do.
  */
 export function multiBankGsa(
-  banks: readonly { readonly bank: number; readonly difC: number | null; readonly tth?: number; readonly points?: number }[],
+  banks: readonly { readonly bank: number; readonly difC: number | null; readonly tth?: number; readonly points?: number; readonly start?: number }[],
   /** Further header lines, written after the histogram count (`# Instrument: …`). */
   header: readonly string[] = [],
 ): string {
@@ -136,7 +136,7 @@ export function multiBankGsa(
   banks.forEach((b, i) => {
     const eol = i % 2 === 0 ? "\r\n" : "\n";
     const n = b.points ?? 40 + 10 * i;
-    const start = 500 + 100 * b.bank;
+    const start = b.start ?? 500 + 100 * b.bank;
     const step = 0.004;
     if (b.difC !== null) {
       out.push(`# Total flight path   ${(30 + b.bank / 10).toFixed(3)}m, tth   ${(b.tth ?? 20 * b.bank).toFixed(3)}deg, DIFC ${b.difC.toFixed(9)} ${eol}`);

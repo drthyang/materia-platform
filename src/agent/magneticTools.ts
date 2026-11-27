@@ -30,9 +30,10 @@ function handleOf(port: PowderAgentPort): MagneticAgentHandle {
   return h;
 }
 
-/** A data bank the instrument file has no bank for holds every fit to the data (app/bankFollow.ts): refused with the page's reason. */
+/** A data bank the instrument file has no bank for holds every fit to the data (app/bankFollow.ts), as does a reflection list past the limit (app/reflectionLimit.ts): refused with the page's reason. */
 function refuseWhileHeld(port: PowderAgentPort): void {
-  const held = port.state().instrumentNotes?.refineHeld;
+  const s = port.state();
+  const held = s.reflectionLimit ?? s.instrumentNotes?.refineHeld;
   if (held) throw new Error(held);
 }
 

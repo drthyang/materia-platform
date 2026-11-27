@@ -14,6 +14,7 @@ import { applyParameters } from "@/core/workflow/apply";
 import { phaseBindingsFor } from "@/core/workflow/multiPhase";
 import { tofNegativeLorentzian, tofReflectionsLeftOut, tofWidthProblems } from "@/core/workflow/powder";
 import { GSAS2_NEW_PHASE_MUSTRAIN, GSAS2_NEW_PHASE_SIZE, tofFileProfileOf } from "@/app/powderSpec";
+import { reachText, readWithinLimit } from "@/app/reflectionLimit";
 
 export interface CardNote {
   /** One plain line. */
@@ -108,14 +109,23 @@ export function tofWidthNote(s: {
   const appliedOf = (phase: StructureModel) => applyParameters(phase, multi ? phaseBindingsFor(s.powderBindings, phase.id) : s.powderBindings, resolved);
   const problems = tofWidthProblems(s.pattern, appliedOf(s.structure));
   if (problems.length === 0) return null;
-  const left = phases.flatMap((phase) => tofReflectionsLeftOut(s.pattern, appliedOf(phase)));
   const ranges = problems.map((p) => `d ${fmtD(p.dMin)}–${fmtD(p.dMax)} Å (${p.which} ≤ 0)`).join(", ");
+  // The list over the data's whole d-range: past the engine's limit (another bank's calibration on short-TOF
+  // data, a large cell) the reflections cannot be listed, only said to be left out.
+  const read = readWithinLimit(() => phases.flatMap((phase) => tofReflectionsLeftOut(s.pattern, appliedOf(phase))));
+  const over = "error" in read ? read.error.over : undefined;
+  if ("error" in read && !over) throw read.error;
+  const left = "value" in read ? read.value : [];
   const names = left.slice(0, 12).map((r) => `${r.h} ${r.k} ${r.l} (${fmtD(r.d)} Å)`).join(", ");
   return {
-    line: `The instrument file gives no peak width for ${ranges}: ${left.length} reflection${left.length === 1 ? "" : "s"} not drawn.`,
+    line: over
+      ? `The instrument file gives no peak width for ${ranges}: the reflections there are not drawn.`
+      : `The instrument file gives no peak width for ${ranges}: ${left.length} reflection${left.length === 1 ? "" : "s"} not drawn.`,
     detail: [
       "Checked over the d-range of the loaded data only. Where the file's σ², α or β is not positive no peak is defined, so the reflections there are left out of the calculated pattern and no width is invented for them.",
-      left.length > 0 ? `Not drawn: ${names}${left.length > 12 ? `, and ${left.length - 12} more` : ""}.` : "No reflection of the model falls there.",
+      over
+        ? `They are too many to list: ${reachText(over)}, over the limit.`
+        : left.length > 0 ? `Not drawn: ${names}${left.length > 12 ? `, and ${left.length - 12} more` : ""}.` : "No reflection of the model falls there.",
       "Set the fit range to leave that part of the data out, or use an instrument file calibrated over it. A refinement step that would take a width below zero elsewhere in the data's range is rejected.",
     ].join(" "),
   };

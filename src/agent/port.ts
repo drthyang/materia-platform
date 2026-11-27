@@ -95,6 +95,12 @@ export interface PowderLiveState {
     readonly refineHeld?: string;
     readonly startingPoint?: string;
   };
+  /**
+   * The page's reflection list is past the engine's limit (app/reflectionLimit.ts):
+   * the page's sentence. No calculated curve; Refine and every fit to the data
+   * are refused with it. Absent otherwise.
+   */
+  readonly reflectionLimit?: string;
 }
 
 /** What the powder page lets the Agent do. Each call is the page's own handler. */

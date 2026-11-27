@@ -6,6 +6,7 @@
  */
 
 import { agentInstrumentNotes, bankCoverage } from "@/app/bankFollow";
+import { observedOnlyCurves, pageLimitLine } from "@/app/reflectionLimit";
 import { AgentExecutor, type ActivityEntry, type AgentHost } from "@/agent/executor";
 import type { CardDecision } from "@/agent/cardOptions";
 import type { AgentReport } from "@/agent/report";
@@ -85,7 +86,10 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
   const state = (): PowderLiveState => {
     const { session: s, result } = held;
     const window = activeWindow();
-    const { curves } = powderPageCurves(s, window);
+    // A list past the engine's limit: no calculated curve, and the page's sentence (app/reflectionLimit.ts), as the app's page.
+    const coverage = bankCoverage(s, held.instrument, held.instrumentLoaded);
+    const limit = pageLimitLine(s, window, !!coverage);
+    const { curves } = limit ? observedOnlyCurves(s.pattern) : powderPageCurves(s, window);
     return {
       structure: s.structure,
       extraPhases: s.extraPhases,
@@ -119,9 +123,10 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       zeroAdp: zeroAdpOf(held),
       // The Instrument card's statements, as the app's page gives them (app/bankFollow.ts).
       ...(() => {
-        const notes = agentInstrumentNotes(s.rawInstrument, held.instrumentLoaded, bankCoverage(s, held.instrument, held.instrumentLoaded));
+        const notes = agentInstrumentNotes(s.rawInstrument, held.instrumentLoaded, coverage);
         return notes ? { instrumentNotes: notes } : {};
       })(),
+      ...(limit ? { reflectionLimit: limit } : {}),
     };
   };
   /** The posterior run to continue: its closure keeps the problem it sampled, as the page's. */

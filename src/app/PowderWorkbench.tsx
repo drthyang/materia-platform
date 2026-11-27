@@ -89,6 +89,7 @@ import {
 import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
+import { observedOnlyCurves, pageReflectionLimit, reflectionLimitSentence } from "@/app/reflectionLimit";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { fileProfileCardNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
 import { scoredWindow, shortDNote, shortDReading, tickDRanges } from "@/app/shortD";
@@ -302,6 +303,28 @@ export function PowderWorkbench({
     : startPick && startPick.dataBank === instCoverage.uncovered.dataBank && instHold.banks.some((b) => b.bank === startPick.bank) ? startPick.bank
       : instHold.closest?.bank ?? null;
   const instStartingPoint = instCoverage?.startingPoint ? startingPointWarning(instCoverage.uncovered) : null;
+  const rawDataText = session.rawData?.text;
+  const dataBanks = useMemo(() => dataBanksOf(rawDataText), [rawDataText]);
+  const dataBankChoices = useMemo(() => dataBankOptions(dataBanks), [dataBanks]);
+  const dataBank = currentDataBank(dataBanks, session.rawData);
+  // A reflection list past the engine's limit (app/reflectionLimit.ts: another bank's calibration on short-TOF
+  // data, a large cell): the plot and the Validation view say so in one sentence, and Refine is held with it.
+  // The lists are the ones the curves read, over the same window, so nothing below calculates past the limit.
+  const reflectionOver = useMemo(
+    () => (hasContent ? pageReflectionLimit(session, fitRange) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for fitRange
+    [hasContent, session, fitRange?.min, fitRange?.max],
+  );
+  // The residual peaks read the whole pattern, whatever the window (powderPage.ts residualPeaksOf): its own reading.
+  const wholeOver = useMemo(
+    () => (!hasContent ? null : fitRange ? pageReflectionLimit(session, null) : reflectionOver),
+    [hasContent, session, fitRange, reflectionOver],
+  );
+  const limitLine = reflectionOver
+    ? reflectionLimitSentence(reflectionOver, { dataBank: dataBankChoices && dataBank ? dataBank.bankNumber : null, uncovered: !!instCoverage })
+    : null;
+  /** Why Refine (and the posterior, the moments fit) cannot run now, or null. */
+  const heldLine = limitLine ?? instHold?.line ?? null;
   // Data loaded before a structure: the placeholder model (no atoms).
   const noStructure = session.structure.sites.length === 0;
   // A freshly-loaded pattern is a new object; drop the window and axis choice.
@@ -385,9 +408,9 @@ export function PowderWorkbench({
   // top of these), and those plus the APPLIED magnetic model's contribution.
   // The reflection lists follow the fit window, as the fit's do (core/workflow/powder.ts reflectionRange).
   const pageCurves = useMemo(
-    () => powderPageCurves(session, fitRange),
+    () => (reflectionOver ? observedOnlyCurves(session.pattern) : powderPageCurves(session, fitRange)),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for fitRange
-    [session, fitRange?.min, fitRange?.max],
+    [reflectionOver, session, fitRange?.min, fitRange?.max],
   );
   const nuclearCurves = pageCurves.nuclear;
 
@@ -510,6 +533,7 @@ export function PowderWorkbench({
     [session, fitRangeActive, fitRange?.min, fitRange?.max],
   );
   const phaseTicks = useMemo(() => {
+    if (reflectionOver) return [];
     const dA = convertAxisValue(patternExtent.min, pattern.xUnit, "dSpacing", axisCtx);
     const dB = convertAxisValue(patternExtent.max, pattern.xUnit, "dSpacing", axisCtx);
     if (!Number.isFinite(dA) || !Number.isFinite(dB)) return [];
@@ -538,7 +562,7 @@ export function PowderWorkbench({
       phases.push(magneticPhaseTicks(base, liveMagnetic, m.dMin, m.dMax, toX, { id: "magnetic", label: "magnetic", color: MAGNETIC_COLOR }));
     }
     return phases;
-  }, [refinedPhases, structure, session.extraPhases, liveMagnetic, patternExtent, pattern.xUnit, effectiveUnit, axisCtx, tickRanges]);
+  }, [reflectionOver, refinedPhases, structure, session.extraPhases, liveMagnetic, patternExtent, pattern.xUnit, effectiveUnit, axisCtx, tickRanges]);
 
   // Manually added residual peaks (clicked on the magnetic page's pattern):
   // stored as d-spacings; height/significance are sampled from the residual at
@@ -568,14 +592,14 @@ export function PowderWorkbench({
   // of any phase beside it (powderPage.ts): the k-panel flags those and leaves
   // them out of the search by default; manual picks are included regardless.
   const residualPeaks = useMemo(
-    () => residualPeaksOf(session, instrumentLoaded ? instrument : undefined, manualPeakD),
-    [session, instrument, instrumentLoaded, manualPeakD],
+    () => (wholeOver ? [] : residualPeaksOf(session, instrumentLoaded ? instrument : undefined, manualPeakD)),
+    [wholeOver, session, instrument, instrumentLoaded, manualPeakD],
   );
   // With a magnetic model applied, the same peaks against the nuclear model
   // alone: the k-search can be re-run as if the model were removed (THY-45).
   const nuclearResidualPeaks = useMemo(
-    () => (magneticApplied ? residualPeaksOf(session, instrumentLoaded ? instrument : undefined, manualPeakD, { nuclearOnly: true }) : undefined),
-    [magneticApplied, session, instrument, instrumentLoaded, manualPeakD],
+    () => (magneticApplied && !wholeOver ? residualPeaksOf(session, instrumentLoaded ? instrument : undefined, manualPeakD, { nuclearOnly: true }) : undefined),
+    [magneticApplied, wholeOver, session, instrument, instrumentLoaded, manualPeakD],
   );
   // The applied model's k and group, for the Structure card's chip and the magnetic page.
   const magneticSummary = useMemo(() => magneticModelSummary(session, liveMagnetic), [session, liveMagnetic]);
@@ -739,8 +763,8 @@ export function PowderWorkbench({
   /** Flat co-refinement of the currently-freed parameters. Resolves to why it
    *  did not finish (cancelled, failed), or null when it did. */
   async function runPowder(): Promise<string | null> {
-    // A data bank the instrument file has no bank for: held until the user chooses (app/bankFollow.ts).
-    if (instHold) return instHold.line;
+    // A data bank the instrument file has no bank for: held until the user chooses (app/bankFollow.ts); a list past the limit.
+    if (heldLine) return heldLine;
     // The starting point (freed parameters, edited values, settings) is a step
     // of its own, so going back lands before this refinement, not after it.
     stepHistory?.recordNow("edit");
@@ -802,8 +826,8 @@ export function PowderWorkbench({
    * token, so the chain keeps targeting the identical posterior.
    */
   async function runSample(continueRun: boolean, steps = SAMPLE_STEPS): Promise<SampleResult | string> {
-    // A data bank the instrument file has no bank for: held as Refine is (app/bankFollow.ts).
-    if (instHold) return instHold.line;
+    // A data bank the instrument file has no bank for: held as Refine is (app/bankFollow.ts); a list past the limit.
+    if (heldLine) return heldLine;
     setSampleBusy(true);
     const prior = continueRun ? sample : null;
     const total = (prior ? prior.result.resume.stepIndex : 0) + steps;
@@ -867,7 +891,7 @@ export function PowderWorkbench({
    * why it did not finish, or null when it did.
    */
   async function runThorough(): Promise<string | null> {
-    if (instHold) return instHold.line;
+    if (heldLine) return heldLine;
     // One engine, two faces: with no fit yet it's a "Prefit" (broad cold-start
     // search + Le Bail); once a fit exists it's a light "Escape min" nudge.
     const mode: "prefit" | "escape" = powderResult ? "escape" : "prefit";
@@ -909,20 +933,20 @@ export function PowderWorkbench({
   const weightedR = (c: { x: number[]; yObs: number[]; yCalc: number[] }): number => weightedROf(session, c, activeWindow);
   // Where the reflection list stops at short d and why, the points it leaves out of the fit, and a trim worth making (app/shortD.ts).
   const shortD = useMemo(
-    () => (tofViewOnly ? null : shortDNote(shortDReading(session, activeWindow))),
+    () => (tofViewOnly || reflectionOver ? null : shortDNote(shortDReading(session, activeWindow))),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for activeWindow
-    [session, tofViewOnly, activeWindow?.min, activeWindow?.max],
+    [session, tofViewOnly, reflectionOver, activeWindow?.min, activeWindow?.max],
   );
   // The page's single wR readout.
-  const wRpct = (100 * weightedR(curves)).toFixed(2);
+  const wRpct = reflectionOver ? "" : (100 * weightedR(curves)).toFixed(2);
   // The nuclear-only agreement the magnetic page compares its candidates against.
-  const nuclearWr = pattern.points.length > 0 ? weightedR(nuclearCurves) : null;
+  const nuclearWr = pattern.points.length > 0 && !reflectionOver ? weightedR(nuclearCurves) : null;
 
   // wR (live during a refinement) and GoF for the plot-header readouts. GoF is
   // the live wR over R_exp (Toby 2006); R_exp only exists after a refinement.
   const liveWr = busy && livePreview.current ? (100 * livePreview.current.rWeighted).toFixed(2) : wRpct;
   const rExp = powderResult?.agreement.rExpected;
-  const liveGof = rExp && rExp > 0 ? Number(liveWr) / (100 * rExp) : null;
+  const liveGof = rExp && rExp > 0 && !reflectionOver ? Number(liveWr) / (100 * rExp) : null;
   const refinedGof = powderResult ? (powderResult.agreement.goodnessOfFit ?? null) : null;
   // With no refinement describing the values on screen (a demo opened on its
   // converged snapshot, a model just loaded, values edited since the last
@@ -930,9 +954,9 @@ export function PowderWorkbench({
   // Validation view's verdict then read the same number, and never a stale one.
   const resultDescribesRows = powderResult !== null && !parametersChangedSince(powderResult, powderParams);
   const curvesGof = useMemo(
-    () => (resultDescribesRows || pattern.points.length === 0 ? null : curvesGoodnessOfFit(session, curves, activeWindow)),
+    () => (resultDescribesRows || reflectionOver || pattern.points.length === 0 ? null : curvesGoodnessOfFit(session, curves, activeWindow)),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for activeWindow
-    [resultDescribesRows, session, curves, activeWindow?.min, activeWindow?.max],
+    [resultDescribesRows, reflectionOver, session, curves, activeWindow?.min, activeWindow?.max],
   );
   const shownGof = (resultDescribesRows ? refinedGof : null) ?? curvesGof;
   const gofTitle = resultDescribesRows && refinedGof !== null
@@ -946,7 +970,7 @@ export function PowderWorkbench({
   // the primary). The k-search page adds its satellite / allowed / residual
   // rows on top via `dToX`. (Declared after the wR/GoF readouts it embeds.)
   const magneticPatternView = useMemo<MagneticPatternView | undefined>(() => {
-    if (pattern.points.length === 0 || !displayUnits.includes("dSpacing")) return undefined;
+    if (reflectionOver || pattern.points.length === 0 || !displayUnits.includes("dSpacing")) return undefined;
     const dA = convertAxisValue(patternExtent.min, pattern.xUnit, "dSpacing", axisCtx);
     const dB = convertAxisValue(patternExtent.max, pattern.xUnit, "dSpacing", axisCtx);
     if (!Number.isFinite(dA) || !Number.isFinite(dB)) return undefined;
@@ -964,7 +988,7 @@ export function PowderWorkbench({
       ...(tofViewOnly ? {} : { onFitRangeChange: setFitRangeFromDisplay }),
       unitToggle: <AxisUnitToggle units={displayUnits} value={effectiveUnit} onChange={setDisplayUnit} />,
     };
-  }, [pattern.points.length, pattern.xUnit, displayUnits, displayNuclearCurves, magneticComponentFor, displayXLabel, phaseTicks, displayFitRange, setFitRangeFromDisplay, tofViewOnly, effectiveUnit, axisCtx, patternExtent]);
+  }, [reflectionOver, pattern.points.length, pattern.xUnit, displayUnits, displayNuclearCurves, magneticComponentFor, displayXLabel, phaseTicks, displayFitRange, setFitRangeFromDisplay, tofViewOnly, effectiveUnit, axisCtx, patternExtent]);
 
   // The magnetic page's moments fit (powderPage.ts): the nuclear model held, as
   // the page refines (its profile, every phase, the window), off the main
@@ -1011,7 +1035,7 @@ export function PowderWorkbench({
   const magneticQuality = (
     <span style={{ display: "flex", gap: 14, fontFamily: themeMono, fontSize: 12.5 }}>
       <span style={{ color: theme.secondary }} title="Weighted profile R for the current parameters, colored by wR/R_exp (Toby 2006)">
-        wR <b style={{ color: qualityInk(liveGof ?? curvesGof) }}>{liveWr}%</b>
+        wR <b style={{ color: qualityInk(liveGof ?? curvesGof) }}>{reflectionOver ? "—" : `${liveWr}%`}</b>
       </span>
       <span style={{ color: theme.secondary }} title={gofTitle}>
         GoF <b style={{ color: qualityInk(shownGof) }}>{shownGof !== null ? shownGof.toFixed(2) : "—"}</b>
@@ -1046,7 +1070,7 @@ export function PowderWorkbench({
       return e !== undefined ? { ...p, esd: e } : { ...p };
     });
     const s = powderResult?.agreement.goodnessOfFit;
-    const refinement: CifRefinementMeta | undefined = powderResult
+    const refinement: CifRefinementMeta | undefined = powderResult && wRpct !== ""
       ? { rwp: Number(wRpct), ...(s !== undefined ? { gof: s } : {}), nParam: withEsd.filter((p) => !p.fixed && !p.expression).length }
       : undefined;
     // Route the bindings by phase exactly as `refinedPhases` does: in a
@@ -1111,7 +1135,7 @@ export function PowderWorkbench({
       return e !== undefined ? { ...p, esd: e } : { ...p };
     });
     const s = powderResult?.agreement.goodnessOfFit;
-    const refinement: CifRefinementMeta | undefined = powderResult
+    const refinement: CifRefinementMeta | undefined = powderResult && wRpct !== ""
       ? { rwp: Number(wRpct), ...(s !== undefined ? { gof: s } : {}), nParam: withEsd.filter((p) => !p.fixed && !p.expression).length }
       : undefined;
     const opts: RefinementBundleOptions = {
@@ -1191,6 +1215,7 @@ export function PowderWorkbench({
         const notes = agentInstrumentNotes(session.rawInstrument, instrumentLoaded, instCoverage);
         return notes ? { instrumentNotes: notes } : {};
       })(),
+      ...(limitLine ? { reflectionLimit: limitLine } : {}),
     };
   };
 
@@ -1275,7 +1300,7 @@ export function PowderWorkbench({
       },
       samplePosterior: async ({ continue: continueRun, steps }) => {
         if (sampleBusy) return "a posterior run is already going";
-        if (instHold) return instHold.line;
+        if (heldLine) return heldLine;
         if (continueRun && !sample) return "there is no posterior run to continue: sample first";
         setPlotMode("posterior");
         return runSample(continueRun, steps);
@@ -1363,11 +1388,7 @@ export function PowderWorkbench({
   // card offers a GSAS histogram's banks, the Instrument card an .instprm's,
   // and says when the instrument is not the data bank's and what the file has
   // that the calculation leaves out.
-  const rawDataText = session.rawData?.text;
   const rawInstrumentText = instrumentLoaded ? session.rawInstrument?.text : undefined;
-  const dataBanks = useMemo(() => dataBanksOf(rawDataText), [rawDataText]);
-  const dataBankChoices = useMemo(() => dataBankOptions(dataBanks), [dataBanks]);
-  const dataBank = currentDataBank(dataBanks, session.rawData);
   const instFile = useMemo(() => instrumentFileOf(rawInstrumentText), [rawInstrumentText]);
   const instBankChoices = useMemo(() => instrumentBankOptions(instFile), [instFile]);
   const instBank = currentInstrumentBank(instFile, session.rawInstrument, instrument);
@@ -1663,7 +1684,7 @@ export function PowderWorkbench({
                     {plotMode !== "structure" && (
                       <span style={{ display: "flex", gap: 14, flex: "none", whiteSpace: "nowrap", fontFamily: themeMono, fontSize: 12.5, lineHeight: 1 }}>
                         <span style={{ color: theme.secondary }} title="Weighted profile R for the current parameters, colored by wR/R_exp (Toby 2006)">
-                          wR <b style={{ color: qualityInk(liveGof ?? curvesGof) }}>{liveWr}%</b>
+                          wR <b style={{ color: qualityInk(liveGof ?? curvesGof) }}>{reflectionOver ? "—" : `${liveWr}%`}</b>
                         </span>
                         <span style={{ color: theme.secondary }} title={gofTitle}>
                           GoF <b style={{ color: qualityInk(shownGof) }}>{shownGof !== null ? shownGof.toFixed(2) : "—"}</b>
@@ -1752,7 +1773,12 @@ export function PowderWorkbench({
                     </p>
                   </>
                   );
-                })() : plotMode === "validation" ? (
+                })() : limitLine && plotMode === "validation" ? (
+                  // Past the reflection limit (app/reflectionLimit.ts): the sentence in place of the Validation view.
+                  <div style={{ flex: 1, minHeight: 0 }}>
+                    <div data-testid="reflection-limit" role="status" style={limitBox}>{limitLine}</div>
+                  </div>
+                ) : plotMode === "validation" ? (
                   <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
                     <QualityPanel
                       structure={structure}
@@ -1782,7 +1808,7 @@ export function PowderWorkbench({
                       onAction={(a) => {
                         switch (a.kind) {
                           case "refine":
-                            if (!busy && !tofViewOnly && !instHold) void runPowder();
+                            if (!busy && !tofViewOnly && !heldLine) void runPowder();
                             break;
                           case "check":
                             if (a.action === "export-gsas2") exportBundle("gsas2");
@@ -1805,7 +1831,7 @@ export function PowderWorkbench({
                             break;
                         }
                       }}
-                      canRefine={!busy && !tofViewOnly && !instHold}
+                      canRefine={!busy && !tofViewOnly && !heldLine}
                       instrumentNotes={validationInstrumentNotes}
                       fitRange={fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null}
                       refinedPhases={refinedPhases}
@@ -1835,14 +1861,17 @@ export function PowderWorkbench({
                       onRun={(continueRun) => void runSample(continueRun)}
                       onStop={stopSample}
                       hasRefined={powderResult !== null}
-                      blockedReason={lock.sample ?? instHold?.line ?? null}
+                      blockedReason={lock.sample ?? heldLine}
                       labels={new Map(powderParams.map((p) => [p.id, p.label]))}
                     />
                   </div>
                 ) : (
                   <>
+                    {/* Past the reflection limit: the sentence over the observed points, whose window handles stay to narrow it. */}
+                    {limitLine && <div data-testid="reflection-limit" role="status" style={{ ...limitBox, marginBottom: 6 }}>{limitLine}</div>}
                     <WorkbenchPlot
                       curves={plotCurves}
+                      observedOnly={!!limitLine}
                       xLabel={displayXLabel}
                       viewKey={plotViewKey}
                       ariaLabel="Powder pattern: observed, calculated and difference"
@@ -1937,7 +1966,7 @@ export function PowderWorkbench({
                 busy={busy}
                 result={powderResult}
                 disabled={tofViewOnly}
-                blockedReason={lock.refine ?? instHold?.line ?? null}
+                blockedReason={lock.refine ?? heldLine}
                 highlight={bankFollow}
                 shown={active && step === 0}
                 warnings={occupancyWarnings}
@@ -2027,8 +2056,8 @@ export function PowderWorkbench({
               {...(magneticFitChip ? { patternFitChip: magneticFitChip } : {})}
               {...(tofViewOnly ? {} : { onFocusFit: () => setFocusFitToken((t) => t + 1) })}
               focusFitToken={focusFitToken}
-              // Held on a data bank the instrument file has no bank for, as Refine is (app/bankFollow.ts).
-              {...(instHold ? { fitHeld: { line: instHold.line, detail: instHold.detail } } : { magneticFit: powderMagneticFit })}
+              // Held on a data bank the instrument file has no bank for, as Refine is (app/bankFollow.ts), or past the reflection limit.
+              {...(limitLine ? { fitHeld: { line: limitLine, detail: limitLine } } : instHold ? { fitHeld: { line: instHold.line, detail: instHold.detail } } : { magneticFit: powderMagneticFit })}
               baselineAgreement={nuclearWr}
               nuclearValues={momentRoundRows}
               onMomentFit={takeMomentRoundRows}
@@ -2355,6 +2384,10 @@ function BackgroundTermsInput({ terms, onChange }: { terms: number; onChange: (n
   );
 }
 
+/** The reflection limit's sentence in the plot and Validation areas (app/reflectionLimit.ts). */
+const limitBox: React.CSSProperties = {
+  padding: "8px 12px", fontSize: fz.small, lineHeight: 1.5, color: theme.warnInk, background: theme.warnBg, border: `1px solid ${theme.warnBorder}`, borderRadius: 7,
+};
 const bgSelect: React.CSSProperties = { border: `1px solid ${theme.control}`, background: "#fff", borderRadius: 7, padding: "2px 6px", fontSize: 12, color: theme.ink, cursor: "pointer" };
 const bgTermsInput: React.CSSProperties = { width: 44, border: `1px solid ${theme.control}`, borderRadius: 7, padding: "2px 6px", fontSize: 12, fontFamily: themeMono };
 
