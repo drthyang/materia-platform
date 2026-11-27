@@ -102,10 +102,27 @@ export const MAX_REFLECTION_FAMILIES = 300_000;
  * reaches such a cell is rejected, not the refinement.
  */
 export class ReflectionLimitError extends ModelDomainError {
-  constructor(message: string) {
+  /** Which limit the list passed, and by how much; absent for a cell length that is not a length. */
+  readonly over?: ReflectionLimitOver;
+  constructor(message: string, over?: ReflectionLimitOver) {
     super(message);
     this.name = "ReflectionLimitError";
+    if (over) this.over = over;
   }
+}
+
+/**
+ * The limit a reflection list passed: `scan`, the Miller-index cells to scan
+ * (`count` of {@link MAX_INDEX_BOX}); `index`, the largest Miller index
+ * (`count` of 2047); `families`, the reflection families
+ * listed before stopping (`count` > {@link MAX_REFLECTION_FAMILIES}).
+ */
+export interface ReflectionLimitOver {
+  /** The list's short-d end (Å). */
+  readonly dMin: number;
+  readonly limit: "scan" | "index" | "families";
+  readonly count: number;
+  readonly max: number;
 }
 
 /**
@@ -164,13 +181,15 @@ export function generateReflections(
   const spanK = 2 * nK + 1;
   const spanL = 2 * nL + 1;
   const box = spanH * spanK * spanL;
-  const tooLarge = (why: string): ReflectionLimitError =>
+  const tooLarge = (why: string, over: Omit<ReflectionLimitOver, "dMin">): ReflectionLimitError =>
     new ReflectionLimitError(
       `Reflection list too large for d ≥ ${+dMin.toPrecision(4)} Å with a = ${cell.a}, b = ${cell.b}, c = ${cell.c} Å: ${why}. ` +
         `Check the cell, or raise d_min.`,
+      { dMin, ...over },
     );
-  if (Math.max(nH, nK, nL) >= PACK_OFFSET) throw tooLarge(`Miller indices up to ${Math.max(nH, nK, nL)} (limit ${PACK_OFFSET - 1})`);
-  if (!(box <= MAX_INDEX_BOX)) throw tooLarge(`${box.toExponential(2)} index triples to scan (limit ${MAX_INDEX_BOX.toExponential(0)})`);
+  const maxIndex = Math.max(nH, nK, nL);
+  if (maxIndex >= PACK_OFFSET) throw tooLarge(`Miller indices up to ${maxIndex} (limit ${PACK_OFFSET - 1})`, { limit: "index", count: maxIndex, max: PACK_OFFSET - 1 });
+  if (!(box <= MAX_INDEX_BOX)) throw tooLarge(`${box.toExponential(2)} index triples to scan (limit ${MAX_INDEX_BOX.toExponential(0)})`, { limit: "scan", count: box, max: MAX_INDEX_BOX });
 
   // Every (hkl) already assigned to a family, as one bit per cell of the index
   // box: symmetry-equivalent reflections share d, so they stay inside it.
@@ -205,7 +224,7 @@ export function generateReflections(
         const d = 1 / Math.sqrt(repInvd2);
         reflections.push({ h: rep.h, k: rep.k, l: rep.l, d, q: (2 * Math.PI) / d, multiplicity: family.size });
         if (reflections.length > MAX_REFLECTION_FAMILIES) {
-          throw tooLarge(`more than ${MAX_REFLECTION_FAMILIES} reflection families`);
+          throw tooLarge(`more than ${MAX_REFLECTION_FAMILIES} reflection families`, { limit: "families", count: reflections.length, max: MAX_REFLECTION_FAMILIES });
         }
       }
     }

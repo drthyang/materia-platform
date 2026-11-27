@@ -19,7 +19,7 @@ import {
   agentInstrumentNotes, bankCoverage, bundleInstrumentNote, closestBank, followDataBank, followNote, followStepLabel, holdNote, loadFollowStepLabel, overrideLabel,
   startingBanks, startingPointStepLabel, startingPointWarning, switchedRows, withStartingPoint,
 } from "@/app/bankFollow";
-import { withinReflectionLimit } from "@/app/ui/PowderValidation";
+import { withinReflectionLimit } from "@/app/reflectionLimit";
 import { ReflectionLimitError } from "@/core/diffraction/reflections";
 import { refinementBundle } from "@/core/export/bundle";
 import { powderWorkspaceFrom, sessionFromPowderWorkspace } from "@/app/projectIo";
