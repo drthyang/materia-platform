@@ -9,6 +9,21 @@ release fixes bugs.
 
 ### Fixed
 
+- **Sites on special positions are read exactly.** A structure file prints
+  special positions rounded (Mn₃Ga: Ga at 0.3333, 0.6667). MATERIA reads such a
+  site as special, but the larger-cell subgroups matched atoms far more
+  tightly, so Activate failed on every cell-multiplying child of Mn₃Ga and of a
+  rounded GaTa₄Se₈ ("an atom of the parent's T″ cell is no atom of the child's
+  cell"). Every structure read (CIF, mCIF, SHELX .ins/.res, a saved project
+  on open) now places such a site exactly on its special position, and the
+  notice bar says which sites moved and by how much ("Placed 2 sites exactly
+  on their special positions (mn3ga_demo.cif rounds them): Mn1 moved
+  0.00030 Å, Ga1 0.00031 Å."). The subgroup engine also places parent sites
+  exactly itself. A subgroup list that cannot count a structure's modes now
+  says why instead of listing its rows without mode counts. The Mn₃Ga demo's
+  numbers move in the fourth digit (Rwp 3.87773 % → 3.87809 %, shown 3.88 %
+  either way); a file already exact reads as before.
+
 - **Refine moments no longer leaves a moment component stuck at 0.** A free
   amplitude that starts at exactly 0 in an irrep of its own has no gradient
   there, so the fit never left it, reported it as "esd 0" and biased the other
