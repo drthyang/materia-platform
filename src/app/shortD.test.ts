@@ -21,7 +21,7 @@ describe("the demo's window", () => {
     expect(r.leftOut).toBe(0);
     expect(r.trim).toBeUndefined();
     expect(scoredWindow(session, demo.fitRange)).toEqual(demo.fitRange);
-    expect(shortDNote(r)!.line).toBe("Reflections down to d 0.400 Å, one peak support below the fit window's edge (0.414 Å).");
+    expect(shortDNote(r)!.line).toBe("Reflections down to d 0.399 Å, one peak support below the fit window's edge (0.414 Å).");
     expect(observationsIn(powderPageCurves(session, demo.fitRange).curves, demo.fitRange, session)).toBe(3125);
   });
 

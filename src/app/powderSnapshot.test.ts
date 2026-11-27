@@ -49,8 +49,8 @@ describe("the card's GoF with no refinement of its own", () => {
     const nParams = session.powderParams.filter((p) => !p.fixed && !p.expression).length;
     const view = powderValidation({ x: curves.x, yObs: curves.yObs, yCalc: curves.yCalc, sigma, include, nParams });
     expect(gof).toBeCloseTo(view.agreement.gof, 10);
-    // The demo's own: what a refinement from it reports (GoF 3.23, wR 4.24 %).
-    expect(gof.toFixed(2)).toBe("3.23");
+    // The demo's own: what a refinement from it reports (GoF 2.96, wR 3.88 %).
+    expect(gof.toFixed(2)).toBe("2.96");
   });
 });
 
@@ -66,9 +66,10 @@ describe("the bundled Mn₃Ga + MnO fit the demo opens on", () => {
     const excluded = excludedPointMask(curves.yObs);
     const include = curves.x.map((x, i) => !excluded[i] && curves.yCalc[i]! > 0 && x >= demo.fitRange.min && x <= demo.fitRange.max);
     const view = powderValidation({ x: curves.x, yObs: curves.yObs, yCalc: curves.yCalc, sigma, include, nParams: 8 });
-    // The saved project's last result: Rwp 4.24345 %, Rp 6.26410 %, over the same 3125 points.
+    // The snapshot's last refinement (re-made under THY-90, mn3gaPowgen.ts): Rwp 3.87773 %, Rp 6.18574 %, over the same 3125 points.
+    // (The 0.5.0 project's, with no reflection below 0.5 Å: Rwp 4.24345 %, Rp 6.26410 %.)
     expect(view.agreement.n).toBe(3125);
-    expect(view.agreement.rwp).toBeCloseTo(0.042434525551305, 9);
-    expect(view.agreement.rp).toBeCloseTo(0.06264096284028371, 9);
+    expect(view.agreement.rwp).toBeCloseTo(0.03877734716160057, 9);
+    expect(view.agreement.rp).toBeCloseTo(0.06185742382790079, 9);
   });
 });
