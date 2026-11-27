@@ -9,6 +9,22 @@ release fixes bugs.
 
 ### Fixed
 
+- **A reflection list past the limit no longer replaces the page.** With the
+  NOMAD 2023A default (banks 1–5), switching six-bank data from bank 4 to 6
+  holds bank 4's calibration, at which bank 6's short times of flight reach
+  d 0.039 Å; the Instrument card's width note then listed more reflections
+  than the engine allows and the whole page became "This structure and data
+  cannot be calculated". The width note now says the reflections there are not
+  drawn and why they are not listed, and the Agent's `get_state` reads the
+  page. Where the page's own reflection list passes the limit (another bank's
+  calibration that gives a peak at every d, or a large cell), the plot shows
+  the observed points under one sentence ("Bank 6's data at this instrument
+  calibration reach d … Å: … hkl to scan, over the limit. Load the instrument
+  file for bank 6, or narrow the window."), the Validation view
+  shows the sentence, Refine is held with it, and the cards and the bank
+  chooser stay usable. The Agent's `get_state` gives the same sentence, and
+  `refine`, the posterior and the magnetic fits are refused with it.
+
 - **Sites on special positions are read exactly.** A structure file prints
   special positions rounded (Mn₃Ga: Ga at 0.3333, 0.6667). MATERIA reads such a
   site as special, but the larger-cell subgroups matched atoms far more

@@ -465,7 +465,7 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
     });
   },
   refine: refinePlan<PowderAgentPort>({
-    refuse: (s) => (s.viewOnly ? "this pattern is view-only (a TOF pattern without a TOF profile); load its instrument file to refine it" : s.instrumentNotes?.refineHeld ?? null),
+    refuse: (s) => (s.viewOnly ? "this pattern is view-only (a TOF pattern without a TOF profile); load its instrument file to refine it" : s.reflectionLimit ?? s.instrumentNotes?.refineHeld ?? null),
     fits: (s, free) => {
       const caution = k0RefineCaution(s);
       return `Refine ${free} free parameter${free === 1 ? "" : "s"}${caution ? ` · ${caution}` : ""}`;
@@ -548,12 +548,15 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
     };
   }
   const xs = s.pattern.points;
-  const axisWarning = axisPlausibility(s);
+  // Past the reflection limit the page's sentence stands in for the axis reading (it lists the data's reflections).
+  const axisWarning = s.reflectionLimit ? null : axisPlausibility(s);
   return {
     technique: "powder",
     source: s.source,
     busy: s.busy,
     ...(axisWarning ? { axisWarning } : {}),
+    // Past the reflection limit: the page's sentence, and no calculated curve to read (no wR, no short-d reading).
+    ...(s.reflectionLimit ? { reflectionLimit: s.reflectionLimit } : {}),
     ...(s.viewOnly ? { viewOnly: "TOF pattern without a TOF profile: shown, not refined" } : {}),
     phases: [s.structure, ...s.extraPhases].map((ph, i) => {
       const refined = s.refinedPhases[i] ?? ph;
@@ -575,7 +578,7 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
           }),
       ),
       observations: s.observationCount,
-      ...shortDView(s),
+      ...(s.reflectionLimit ? {} : shortDView(s)),
       radiation: s.pattern.radiation.kind,
       // X-ray constants the fit cannot determine (set_instrument_constants); a
       // lab tube's Kα₂ is drawn with every reflection: no misfit and no phase.
@@ -606,7 +609,7 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
     magneticModel: s.magnetic
       ? { propagation: s.magnetic.propagation, moments: s.magnetic.moments.length, refined: s.parameters.some((p) => p.kind === "momentMode") }
       : null,
-    wR: pct(s.wR),
+    wR: s.reflectionLimit ? null : pct(s.wR),
     ...phaseFractionView(s),
     lastRefinement: s.result
       ? {

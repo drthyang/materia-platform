@@ -125,6 +125,12 @@ interface Props {
    */
   readonly overlays?: readonly { readonly label: string; readonly y: readonly number[] }[];
   /**
+   * The observed points alone: no calculated, background or difference curve
+   * is drawn, named in the legend or read out (a page with no calculated
+   * pattern, e.g. past the reflection limit). The fit window's handles stay.
+   */
+  readonly observedOnly?: boolean;
+  /**
    * Standard uncertainty of each observed point (aligned with `curves.x`):
    * drawn as a ±σ error RIBBON around the observations, and included in the
    * y auto-scale so the ribbon is never clipped. Omit for no ribbon.
@@ -270,6 +276,7 @@ export function WorkbenchPlot({
   signedY = false,
   yLabel = "Intensity (a.u.)",
   overlays,
+  observedOnly = false,
   obsSigma,
   obsSigmaLabel = "±σ",
   viewKey,
@@ -323,9 +330,11 @@ export function WorkbenchPlot({
   const legendEntries: { color: string; label: string; shape: LegendShape }[] = [
     { color: color.obs, label: "obs", shape: "dot" },
     ...(hasSigma ? [{ color: color.obs, label: obsSigmaLabel, shape: "band" as const }] : []),
-    { color: color.calc, label: "calc", shape: "line" },
-    { color: color.diff, label: "diff", shape: "line" },
-    { color: color.bkg, label: "bkg", shape: "dashline" },
+    ...(observedOnly ? [] : [
+      { color: color.calc, label: "calc", shape: "line" as const },
+      { color: color.diff, label: "diff", shape: "line" as const },
+      { color: color.bkg, label: "bkg", shape: "dashline" as const },
+    ]),
     // The ▽ "found" key leads the dynamic entries when found peaks exist.
     ...(foundPeaks && foundPeaks.length > 0 ? [{ color: foundStyle?.color ?? color.obs, label: foundStyle?.label ?? "found", shape: "triangle" as const }] : []),
     ...(overlays ?? []).map((o, i) => ({ color: OVERLAY_COLORS[i % OVERLAY_COLORS.length]!, label: o.label, shape: "dash" as const })),
@@ -496,7 +505,7 @@ export function WorkbenchPlot({
   // 50 %), the ±σ ribbon, overlays, the dashed background, the calc line, the
   // difference line on its dashed zero. Clipped to the data area, so a zoomed
   // line no longer runs under the y-axis labels.
-  const showBkg = showBackground && !!curves.yBackground;
+  const showBkg = showBackground && !!curves.yBackground && !observedOnly;
   useLayoutEffect(() => {
     const cv = canvasRef.current;
     if (!cv) return;
@@ -624,22 +633,24 @@ export function WorkbenchPlot({
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
     }
-    ctx.strokeStyle = color.calc;
-    ctx.lineWidth = 1.4;
-    line(curves.yCalc, sy);
+    if (!observedOnly) {
+      ctx.strokeStyle = color.calc;
+      ctx.lineWidth = 1.4;
+      line(curves.yCalc, sy);
 
-    // difference band: dashed zero line, then the difference
-    ctx.strokeStyle = "#e0d8c9";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    ctx.moveTo(X0, DIFF_Y);
-    ctx.lineTo(X1, DIFF_Y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.strokeStyle = color.diff;
-    ctx.lineWidth = 1;
-    line(curves.diff, sdiff);
+      // difference band: dashed zero line, then the difference
+      ctx.strokeStyle = "#e0d8c9";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(X0, DIFF_Y);
+      ctx.lineTo(X1, DIFF_Y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = color.diff;
+      ctx.lineWidth = 1;
+      line(curves.diff, sdiff);
+    }
 
     // Bragg reflection ticks, one coloured row per phase, each tick its own
     // 70 % stroke (so a dense cluster darkens as the SVG ticks did). A click
@@ -662,7 +673,7 @@ export function WorkbenchPlot({
     ctx.globalAlpha = 1;
     ctx.restore();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the scales are derived from these
-  }, [xs, yObs, curves.yCalc, curves.diff, curves.yBackground, showBkg, overlays, obsSigma, vlo, vhi, yLo, yTop, dm, boxW, VB_H, X0, X1, BASE, MAINH, DIFF_Y, DIFF_A, fitLo, fitHi, signedY, phases, TICK_TOP, tickStep, tickH]);
+  }, [xs, yObs, curves.yCalc, curves.diff, curves.yBackground, showBkg, observedOnly, overlays, obsSigma, vlo, vhi, yLo, yTop, dm, boxW, VB_H, X0, X1, BASE, MAINH, DIFF_Y, DIFF_A, fitLo, fitHi, signedY, phases, TICK_TOP, tickStep, tickH]);
 
   // The single selected reflection (from a scatter-point OR a Bragg-tick click):
   // locate its Bragg tick so we can spotlight that peak. Prefer the row whose
@@ -819,7 +830,7 @@ export function WorkbenchPlot({
     const ys: { label: string; value: string; color: string }[] = [
       { label: "obs", value: `${formatReadoutValue(yObs[i]!)}${sd !== undefined && obsSigma ? ` ± ${formatReadoutValue(sd)}` : ""}`, color: color.obs },
     ];
-    if (inFit) {
+    if (inFit && !observedOnly) {
       ys.push({ label: "calc", value: formatReadoutValue(curves.yCalc[i]!), color: color.calc });
       ys.push({ label: "diff", value: formatReadoutValue(curves.diff[i]!), color: color.diff });
       if (showBkg) ys.push({ label: "bkg", value: formatReadoutValue(curves.yBackground![i]!), color: color.bkg });
@@ -828,7 +839,7 @@ export function WorkbenchPlot({
     const ticks = near.map((t) => ({ text: `${t.phaseLabel} (${formatHkl(t.hkl)}) d ${t.d.toFixed(4)} Å`, color: t.color }));
     const speech = [xText, ...ys.map((y) => `${y.label} ${y.value}`), inFit ? "" : "outside the fit window", ...ticks.map((t) => t.text)].filter(Boolean).join(", ");
     return { xText, ys, ticks, inFit, speech };
-  }, [readout, axis.name, axis.unit, yObs, obsSigma, curves.yCalc, curves.diff, curves.yBackground, showBkg, overlays]);
+  }, [readout, axis.name, axis.unit, yObs, obsSigma, curves.yCalc, curves.diff, curves.yBackground, showBkg, observedOnly, overlays]);
   const spoken = useThrottledText(readoutLines?.speech ?? "", 600);
 
   // Legend layout (see the render): measured from the label widths, wrapping

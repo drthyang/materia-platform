@@ -15,6 +15,7 @@ import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { MagneticStep, type AppliedModelView, type StepInputs } from "@/app/magneticStep";
 import { reRefinedRows } from "@/core/magnetic/momentsFit";
 import { magneticApplied, magneticModelSummary, powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR, withMagneticModelRows, withMagneticPreview, withMomentRoundRows, type FitWindow, type PowderCompute } from "@/app/powderPage";
+import { pageReflectionLimit } from "@/app/reflectionLimit";
 
 /** The curves of a session, the magnetic model's contribution included. */
 export function sessionCurves(s: Session): ReturnType<typeof powderCurves> {
@@ -63,15 +64,19 @@ export function magneticStepOn(
     const { session: s, window } = page();
     if (last && last.session === s && last.window?.min === window?.min && last.window?.max === window?.max) return last.inputs;
     const viewOnly = s.pattern.xUnit === "tof" && s.powderProfile.shape !== "tof";
+    // A list past the engine's limit (app/reflectionLimit.ts): no calculated curve, so no residual and no baseline, as the workbench
+    // gives; the residual peaks read the whole pattern, whatever the window.
+    const over = pageReflectionLimit(s, window) !== null;
+    const wholeOver = window ? pageReflectionLimit(s, null) !== null : over;
     const next: StepInputs = {
       // The panel works on the refined phase (the moments fit re-applies the rows onto the loaded one).
       structure: refinedPhasesOf(s)[0]!,
-      residualPeaks: residualPeaksOf(s, opts.instrument),
-      ...(magneticApplied(s) ? { nuclearResidualPeaks: residualPeaksOf(s, opts.instrument, [], { nuclearOnly: true }) } : {}),
+      residualPeaks: wholeOver ? [] : residualPeaksOf(s, opts.instrument),
+      ...(magneticApplied(s) && !wholeOver ? { nuclearResidualPeaks: residualPeaksOf(s, opts.instrument, [], { nuclearOnly: true }) } : {}),
       applied: appliedView(s),
       // A view-only TOF page, which the compute client does not refine, fits in this thread.
       fit: powderMomentFit(viewOnly ? null : opts.client ?? null, s, window),
-      baselineAgreement: s.pattern.points.length > 0 ? weightedR(s, powderPageCurves(s, window).nuclear, window) : null,
+      baselineAgreement: s.pattern.points.length > 0 && !over ? weightedR(s, powderPageCurves(s, window).nuclear, window) : null,
       nuclearValues: reRefinedRows(s.powderParams),
       // The rows a fit's rounds refined go onto the page, as the workbench puts them.
       onMomentFit: (held, fitted) => {

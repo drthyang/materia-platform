@@ -59,7 +59,9 @@ export async function samplePosteriorTool(input: { continue?: boolean; steps?: n
   const s = port.state();
   if (s.busy) throw new Error("a refinement is running — wait for it to finish");
   // The powder page on a data bank its instrument file has no bank for (app/bankFollow.ts): held as refine is.
-  const held = (s as { readonly instrumentNotes?: { readonly refineHeld?: string } }).instrumentNotes?.refineHeld;
+  // A reflection list past the engine's limit (app/reflectionLimit.ts): held with the page's sentence.
+  const page = s as { readonly reflectionLimit?: string; readonly instrumentNotes?: { readonly refineHeld?: string } };
+  const held = page.reflectionLimit ?? page.instrumentNotes?.refineHeld;
   if (held) throw new Error(held);
   if (!s.result) throw new Error("refine first: the sampler starts at the refined values, and reads its widths against the refinement's esds");
   const free = s.parameters.filter((p) => !p.fixed && !p.expression);

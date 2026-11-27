@@ -20,6 +20,7 @@ import { tieReferences } from "@/core/refinement/constraints";
 import { powderCurves, type PowderProfile } from "@/core/workflow/powder";
 import { CORRECTION_KINDS } from "@/core/diffraction/corrections";
 import { optimalScale } from "@/app/loadData";
+import { readWithinLimit } from "@/app/reflectionLimit";
 
 /** Structural kinds held fixed on first load; freed via the table. */
 const STRUCTURAL_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
@@ -121,7 +122,14 @@ function seedStartingValues(
 
   // Peaks-only calculated curve (zero background) at unit scale.
   const peaksOnly = seedParams.map((pp) => (pp.kind === "background" ? { ...pp, value: 0 } : pp));
-  let curves = powderCurves(structure, pattern, peaksOnly, seedBindings, profile);
+  // A list past the engine's limit has no curve to seed against: the rows' own scale stands, and the page
+  // says why it cannot calculate (app/reflectionLimit.ts).
+  const first = readWithinLimit(() => powderCurves(structure, pattern, peaksOnly, seedBindings, profile));
+  if ("error" in first) {
+    if (!first.error.over) throw first.error;
+    return { background, scale: seedParams.find((pp) => pp.kind === "scale")?.value ?? 1, zeroDelta: 0 };
+  }
+  let curves = first.value;
 
   // Zero-shift sanity (2θ only): apply only a significant, sane shift.
   let zeroDelta = 0;

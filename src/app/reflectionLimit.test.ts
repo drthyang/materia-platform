@@ -18,7 +18,12 @@ import { readFileSync } from "node:fs";
 import { parseCif } from "@/parsers/cif";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { DEFAULT_INSTRUMENTS } from "@/app/defaultInstruments";
-import { withInstrumentFile, withPattern, withStructure, emptyPage, type PowderPage } from "@/app/powderPage";
+import { powderPageCurves, withInstrumentFile, withPattern, withStructure, emptyPage, type PowderPage } from "@/app/powderPage";
+import { landData } from "@/app/bankKeep";
+import { powderWorkspaceFrom, sessionFromPowderWorkspace } from "@/app/projectIo";
+import { snapProjectStructures } from "@/app/snapOnOpen";
+import { recordStep, restoreStep, undoTarget } from "@/core/project/history";
+import type { PowderWorkspace } from "@/core/project/types";
 import { bankCoverage } from "@/app/bankFollow";
 import { tofWidthNote } from "@/app/tofWidthNote";
 import { pageReflectionLimit, reflectionLimitSentence, timesTen, withinReflectionLimit } from "@/app/reflectionLimit";
@@ -26,7 +31,7 @@ import { ReflectionLimitError } from "@/core/diffraction/reflections";
 import { tofReflectionsLeftOut } from "@/core/workflow/powder";
 import { appliedPhases } from "@/app/shortD";
 import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
-import { NOMAD_STYLE_BANKS, multiBankGsa } from "@/testSupport/instprmFixtures";
+import { FIVE_BANK_INSTPRM, NOMAD_STYLE_BANKS, multiBankGsa } from "@/testSupport/instprmFixtures";
 
 const T = 60_000;
 const NOMAD = DEFAULT_INSTRUMENTS.find((d) => d.instrument === "NOMAD")!;
@@ -85,6 +90,83 @@ describe("the NOMAD default held on data bank 6: the width note past the limit",
     expect(withinReflectionLimit(() => { throw new ReflectionLimitError("Reflection list too large"); })).toBeNull();
     expect(() => withinReflectionLimit(() => { throw new Error("something else"); })).toThrow("something else");
   });
+});
+
+/**
+ * The list itself past the limit: a user's five-bank file whose bank 5
+ * profile gives a peak at every d (σ² = 900 d²), held on data bank 6, whose
+ * short times of flight reach d 0.034 Å at bank 5's difC. Nothing on the
+ * page can be calculated there.
+ */
+describe("a held calibration whose list passes the limit", () => {
+  const GSA6 = multiBankGsa([
+    { bank: 1, difC: 1215.5, tth: 20 }, { bank: 2, difC: 3310.5, tth: 40 }, { bank: 3, difC: 6100.5, tth: 75 },
+    { bank: 4, difC: 7755.5, tth: 110.5 }, { bank: 5, difC: 10240.5, tth: 160, points: 200 }, { bank: 6, difC: 640.5, tth: 10, start: 350, points: 200 },
+  ]);
+  const onFive = (): PowderPage => withInstrumentFile(dataPage(5, GSA6), "mine.instprm", FIVE_BANK_INSTPRM).page;
+  const SENTENCE = "Bank 6's data at this instrument calibration reach d 0.034 Å: 2.2×10⁸ hkl to scan, over the limit. Load the instrument file for bank 6, or narrow the window.";
+  const workspaceOf = (p: PowderPage): PowderWorkspace => powderWorkspaceFrom(p.session, p.result, p.instrument, p.instrumentLoaded, { fitRange: null, displayUnit: null, manualPeakD: [] });
+
+  it("bank 5 → 6: the page lands (no throw), its list is past the limit, and the sentence says where and what to do", () => {
+    const before = onFive();
+    expect(pageReflectionLimit(before.session, null)).toBeNull();
+    const l = landData(before, toDataBank(before, 6, GSA6), `Loaded data ${NAME}, bank 6`, "chooser");
+    expect(l.label).toBe("Data bank 5 → 6, refinement values kept");
+    const over = pageReflectionLimit(l.page.session, null)!;
+    expect(over).toMatchObject({ limit: "scan", max: 6e7 });
+    expect(over.dMin).toBeCloseTo(350 / 10250.5, 4);
+    expect(() => powderPageCurves(l.page.session, null)).toThrow(ReflectionLimitError);
+    const c = bankCoverage(l.page.session, l.page.instrument, l.page.instrumentLoaded)!;
+    expect(reflectionLimitSentence(over, { dataBank: 6, uncovered: !!c })).toBe(SENTENCE);
+    // The width note and the axis reading read the page without throwing.
+    expect(() => tofWidthNote(l.page.session)).not.toThrow();
+    // A window that starts above the short-d end brings the list within the limit.
+    const xs = l.page.session.pattern.points.map((pt) => pt.x);
+    expect(pageReflectionLimit(l.page.session, { min: xs[Math.floor(xs.length * 0.9)]!, max: xs[xs.length - 1]! })).toBeNull();
+  }, T);
+
+  it("the Agent: get_state gives the sentence and no wR; refine and the posterior are refused with it", async () => {
+    const before = onFive();
+    const p = landData(before, toDataBank(before, 6, GSA6), `Loaded data ${NAME}, bank 6`, "chooser").page;
+    const { port } = sessionPort(p.session, p.instrument, { instrumentOnPage: true });
+    expect(port.state().reflectionLimit).toBe(SENTENCE);
+    const { ex } = executor(fakeHost(port).host, "auto");
+    const state = JSON.parse((await ex.run("get_state", {})).text) as { reflectionLimit?: string; wR: unknown };
+    expect(state.reflectionLimit).toBe(SENTENCE);
+    expect(state.wR).toBeNull();
+    expect((await ex.run("refine", {})).text).toContain(SENTENCE);
+    expect((await ex.run("sample_posterior", {})).text).toContain(SENTENCE);
+    // The window narrowed above the short-d end: the list is within the limit, get_state reads the curves again,
+    // and refine is held for the bank alone.
+    const xs = p.session.pattern.points.map((pt) => pt.x);
+    await ex.run("set_fit_range", { min: xs[Math.floor(xs.length * 0.9)]!, max: xs[xs.length - 1]! });
+    expect(port.state().reflectionLimit).toBeUndefined();
+    const narrowed = JSON.parse((await ex.run("get_state", {})).text) as { reflectionLimit?: string; wR: unknown };
+    expect(narrowed.reflectionLimit).toBeUndefined();
+    expect(typeof narrowed.wR).toBe("number");
+    expect((await ex.run("refine", {})).text).toContain(port.state().instrumentNotes!.refineHeld!);
+    // Bank 5 on the same page: nothing held for the limit.
+    const { port: five } = sessionPort(before.session, before.instrument, { instrumentOnPage: true });
+    expect(five.state().reflectionLimit).toBeUndefined();
+  }, T);
+
+  it("the chooser back to bank 5 gives the fit back; undo of the switch does too", () => {
+    const before = onFive();
+    const six = landData(before, toDataBank(before, 6, GSA6), `Loaded data ${NAME}, bank 6`, "chooser").page;
+    // Back by the chooser: the instrument follows to bank 5, the curves calculate.
+    const back = landData(six, toDataBank(six, 5, GSA6), `Loaded data ${NAME}, bank 5`, "chooser").page;
+    expect(back.session.rawInstrument!.bank).toBe(5);
+    expect(pageReflectionLimit(back.session, null)).toBeNull();
+    expect(Math.max(...powderPageCurves(back.session, null).curves.yCalc)).toBeGreaterThan(0);
+    // Undo: the step before the switch, restored as App.goToStep does.
+    let history = recordStep(null, { kind: "load", label: "Bank 5", structures: [structure], workspace: workspaceOf(before) });
+    history = recordStep(history, { kind: "load", label: "Data bank 5 → 6, refinement values kept", structures: [structure], workspace: workspaceOf(six) });
+    const step = restoreStep(history, undoTarget(history)!);
+    const undone = sessionFromPowderWorkspace(step.workspace as PowderWorkspace, [...snapProjectStructures(step.structures, step.workspace).structures]);
+    expect(undone.session.rawData!.bank).toBe(5);
+    expect(pageReflectionLimit(undone.session, null)).toBeNull();
+    expect(Math.max(...powderPageCurves(undone.session, null).curves.yCalc)).toBeGreaterThan(0);
+  }, T);
 });
 
 describe("the sentence", () => {

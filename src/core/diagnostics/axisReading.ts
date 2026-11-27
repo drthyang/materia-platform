@@ -7,7 +7,7 @@
 
 import type { SpaceGroup, UnitCell } from "@/core/crystal/types";
 import type { PowderXUnit } from "@/core/diffraction/types";
-import { ReflectionLimitError, generateReflections } from "@/core/diffraction/reflections";
+import { MAX_INDEX_BOX, ReflectionLimitError, generateReflections } from "@/core/diffraction/reflections";
 import { minMax } from "@/core/math/extent";
 import { sig } from "@/core/math/precision";
 import { AXIS_REFLECTIONS_MIN } from "@/core/diagnostics/thresholds";
@@ -41,9 +41,10 @@ export function axisPlausibility(o: AxisInput): string | null {
  * The structure's reflection families in [lo, hi] (Å), or, where the list
  * passes the engine's limit (a short d at a calibration far from the data's,
  * a large cell), a lower bound on them that settles the reading: the families
- * counted before the limit, or those of a long-d part of the range (the top
- * half, quarter, … of it) once that holds AXIS_REFLECTIONS_MIN. A bound that
- * settles nothing throws the limit's error.
+ * counted before the limit, or those of a long-d part of the range (its top
+ * half, quarter, …, no shorter than the d the engine's index box reaches)
+ * once that holds AXIS_REFLECTIONS_MIN. A bound that settles nothing throws
+ * the limit's error.
  */
 function reflectionsInside(cell: UnitCell, sg: SpaceGroup, lo: number, hi: number): number {
   try {
@@ -51,16 +52,21 @@ function reflectionsInside(cell: UnitCell, sg: SpaceGroup, lo: number, hi: numbe
   } catch (e) {
     if (!(e instanceof ReflectionLimitError) || !e.over) throw e;
     if (e.over.limit === "families") return e.over.count;
-    for (let from = hi / 2; from > lo; from /= 2) {
+    // The shortest d whose index box the engine scans: |h| ≤ n on every axis, (2n + 1)³ ≤ MAX_INDEX_BOX.
+    const n = Math.floor((Math.cbrt(MAX_INDEX_BOX) - 1) / 2);
+    const boxEdge = Math.max(cell.a, cell.b, cell.c) / n;
+    for (let half = hi / 2; ; half /= 2) {
+      const from = Math.max(half, boxEdge, lo);
+      if (!(from < hi)) break;
       let part: number;
       try {
         part = generateReflections(cell, sg, from, hi).length;
       } catch (inner) {
         if (inner instanceof ReflectionLimitError && inner.over?.limit === "families") return inner.over.count;
-        if (inner instanceof ReflectionLimitError) break;
         throw inner;
       }
       if (part >= AXIS_REFLECTIONS_MIN) return part;
+      if (from === boxEdge || from === lo) break;
     }
     throw e;
   }

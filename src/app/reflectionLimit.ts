@@ -11,8 +11,10 @@
  */
 
 import { ReflectionLimitError, generateReflections, type ReflectionLimitOver } from "@/core/diffraction/reflections";
-import { reflectionDRange } from "@/core/workflow/powder";
+import type { PowderPattern } from "@/core/diffraction/types";
+import { reflectionDRange, type PowderCurves } from "@/core/workflow/powder";
 import { appliedPhases, type ShortDPage, type Window } from "@/app/shortD";
+import { currentDataBank, dataBanksOf } from "@/app/bankChoice";
 
 /** The reading, or the limit it passed (a ReflectionLimitError); any other error is thrown. */
 export function readWithinLimit<T>(read: () => T): { readonly value: T } | { readonly error: ReflectionLimitError } {
@@ -91,4 +93,31 @@ export function reflectionLimitSentence(over: ReflectionLimitOver, ctx: LimitCon
 /** The width note's form: "the data reach d 0.039 Å, 1.5×10⁸ hkl to scan" (app/tofWidthNote.ts). */
 export function reachText(over: ReflectionLimitOver): string {
   return `the data reach d ${fmtD(over.dMin)} Å, ${sizeOf(over)}`;
+}
+
+/** The pattern's observed points with no calculated curve (zeros): what the page holds while its list is past the limit. */
+export function observedOnlyCurves(pattern: PowderPattern): { nuclear: PowderCurves; curves: PowderCurves } {
+  const x = pattern.points.map((p) => p.x);
+  const yObs = pattern.points.map((p) => p.yObs);
+  const zero = x.map(() => 0);
+  const curves: PowderCurves = { x, yObs, yCalc: zero, yBackground: zero, diff: yObs.slice() };
+  return { nuclear: curves, curves };
+}
+
+/**
+ * The page's sentence when its list is past the limit, or null: the Agent's
+ * headless page (the shell reads the same parts from its memos). The bank is
+ * named when the data file has several; `uncovered`, the instrument file has
+ * no bank for it (app/bankFollow.ts bankCoverage).
+ */
+export function pageLimitLine(
+  p: ShortDPage & { readonly rawData?: { readonly name: string; readonly text: string; readonly bank?: number } },
+  window: Window | null,
+  uncovered: boolean,
+): string | null {
+  const over = pageReflectionLimit(p, window);
+  if (!over) return null;
+  const banks = dataBanksOf(p.rawData?.text);
+  const bank = banks && banks.length > 1 ? currentDataBank(banks, p.rawData)?.bankNumber ?? null : null;
+  return reflectionLimitSentence(over, { dataBank: bank, uncovered });
 }
