@@ -1,7 +1,12 @@
 name: Deploy to GitHub Pages
 
+# Deploys only a main commit whose CI run passed: the test suite runs once,
+# in CI (ci.yml), and this workflow builds and publishes that exact commit.
+# A red or cancelled CI never deploys. "Run workflow" deploys main by hand.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -16,15 +21,21 @@ concurrency:
 
 jobs:
   build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The commit CI passed (workflow_run), or main (manual run).
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run test
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
