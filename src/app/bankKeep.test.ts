@@ -19,6 +19,7 @@ import { withBackgroundTerms, withBackgroundType, withInstrumentFile, withParame
 import { bankCoverage, loadFollowStepLabel } from "@/app/bankFollow";
 import { dataBankSwitch, followsInstrument, keptNote, keptStepLabel, landData, withRefinementKept } from "@/app/bankKeep";
 import { powderWorkspaceFrom, sessionFromPowderWorkspace } from "@/app/projectIo";
+import { snapProjectStructures } from "@/app/snapOnOpen";
 import { lineage, recordStep, restoreStep, undoTarget } from "@/core/project/history";
 import type { PowderWorkspace } from "@/core/project/types";
 import type { RefinementParameter } from "@/core/refinement/types";
@@ -141,7 +142,11 @@ describe("refinement values kept across a data-bank switch", () => {
     let history = recordStep(null, { kind: "load", label: "Refined bank 4", structures: [structure], workspace: workspaceOf(before) });
     history = recordStep(history, { kind: "load", label: l.label, structures: [structure], workspace: workspaceOf(l.page) });
     expect(lineage(history).map((s) => s.label)).toEqual(["Refined bank 4", "Data bank 4 → 3, refinement values kept"]);
-    const undone = sessionFromPowderWorkspace(restoreStep(history, undoTarget(history)!).workspace as PowderWorkspace, [structure]);
+    // As App.goToStep restores a step: its structures read with the snap a project's open applies (snapOnOpen.ts).
+    const step = restoreStep(history, undoTarget(history)!);
+    const snapped = snapProjectStructures(step.structures, step.workspace);
+    expect(snapped.snapped).toEqual([]);
+    const undone = sessionFromPowderWorkspace(step.workspace as PowderWorkspace, [...snapped.structures]);
     expect(undone.session.rawData!.bank).toBe(4);
     expect(undone.session.rawInstrument!.bank).toBe(4);
     expect(undone.session.pattern.points).toEqual(before.session.pattern.points);
