@@ -7,6 +7,17 @@ release fixes bugs.
 
 ## [Unreleased]
 
+### Changed
+
+- **The Instrument card says one short line per item.** The title names the
+  instrument and its cycle ("TOF · NOMAD 2023A", beside the "default file"
+  chip); the calibration line rounds difA to two decimals with a real minus
+  sign ("difC 9068.6 · difA −23.08 · Zero −3.20 µs"); and the notes are one
+  line each, in amber, with their full text behind "?": "Default calibration:
+  load your run's file", "Profile held", "No peak width below d 0.209 Å".
+  The Agent's `get_state`, the report and the exported bundles keep their
+  wording.
+
 ### Fixed
 
 - **A reflection list past the limit no longer replaces the page.** With the

@@ -91,7 +91,8 @@ import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { observedOnlyCurves, pageReflectionLimit, reflectionLimitSentence } from "@/app/reflectionLimit";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
-import { fileProfileCardNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
+import { fileProfileCardNote, tofNegativeGammaNote, tofWidthCardNote } from "@/app/tofWidthNote";
+import { calNumber } from "@/app/calibrationText";
 import { scoredWindow, shortDNote, shortDReading, tickDRanges } from "@/app/shortD";
 import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel, defaultUncovered, instrumentCardChip } from "@/app/defaultInstruments";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
@@ -1366,7 +1367,7 @@ export function PowderWorkbench({
   const kAlpha2 = secondLine(pattern) ? (pattern.radiation as { kAlpha2?: { wavelength: number; ratio: number } }).kAlpha2 : undefined;
   const instParamMeta =
     instrument.kind === "tof"
-      ? `difC ${instrument.difC.toFixed(1)}${instrument.difA ? ` · difA ${instrument.difA}` : ""}${instrument.difB ? ` · difB ${instrument.difB}` : ""} · Zero ${(instrument.zero ?? 0).toFixed(2)} µs`
+      ? `difC ${instrument.difC.toFixed(1)}${instrument.difA ? ` · difA ${calNumber(instrument.difA)}` : ""}${instrument.difB ? ` · difB ${calNumber(instrument.difB)}` : ""} · Zero ${calNumber(instrument.zero ?? 0)} µs`
       : `λ ${instrument.wavelength}${kAlpha2 ? ` / ${kAlpha2.wavelength} Å (Kα₂ ${kAlpha2.ratio})` : " Å"}${instrument.zero ? ` · Zero ${instrument.zero}°` : ""}`;
   // Instrument identity: "Beamline · Facility" when the loaded file named a known
   // beamline (the common case). Fall back to the generic mode label + calibration
@@ -1404,7 +1405,7 @@ export function PowderWorkbench({
   const instProfile = instrumentLoaded ? fileProfileCardNote(instrument, instBank) : null;
   const instUnused = instProfile ? null : unusedNote(instBank, session.mustrain);
   const instWidths = useMemo(
-    () => tofWidthNote({ structure: session.structure, extraPhases: session.extraPhases, pattern, powderParams, powderBindings: session.powderBindings }),
+    () => tofWidthCardNote({ structure: session.structure, extraPhases: session.extraPhases, pattern, powderParams, powderBindings: session.powderBindings }),
     [session.structure, session.extraPhases, pattern, powderParams, session.powderBindings],
   );
   const instGamma = useMemo(
@@ -1476,9 +1477,9 @@ export function PowderWorkbench({
         </div>
       )}
       {instDefault && (
-        <div data-testid="instrument-default-warning" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.warnInk }}>
-          <span>{instDefault.line}</span>
-          <InfoBadge width={320} text={instDefault.detail} />
+        <div data-testid="instrument-default-warning" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.noteInk }}>
+          <span>{instDefault.cardLine}</span>
+          <InfoBadge width={340} text={instDefault.cardDetail} />
         </div>
       )}
       {instBankChoices && (
@@ -1512,7 +1513,7 @@ export function PowderWorkbench({
         </div>
       )}
       {instWidths && (
-        <div data-testid="instrument-widths" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.warnInk }}>
+        <div data-testid="instrument-widths" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small, color: theme.noteInk }}>
           <span>{instWidths.line}</span>
           <InfoBadge width={340} text={instWidths.detail} />
         </div>

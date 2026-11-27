@@ -115,7 +115,10 @@ describe("the workbench past the reflection limit", () => {
     // The model's list stops at the file's profile end: the plot draws it, Refine is held for the bank.
     expect(limit()).toEqual([]);
     expect(text()).toContain("Refine is off: no instrument bank for data bank 6");
-    expect(text()).toContain("the reflections there are not drawn");
+    // The width note's short line on the card (bank 4's widths fail over all of bank 6's range); its full sentence behind the "?".
+    const widths = host.querySelector("[data-testid=instrument-widths]")!;
+    expect(widths.textContent).toBe("No peak width over the data's d-range?");
+    expect(widths.querySelector("[role=img]")!.getAttribute("aria-label")).toMatch(/^The instrument file gives no peak width for d 0\.\d{3}–0\.\d{3} Å \(σ² ≤ 0\): the reflections there are not drawn\. /);
     expect(button("Refine")!.disabled).toBe(true);
     const chooser = host.querySelector<HTMLSelectElement>("[data-testid=data-bank]")!;
     await act(async () => {
