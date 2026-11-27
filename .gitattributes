@@ -1,1 +1,2 @@
 examples/instruments/nomad/*.instprm -text
+examples/gata4se8-nomad-300k/*.gsa -text
