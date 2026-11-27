@@ -543,6 +543,7 @@ is an MCP tool, and an MCP client asks its user in its own UI.
 | `identify_peaks` | at once | Identify extra peaks |
 | `add_known_phase` | always asks | Add a known phase |
 | `set_instrument_constants` | always asks | Set X-ray instrument constants |
+| `export_instrument` | at once | Calibrate the instrument and write its file |
 | `set_background` | asks first | Change the background |
 | `set_microstrain` | asks first | Change the microstrain model |
 | `set_site_ties` | asks first | Change the site ties |

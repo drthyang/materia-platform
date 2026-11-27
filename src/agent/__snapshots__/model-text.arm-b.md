@@ -1056,6 +1056,51 @@ Powder page, constant-wavelength X-ray only. The constants a fit cannot determin
 }
 ```
 
+### export_instrument
+
+Powder page, time-of-flight only, when the loaded data are a line-position standard (NIST SRM 640e silicon). Calibrates the instrument against it, bank by bank over every bank of the data file, in GSAS-II's convention: the standard's cell held at its certified value; its sample terms held at size 1 µm and Lorentzian microstrain 1000; then freed in turn, each added to the last: difC, the zero, difA when the bank's d-range separates it, α β₀ β₁, σ₀ σ₁ σ₂, X Y; then the standard's U_iso with the instrument held, the two alternating until settled. A term the data cannot separate is held at the starting file's value and named. Then offers the user a GSAS-II .instprm: one #Bank N block per calibrated bank, numbered as the data's banks, the starting file's other lines kept, the standard and the convention on each bank's header line. Needs the standard and the temperature the data were measured at: when the data do not state the temperature, ask the user (ask_user); never assume one. Away from the certificate's 22.5 °C it needs the standard's cell at that temperature from the user (latticeA). Starts from the loaded GSAS-II instrument file. Returns per bank each term with its esd and starting value, the fit window in d, wR and GoF, U_iso, and flags (not calibrated, low statistics, terms held, not separable, not settled); a flagged bank is left out of the file unless `banks` names it. Changes nothing on the page.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "standard": {
+      "type": "string",
+      "enum": [
+        "si640e",
+        "lab6660c"
+      ],
+      "description": "The standard the user named: \"si640e\" (NIST SRM 640e silicon) or \"lab6660c\" (SRM 660c LaB₆, not available yet)"
+    },
+    "temperatureK": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 2000,
+      "description": "The temperature the data were measured at (K), as the user or the data state it"
+    },
+    "latticeA": {
+      "description": "The standard's cubic cell (Å) at that temperature, as the user gives it; needed away from 22.5 °C",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "banks": {
+      "description": "The data banks to calibrate and write, a flagged one included; default every bank, flagged ones left out of the file",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      }
+    }
+  },
+  "required": [
+    "standard",
+    "temperatureK"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### structure_table
 
 The refined structure as it is reported: per phase the cell (a, b, c, angles, volume) and per site the fractional coordinates, occupancy and B_iso (U_eq when anisotropic), each as value(esd) in the last digits, from the last refinement's esds (no esd on a fixed value; a cell held fixed carries the structure file's esds, SHELXL's ZERR or a CIF's su, and the volume's from them). Call it for the final report, or to compare with a published structure; get_state shows parameter shifts, not coordinates. On the single-crystal page, `against: "loaded"` compares each site with the structure as loaded (a published refinement's CIF): its shift in Å and in esds, and its U_eq against the loaded one, listing the sites beyond 2 esds.

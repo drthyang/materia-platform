@@ -492,6 +492,7 @@ export function App(): JSX.Element {
       agentRecordsRef.current = next;
       setAgentRecords(next);
     },
+    saveFile: (name, text) => downloadText(name, text),
   }), [agentLink]);
   const agent = useAgent(agentHost, () => setAgentOpen(true));
   // The open page's method, as the drawer's checklist shows it.

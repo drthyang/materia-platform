@@ -43,8 +43,8 @@ function calibrate(c: Case, difAGuard: "pairwise" | "determined") {
   return calibrateTofBank({ structure, pattern, start, backgroundTerms: 4, difAGuard });
 }
 
-// The guard on difA with difC, the zero and difA taken as one curve, TOF(d) (the option recommended
-// to the owner; the default, "pairwise", holds difA on the LaB₆ bank-2 case: see the last test).
+// The guard on difA with difC, the zero and difA taken as one curve, TOF(d) (the default; the
+// "pairwise" reading holds difA on the LaB₆ bank-2 case: see the last test).
 describe("instrument calibration: a synthetic standard gives its instrument file back", () => {
   for (const [name, c] of Object.entries(TRUTH.cases)) {
     it(`${name}: every calibrated term within ${WITHIN_ESD} esd of the truth, the standard's U_iso too`, () => {

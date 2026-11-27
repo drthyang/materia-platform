@@ -17,9 +17,9 @@
  *   2. difC
  *   3. difC + zero
  *   4. difC + zero + difA, only when the bank's d-range supports difA: the
- *      correlation guard probes the three at the current values first and,
- *      by default, a pair at |ρ| ≥ CORRELATION_LIMIT keeps difA at its
- *      starting value (`difAGuard`)
+ *      correlation guard probes the three at the current values first and
+ *      keeps difA at its starting value when the data cannot determine it
+ *      (`difAGuard`)
  *   5. + α, β₀, β₁
  *   6. + σ₀, σ₁, σ₂
  *   7. + X, Y (the Lorentzian)
@@ -87,9 +87,14 @@ export interface TofCalibrationInput {
   /** Chebyshev background terms (GSAS-II's calibrations use 6). */
   readonly backgroundTerms?: number;
   /**
-   * How the correlation guard decides difA: "pairwise" (default) holds it when it
-   * correlates with difC or the zero at |ρ| ≥ CORRELATION_LIMIT; "determined" only
-   * when the data cannot determine it at all (a null direction).
+   * How the correlation guard reads difC, the zero and difA among themselves.
+   * "determined" (default): as one curve, TOF(d) = Zero + difC·d + difA·d², whose
+   * coefficients trade off by construction while the curve is determined (as the
+   * page reads U, V, W): held only when the data cannot determine one at all (a
+   * null direction). "pairwise": any pair at |ρ| ≥ CORRELATION_LIMIT holds the
+   * later one; on the NOMAD silicon data it holds difA in every bank (ρ −0.96 to
+   * −0.98) and leaves difC tens of esd off on synthetic data. Every other pair
+   * is guarded pairwise either way.
    */
   readonly difAGuard?: "pairwise" | "determined";
   /** Terms held at their starting value whatever the order says (e.g. a term the user keeps). */
@@ -222,7 +227,7 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
     if (probe.status === "failed" && Object.keys(probe.parameters).length === 0) return { pairs: [], undetermined: [...ids] };
     const rowsNow = params.map((p) => ({ ...p, fixed: !(p.kind === "scale" || p.kind === "background" || ids.includes(p.id)) }));
     const check = readCorrelations(probe, rowsNow);
-    const pairs = check.correlated.filter((c) => (input.difAGuard ?? "pairwise") === "pairwise" || !(oneCurve.has(c.a) && oneCurve.has(c.b)));
+    const pairs = check.correlated.filter((c) => (input.difAGuard ?? "determined") === "pairwise" || !(oneCurve.has(c.a) && oneCurve.has(c.b)));
     return { pairs, undetermined: check.undetermined };
   };
   const instrumentRows: string[] = [];
@@ -238,7 +243,14 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
     for (const c of pairs) {
       const later = order(c.a) > order(c.b) ? c.a : c.b;
       const other = later === c.a ? c.b : c.a;
-      if (added.includes(later) && !hold.has(later)) hold.set(later, `${termOf(later)} held at ${startValue[later]}: over this bank's d-range it correlates with ${termOf(other)} at ${c.coefficient.toFixed(3)}.`);
+      if (hold.has(later) || hold.has(other)) continue;
+      hold.set(later, `${termOf(later)} held at ${startValue[later]}: over this bank's d-range it correlates with ${termOf(other)} at ${c.coefficient.toFixed(3)}.`);
+    }
+    // A term freed earlier that the guard now stops goes back to the file's value, held.
+    for (const id of hold.keys()) {
+      if (added.includes(id)) continue;
+      instrumentRows.splice(instrumentRows.indexOf(id), 1);
+      params = params.map((p) => (p.id === id ? { ...p, value: startValue[id]! } : p));
     }
     for (const [id, why] of hold) {
       flags.push(why);
@@ -246,14 +258,18 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
     }
     const kept = added.filter((id) => !hold.has(id));
     if (kept.length === 0) return;
+    const before = params;
+    const base = [...instrumentRows];
     instrumentRows.push(...kept);
-    if (!runHolding(name, 0)) {
-      for (const id of kept) {
-        instrumentRows.splice(instrumentRows.indexOf(id), 1);
-        const why = `${termOf(id)} held at ${startValue[id]}: refined with ${name.replace(/^\+ /, "")}, the profile left its valid range (${steps[steps.length - 1]?.name ?? ""} failed).`;
-        flags.push(why);
-        guardStops.push({ term: termOf(id), why });
-      }
+    // runHolding holds (and names) a term that runs to its bound.
+    if (runHolding(name, 0)) return;
+    const survived = kept.filter((id) => instrumentRows.includes(id));
+    params = before;
+    instrumentRows.splice(0, instrumentRows.length, ...base);
+    for (const id of survived) {
+      const why = `${termOf(id)} held at ${startValue[id]}: refined with ${name.replace(/^\+ /, "")}, the profile left its valid range (${steps[steps.length - 1]?.name ?? ""} failed).`;
+      flags.push(why);
+      guardStops.push({ term: termOf(id), why });
     }
   };
   // A term that ends on its bound is one the bank does not determine (a rise time far shorter
@@ -278,6 +294,32 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
     }
   };
 
+  /** Run each path from the same state; keep the one whose last step fits best (lowest wR, same window and data). */
+  const bestOf = (paths: readonly (() => void)[]): void => {
+    const saved = { params, rows: [...instrumentRows], steps: steps.length, flags: flags.length, stops: guardStops.length, esd: { ...esd } };
+    let best: { wR: number; state: { params: RefinementParameter[]; rows: string[]; steps: CalibrationStep[]; flags: string[]; stops: { term: string; why: string }[]; esd: Record<string, number> } } | null = null;
+    for (const path of paths) {
+      params = saved.params;
+      instrumentRows.splice(0, instrumentRows.length, ...saved.rows);
+      steps.length = saved.steps; flags.length = saved.flags; guardStops.length = saved.stops;
+      for (const k of Object.keys(esd)) delete esd[k];
+      Object.assign(esd, saved.esd);
+      path();
+      const wR = steps.length > saved.steps ? steps[steps.length - 1]!.wR : Infinity;
+      if (!best || wR < best.wR) {
+        best = { wR, state: { params, rows: [...instrumentRows], steps: steps.slice(saved.steps), flags: flags.slice(saved.flags), stops: guardStops.slice(saved.stops), esd: { ...esd } } };
+      }
+    }
+    const b = best!.state;
+    params = b.params;
+    instrumentRows.splice(0, instrumentRows.length, ...b.rows);
+    steps.length = saved.steps; steps.push(...b.steps);
+    flags.length = saved.flags; flags.push(...b.flags);
+    guardStops.length = saved.stops; guardStops.push(...b.stops);
+    for (const k of Object.keys(esd)) delete esd[k];
+    Object.assign(esd, b.esd);
+  };
+
   // 1–4: scale + background; difC; the zero; difA when the d-range supports it.
   run("scale + background", 0, []);
   addBlock("difC", rows(["difC"]));
@@ -285,11 +327,22 @@ export function calibrateTofBank(input: TofCalibrationInput): TofCalibrationResu
   addBlock("difC + zero + difA", rows(["difA"]));
   const difARefined = instrumentRows.includes(ROW.difA);
   // 5–7: the profile, each block added to the terms already free.
-  addBlock("+ α, β₀, β₁", rows(["alpha", "beta-0", "beta-1"]));
-  addBlock("+ σ₀, σ₁, σ₂", rows(["sig-0", "sig-1", "sig-2"]));
-  addBlock("+ X, Y", rows(["X", "Y"]));
-  // 8: the standard's U_iso with the instrument held; then the two groups alternate.
-  if (uisoRows.length > 0) run("U_iso (instrument held)", 0, uisoRows);
+  // The rise and the decay: freed together (the brief's order), and again with the decay first and
+  // the rise after it; the first pass that fits better at its end is kept. On a bank whose rise time
+  // is far below the Gaussian width the joint step can fall into a false minimum (synthetic Si on a
+  // low-resolution bank: β₀ collapsed to 0 and difC moved 19 esd, at a GoF of 1.05 against 1.00).
+  // The rest of the first pass (5–8) runs both ways and the one that fits better at its end is kept.
+  const rest = (): void => {
+    addBlock("+ σ₀, σ₁, σ₂", rows(["sig-0", "sig-1", "sig-2"]));
+    addBlock("+ X, Y", rows(["X", "Y"]));
+    // 8: the standard's U_iso with the instrument held.
+    if (uisoRows.length > 0) run("U_iso (instrument held)", 0, uisoRows);
+  };
+  bestOf([
+    () => { addBlock("+ α, β₀, β₁", rows(["alpha", "beta-0", "beta-1"])); rest(); },
+    () => { addBlock("+ β₀, β₁", rows(["beta-0", "beta-1"])); addBlock("+ α", rows(["alpha"])); rest(); },
+  ]);
+  // Then the instrument's terms and U_iso alternate.
   let settled = false;
   for (let cycle = 1; cycle <= MAX_CYCLES && !settled; cycle++) {
     if (!runHolding("instrument (U_iso held)", cycle)) {

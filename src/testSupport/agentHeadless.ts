@@ -5,7 +5,7 @@
  * records in memory, and an executor that has read the pages' methods.
  */
 
-import { agentInstrumentNotes, bankCoverage } from "@/app/bankFollow";
+import { agentFiles, agentInstrumentNotes, bankCoverage } from "@/app/bankFollow";
 import { AgentExecutor, type ActivityEntry, type AgentHost } from "@/agent/executor";
 import type { CardDecision } from "@/agent/cardOptions";
 import type { AgentReport } from "@/agent/report";
@@ -122,6 +122,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
         const notes = agentInstrumentNotes(s.rawInstrument, held.instrumentLoaded, bankCoverage(s, held.instrument, held.instrumentLoaded));
         return notes ? { instrumentNotes: notes } : {};
       })(),
+      ...agentFiles(s.rawData, s.rawInstrument),
     };
   };
   /** The posterior run to continue: its closure keeps the problem it sampled, as the page's. */
@@ -275,8 +276,9 @@ export function fakeHost(
   history: () => ProjectHistory | null = () => null,
   onRecord?: (kind: StepKind, agent: boolean) => void,
   goToStep: (id: string) => void = () => undefined,
-): { host: AgentHost; steps: { kind: StepKind; agent: boolean }[]; records: Map<string, AgentRecord> } {
+): { host: AgentHost; steps: { kind: StepKind; agent: boolean }[]; records: Map<string, AgentRecord>; files: { name: string; text: string }[] } {
   const steps: { kind: StepKind; agent: boolean }[] = [];
+  const files: { name: string; text: string }[] = [];
   const records = new Map<string, AgentRecord>();
   let agent = false;
   const host: AgentHost = {
@@ -298,8 +300,9 @@ export function fakeHost(
     goToStep,
     record: (key) => records.get(key) ?? emptyRecord(key),
     updateRecord: (key, update) => void records.set(key, update(records.get(key) ?? emptyRecord(key))),
+    saveFile: (name, text) => void files.push({ name, text }),
   };
-  return { host, steps, records };
+  return { host, steps, records, files };
 }
 
 /**

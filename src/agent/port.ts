@@ -95,6 +95,15 @@ export interface PowderLiveState {
     readonly refineHeld?: string;
     readonly startingPoint?: string;
   };
+  /**
+   * The files as loaded, with the bank the page reads of each: the data file
+   * (every bank of a GSAS histogram) and the instrument file. Absent for a
+   * demo or a pattern without a file.
+   */
+  readonly files?: {
+    readonly data?: { readonly name: string; readonly text: string; readonly bank?: number };
+    readonly instrument?: { readonly name: string; readonly text: string; readonly bank?: number };
+  };
 }
 
 /** What the powder page lets the Agent do. Each call is the page's own handler. */

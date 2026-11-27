@@ -30,6 +30,8 @@ export interface LiveToolHost {
   /** The Agent's record of an analysis (method.ts), and a change to it: kept with the project. */
   readonly record: (key: string) => AgentRecord;
   readonly updateRecord: (key: string, update: (record: AgentRecord) => AgentRecord) => void;
+  /** Offer the user a file to save (a download in the app); absent where nothing can be saved. */
+  readonly saveFile?: (name: string, text: string) => void;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */

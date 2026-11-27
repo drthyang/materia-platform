@@ -21,6 +21,8 @@ describe("a local model's tools", () => {
       for (const stage of [...stagesFor(page).map((s) => s.id), null]) for (const n of at(page, stage, { magnetic: page === "powder" })) reach.add(n);
       // A tool no stage offers comes with the user's words (bond lengths, the structure's meaning).
       for (const n of at(page, null, { asked: ["What are the bond lengths, and what does the structure mean?"] })) reach.add(n);
+      // The instrument calibration comes when the user asks for it.
+      for (const n of at(page, null, { asked: ["Calibrate the instrument from this silicon standard and write the instprm."] })) reach.add(n);
       const all = LIVE_TOOLS.filter((t) => t.pages.includes(page)).map((t) => t.name);
       expect(all.filter((n) => !reach.has(n)), page).toEqual([]);
     }

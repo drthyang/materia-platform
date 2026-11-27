@@ -93,7 +93,7 @@ import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { fileProfileCardNote, tofNegativeGammaNote, tofWidthNote } from "@/app/tofWidthNote";
 import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel, defaultUncovered, instrumentCardChip } from "@/app/defaultInstruments";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
-import { agentInstrumentNotes, bankCoverage, bundleInstrumentNote, holdNote, overrideLabel, startingPointWarning } from "@/app/bankFollow";
+import { agentFiles, agentInstrumentNotes, bankCoverage, bundleInstrumentNote, holdNote, overrideLabel, startingPointWarning } from "@/app/bankFollow";
 import type { InstrumentNote } from "@/app/ui/PowderValidation";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
@@ -1165,6 +1165,7 @@ export function PowderWorkbench({
         const notes = agentInstrumentNotes(session.rawInstrument, instrumentLoaded, instCoverage);
         return notes ? { instrumentNotes: notes } : {};
       })(),
+      ...agentFiles(session.rawData, session.rawInstrument),
     };
   };
 

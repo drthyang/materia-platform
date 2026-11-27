@@ -6,6 +6,7 @@
  */
 
 import type { InstrumentConstants, PowderAgentPort, PowderLiveState } from "@/agent/port";
+import { exportInstrument } from "@/agent/instrumentExport";
 import { liveTool, type InputOf } from "@/agent/tools";
 import type { ProjectHistory } from "@/core/project/history";
 import {
@@ -119,6 +120,8 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         }),
       };
     }
+    case "export_instrument":
+      return exportInstrument(s, input, host.saveFile);
     case "check_fit_range":
       return { ...fitRangeView(fitRangeReading(s), fitRangeWords(s), s.fitRange), ...fileWidthView(s) };
     case "check_cell_symmetry": {

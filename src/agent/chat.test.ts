@@ -380,7 +380,7 @@ describe("AgentChat on Ollama", () => {
     const api = await fakeApi(turns, undefined, qwen(null, 131072));
     server = api.server;
     await new AgentChat({ run } as unknown as AgentExecutor).send("Read your method.", { transport: "ollama", serverUrl: api.url, model: "qwen3:32b", effort: "high" }, quiet, new AbortController().signal);
-    expect(api.requests.map((r) => (r.body.options as { num_ctx: number }).num_ctx)).toEqual([32768, 57344]);
+    expect(api.requests.map((r) => (r.body.options as { num_ctx: number }).num_ctx)).toEqual([32768, 65536]);
     await new Promise<void>((r) => api.server.close(() => r()));
 
     // A model that takes at most 40k cannot hold it: nothing is sent, and the user is told why.

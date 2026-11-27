@@ -45,7 +45,7 @@ export type AgentCard = "structure" | "data" | "instrument" | "pattern" | "param
 export type PowderStageId = "range" | "check" | "base" | "positions" | "profile" | "adp" | "occupancy" | "corrections" | "symmetry";
 
 /** What the user's words may ask for, each a set of phrases (toolScope.ts). */
-export type AskTopic = "magnetic" | "impurity" | "symmetry" | "occupancy" | "posterior" | "geometry" | "report" | "background" | "strain" | "adp" | "corrections" | "xray" | "tie" | "cellCheck";
+export type AskTopic = "magnetic" | "impurity" | "symmetry" | "occupancy" | "posterior" | "geometry" | "report" | "background" | "strain" | "adp" | "corrections" | "xray" | "tie" | "cellCheck" | "calibration";
 
 /** Where a local model is offered a tool (toolScope.ts); every tool is offered on its pages once it has been called. */
 export interface ToolOffer {
@@ -566,6 +566,22 @@ const TOOLS = [
     cards: ["instrument"],
     offer: { powder: ["base"], asked: ["xray"] },
     alwaysAsk: true,
+  },
+  {
+    name: "export_instrument",
+    title: "Calibrate the instrument and write its file",
+    description:
+      "Powder page, time-of-flight only, when the loaded data are a line-position standard (NIST SRM 640e silicon). Calibrates the instrument against it, bank by bank over every bank of the data file, in GSAS-II's convention: the standard's cell held at its certified value; its sample terms held at size 1 µm and Lorentzian microstrain 1000; then freed in turn, each added to the last: difC, the zero, difA when the bank's d-range separates it, α β₀ β₁, σ₀ σ₁ σ₂, X Y; then the standard's U_iso with the instrument held, the two alternating until settled. A term the data cannot separate is held at the starting file's value and named. Then offers the user a GSAS-II .instprm: one #Bank N block per calibrated bank, numbered as the data's banks, the starting file's other lines kept, the standard and the convention on each bank's header line. Needs the standard and the temperature the data were measured at: when the data do not state the temperature, ask the user (ask_user); never assume one. Away from the certificate's 22.5 °C it needs the standard's cell at that temperature from the user (latticeA). Starts from the loaded GSAS-II instrument file. Returns per bank each term with its esd and starting value, the fit window in d, wR and GoF, U_iso, and flags (not calibrated, low statistics, terms held, not separable, not settled); a flagged bank is left out of the file unless `banks` names it. Changes nothing on the page.",
+    inputSchema: {
+      standard: z.enum(["si640e", "lab6660c"]).describe("The standard the user named: \"si640e\" (NIST SRM 640e silicon) or \"lab6660c\" (SRM 660c LaB₆, not available yet)"),
+      temperatureK: z.number().min(1).max(2000).describe("The temperature the data were measured at (K), as the user or the data state it"),
+      latticeA: z.number().positive().optional().describe("The standard's cubic cell (Å) at that temperature, as the user gives it; needed away from 22.5 °C"),
+      banks: z.array(z.number().int().positive()).optional().describe("The data banks to calibrate and write, a flagged one included; default every bank, flagged ones left out of the file"),
+    },
+    effect: "compute",
+    pages: ["powder"],
+    cards: ["data", "instrument"],
+    offer: { asked: ["calibration"] },
   },
   {
     name: "structure_table",

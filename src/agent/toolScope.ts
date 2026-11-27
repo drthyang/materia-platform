@@ -70,6 +70,7 @@ const ASK_TOPICS: Readonly<Record<AskTopic, RegExp>> = {
   xray: /x-?ray|polari[sz]ation|k-?alpha|kα|monochromat/i,
   tie: /\btie\b|\btied\b|constrain|equal|same value/i,
   cellCheck: /cell check|check(ing)? (the )?cell|le ?bail|\bindex/i,
+  calibration: /calibrat|instrument (parameter )?file|\.?instprm|\bsrm\b|640e|660c|\blab6\b|lab₆/i,
 };
 
 /** What the user's words ask for, and the tools that answer it, on any page. */

@@ -14,6 +14,7 @@
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { RefinementParameter } from "@/core/refinement/types";
 import type { Session } from "@/app/powderSession";
+import type { PowderLiveState } from "@/agent/port";
 import { withInstrumentFile, type PowderPage } from "@/app/powderPage";
 import { parameterGroupOf } from "@/app/ui/parameterGroups";
 import {
@@ -275,4 +276,11 @@ export function bundleInstrumentNote(rawInstrument: Session["rawInstrument"], in
     ...(coverage?.startingPoint ? [startingPointWarning(coverage.uncovered).report] : []),
   ];
   return parts.length > 0 ? parts.join(" ") : null;
+}
+
+/** The files as the Agent's port gives them (port.ts `files`): the data and the instrument file, each with the bank the page reads. */
+export function agentFiles(rawData: Session["rawData"], rawInstrument: Session["rawInstrument"]): { files?: NonNullable<PowderLiveState["files"]> } {
+  const file = (f: { name: string; text: string; bank?: number } | undefined) => (f ? { name: f.name, text: f.text, ...(f.bank !== undefined ? { bank: f.bank } : {}) } : undefined);
+  const data = file(rawData), instrument = file(rawInstrument);
+  return data || instrument ? { files: { ...(data ? { data } : {}), ...(instrument ? { instrument } : {}) } } : {};
 }
