@@ -1,14 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { bundledSession } from "@/app/powderSession";
 import { gata4se8NomadExample } from "@/examples/gata4se8Nomad";
-import { curvesGoodnessOfFit, observationsIn, powderPageCurves, snapshotHolds, snapshotOf, weightedR, withFixed, type PowderPage } from "@/app/powderPage";
+import { curvesGoodnessOfFit, observationsIn, powderPageCurves, snapshotHolds, snapshotOf, weightedR, withFixed, withPattern, type PowderPage } from "@/app/powderPage";
 import { sessionPort } from "@/testSupport/agentHeadless";
+import { createHash } from "node:crypto";
+import { currentDataBank, dataBanksOf, dataBankOptions } from "@/app/bankChoice";
+import { followsInstrument, landData } from "@/app/bankKeep";
+import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 
 /**
  * The bundled GaTa₄Se₈ NOMAD bank-4 example opens on its converged fit: the
  * snapshot holds, the curves on screen give the recorded agreement over the
  * recorded points, and a refinement from it with the structure rows free
- * converges where it stands, with no near-null direction.
+ * converges where it stands, with no near-null direction. The data file is the
+ * whole six-bank file, so the Data card's chooser lists banks 1–6.
  */
 
 const demo = gata4se8NomadExample();
@@ -31,6 +36,24 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
       expect(p.value, p.id).toBe(p.initialValue);
     }
     expect(session.powderParams.find((p) => p.id === "tofSampleGauss")?.value).toBe(0);
+  });
+
+  it("ships all six banks: the chooser lists 1–6 and the page is on bank 4, point for point the bank-4 file it replaced", () => {
+    const banks = dataBanksOf(session.rawData?.text);
+    expect(dataBankOptions(banks)?.map((o) => o.bank)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(currentDataBank(banks, session.rawData)?.bankNumber).toBe(4);
+    expect(session.rawData?.name).toBe("NOM_GaTa4Se8_at_300K.gsa");
+    // SHA-256 of the points MATERIA read from the bank-4-only file shipped before (NOM_GaTa4Se8_at_300K_bank4.gsa, #201).
+    expect(createHash("sha256").update(JSON.stringify(demo.pattern.points)).digest("hex")).toBe("b664896d78a50685c1c26522207d98f6dd565d12d4a70278980eb9f5373a2f2d");
+  });
+
+  it("switching to bank 3 by the chooser keeps every refinement value", () => {
+    const text = session.rawData!.text;
+    const bank3 = parseGsasHistogramPattern(text, "gata4se8-powder", "bank 3", { radiation: { kind: "neutron-tof" }, bank: 3 });
+    const l = landData(page, withPattern(page, bank3, { name: session.rawData!.name, text, bank: 3 }), "Loaded data, bank 3", "chooser");
+    expect(l.kept).toEqual({ from: 4, to: 3 });
+    expect(l.page.session.rawData?.bank).toBe(3);
+    for (const r of session.powderParams.filter((x) => !followsInstrument(x))) expect(l.page.session.powderParams.find((x) => x.id === r.id)?.value, r.id).toBe(r.value);
   });
 
   it("opens on the saved refinement: Chebyshev 7, the spec's free rows, every row with a saved value", () => {

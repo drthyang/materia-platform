@@ -69,6 +69,11 @@ release fixes bugs.
   the window ending at d 1.873 Å, below two peaks at the long-TOF end that no
   phase explains): wR 2.50 %, GoF 5.90, a = 10.3757(1) Å. Data, origin and
   result: `examples/gata4se8-nomad-300k/README.md`.
+- **The NOMAD example ships all six banks.** "GaTa₄Se₈ neutron TOF" now
+  carries the whole published six-bank file, `NOM_GaTa4Se8_at_300K.gsa`, as
+  written, in place of the bank-4-only file. It still opens on bank 4 and the
+  same converged fit (wR 2.50 %); the Data card's bank chooser lists banks 1–6,
+  and a switch keeps the refinement values, as for any multi-bank file.
 - **The instrument follows the data's bank.** With an instrument file of
   several banks loaded (any file, the NOMAD default included), choosing
   another data bank switches the instrument to the file's bank for it (by
