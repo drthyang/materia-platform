@@ -489,7 +489,7 @@ export async function runMomentsFit(problem: MomentsFitProblem, hooks: MomentsFi
     let current: AlternationOutcome = kicked;
     if (stuck.length === 1) {
       // One row: the joint test is its own.
-      perRow[stuck[0]!] = { kept: test.kept, deltaChi2: test.deltaChi2, f: test.f, fCritical: test.fCritical, z: test.z };
+      perRow[stuck[0]!] = { kept: test.kept, deltaChi2: test.deltaChi2, f: test.f, fCritical: test.fCritical, z: test.kept ? test.z : null };
       keptRows = test.kept ? [...stuck] : [];
     } else {
       // Several rows: one at a time, backward. From the kicked fit, hold each remaining row at 0 in turn; drop the one the data
