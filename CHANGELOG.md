@@ -157,6 +157,10 @@ release fixes bugs.
 
 ### Fixed
 
+- **A failed Activate on the Subgroups view says why** and leaves the row
+  inactive; before, the reason went to the console and the row showed
+  "Active ✓" ([report](docs/reports/2026-11-26-activate-failure-visible.md)).
+
 - **Symmetry modes no longer lose real distortions.** The mode basis built
   from a structure's own group projected out every direction all its sites
   allow, not only the rigid translations; where such a direction is not fixed
