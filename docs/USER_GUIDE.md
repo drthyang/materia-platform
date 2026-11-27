@@ -43,7 +43,7 @@ The start page shows the **Structure**, **Data** and **Instrument** cards above
 
 - **Rietveld · Mn₃Ga neutron TOF**: a two-phase fit of POWGEN time-of-flight
   data, Mn₃Ga with a MnO impurity. At 600 K the sample is paramagnetic. It
-  opens at wR 4.24 % (GoF 3.23) on a three-point log-interpolate background,
+  opens at wR 3.88 % (GoF 2.96) on a three-point log-interpolate background,
   with the scale, background and cell of both phases free.
 - **PDF · GaTa₄Se₈ X-ray G(r)**: a real-space fit of synchrotron
   total-scattering data at 299 K, with the cubic average structure.
@@ -304,6 +304,22 @@ magnetic model are steps too. Loading a new dataset starts a new history.
 
 - Drag the blue handles on the plot to set the fit window. **Reset range**
   returns to the whole pattern, and **optimize view** zooms onto the window.
+- On time-of-flight data the window's short-d edge is also where the
+  reflections stop: every reflection whose peak reaches a point in the window
+  is calculated, none below. The line under the plot toolbar says where they
+  stop and why ("Reflections down to d … Å, one peak support below the fit
+  window's edge"). A narrower window at short d fits faster and changes
+  nothing above it.
+- The list stops earlier where the model is not valid: below a d where the
+  instrument file's peak terms give no peak (σ², α or β not positive), and,
+  for X-rays, below d = 0.25 Å (the form-factor table's range). The points
+  there are left out of the fit, wR and GoF, and the line, in amber, says how
+  many and why.
+- When the window reaches well below the last resolved lines (a fresh page
+  fits the whole pattern), the same line names the d where they stop and
+  suggests trimming the window there. The Copilot's `check_fit_range`
+  proposes the same cut. Below that d the lines merge; they are calculated,
+  so the fit is complete, only slower.
 - Click a Bragg tick to spotlight its (hkl). The unit buttons (**2θ**,
   **d**, **Q**, **TOF**) change the axis only.
 - To add a phase, load the data, then click **Add CIF…**. Each phase gets its

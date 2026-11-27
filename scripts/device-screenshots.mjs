@@ -41,7 +41,7 @@ async function preparePage(context) {
   // The public demo, and nothing local: its two phases are on the Structure card.
   await page.getByText("Mn3Ga + MnO").first().waitFor({ timeout: 15000 });
   // Run the refinement so the parameter table shows final values with esds
-  // (converges in ~2 cycles from the seeded fit; wR ~4.2%). The result line
+  // (converges in ~2 cycles from the seeded fit; wR ~3.9%). The result line
   // reads "converged · 2 cycles"; the button comes back when the run is done.
   await refine.click();
   await page.getByText(/converged · \d+ cycles?/).first().waitFor({ timeout: 60000 });

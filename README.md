@@ -13,7 +13,7 @@ language model beside the analysis: it changes things only through the page's ow
 **Live site: [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-platform/)**
 
 <p align="center">
-  <img src="docs/media/desktop.png" alt="The Rietveld page on the bundled Mn₃Ga demo: a two-phase Mn₃Ga and MnO fit of POWGEN time-of-flight neutron data at wR 4.24 %, with observed, calculated and difference curves, a row of Bragg ticks for each phase, and the parameter table with esds" width="100%" />
+  <img src="docs/media/desktop.png" alt="The Rietveld page on the bundled Mn₃Ga demo: a two-phase Mn₃Ga and MnO fit of POWGEN time-of-flight neutron data at wR 3.88 %, with observed, calculated and difference curves, a row of Bragg ticks for each phase, and the parameter table with esds" width="100%" />
 </p>
 
 ## What it does
@@ -70,7 +70,7 @@ Step by step: [set up the Copilot](docs/COPILOT_SETUP.md).
 Both demos are public data and open on a converged fit.
 
 1. **Rietveld.** On the start page click the **Mn₃Ga neutron TOF** demo, then **Refine**: a two-phase
-   fit at wR 4.24 %, with the MnO impurity's weight fraction and its esd. **Validation** gives the
+   fit at wR 3.88 %, with the MnO impurity's weight fraction and its esd. **Validation** gives the
    verdict against the acceptance bar.
 2. **The magnetic step.** Click **Magnetic analysis →**, **Include them in the k-search**,
    **Search k from … peaks**, then **Rank 14 candidates against the data** (about half a minute, with progress

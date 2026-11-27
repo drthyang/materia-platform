@@ -231,6 +231,20 @@ approximate, however plausible its output looks.
   range needing more than 300 000 reflection families (or 6×10⁷ index triples,
   or an index above 2047) is an error naming the cell, as a typo'd or diverged
   cell usually is.
+- Where d_min is: on time of flight, the fit window's short-d edge less one
+  peak support (the lines just outside the window are drawn, so every point in
+  it has all its lines), stopped earlier only where the peak terms give no
+  peak (σ², α or β not positive below some d: an instrument file's
+  polynomials past the range its standard covered); at constant wavelength,
+  the data's own range; for X-rays never below 0.25 Å (sin θ/λ = 2.0 Å⁻¹, the
+  range the four-Gaussian form factors are valid over). The points a list does
+  not reach are left out of the fit and of wR, GoF and the point count, and the
+  page says where the list stops and why. Magnetic satellites keep d ≥ 0.5 Å on
+  time of flight. A fresh page fits the whole pattern; when the window reaches
+  well below the last resolved lines (spacing under one line width, binning
+  included), the page and `check_fit_range` suggest trimming it there, which
+  is faster and changes nothing above. The Prefit's Le Bail list and the tick
+  rows take the same range.
 - Constant-wavelength peaks: Gaussian or pseudo-Voigt, with Caglioti U/V/W
   widths, a Thompson–Cox–Hastings Lorentzian size/strain term, and
   Finger–Cox–Jephcoat axial asymmetry.
@@ -245,7 +259,10 @@ approximate, however plausible its output looks.
   (GSAS-II's definitions, starting at GSAS-II's new-phase 1000 and 1 µm) and
   a Gaussian microstrain are rows beside them, and a profile stage refines the
   sample's rows. Where the file gives no positive width inside the data's
-  d-range the reflections are not drawn and the Instrument card says where.
+  d-range the reflections are not drawn and the Instrument card says where;
+  at the short-d end the list stops there and the points below are not
+  fitted. Just above such a d the decay rate β is small, so those few lines
+  carry long tails as the file gives them.
   The Lorentzian tails are drawn out to where they hold less than 0.02 % of a
   peak; the first evaluation of such a pattern is slow, and later ones reuse
   the peaks that did not move.
@@ -311,10 +328,19 @@ approximate, however plausible its output looks.
   On time-of-flight data it is a back-to-back exponential with four refined
   width terms (σ₁², σ₂², α, β₀), not the instrument's full resolution curve. An
   impurity's expansion is limited to ±3 %. The gate reads d ≥ 0.7 Å by default.
+- A TOF peak is evaluated at the bin centre, not integrated over the bin; at
+  short d, where a line is about one bin wide, that limits the accuracy.
+- The "last resolved lines" a trim is suggested at are read from the model
+  (each phase's lines at their calculated intensities and the profile's
+  widths), not from the data's noise.
+- A constant-wavelength list is the data's range: a line just beyond the
+  data's last point whose tail reaches into it is not drawn.
 
 **Not yet**
 - Spherical-harmonic texture; powder extinction; microabsorption (Brindley);
   flat-plate absorption.
+- X-ray form factors beyond sin θ/λ = 2.0 Å⁻¹ (Waasmaier–Kirfel, THY-92):
+  until then an X-ray list stops at d = 0.25 Å.
 - High-angle axial asymmetry; the Ikeda–Carpenter moderator peak shape; TOF
   absorption and extinction.
 - Sample size and Lorentzian microstrain rows for a FullProf session; FullProf's
