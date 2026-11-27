@@ -171,6 +171,8 @@ export interface PowderWorkbenchProps {
   onStartingPoint?: (bank: number) => void;
   /** The instrument just switched bank with the data (app/bankFollow.ts): the line and the rows to mark, until the next action. */
   bankFollow?: { readonly note: string; readonly rows: ReadonlySet<string> } | null;
+  /** The data bank just switched with the refinement values kept (app/bankKeep.ts): the Data card's line, until the next action. */
+  bankKept?: string | null;
   /** Set an X-ray instrument's polarization and Kα₂ ratio (the shell owns the instrument). */
   onInstrumentConstants?: (update: InstrumentConstants) => void;
   /** Load a bundled demo (from the empty-state prompt). */
@@ -204,7 +206,7 @@ export function PowderWorkbench({
   page, setPage, ownStructure,
   client, active, step, onStep, setMessage, exportsRef,
   onLoadData, onLoadCif, onAddPhase, onAddStructure, onRemovePhase, onClearStructures, detection, onOverrideXUnit,
-  onLoadInstrument, onDataBank, onInstrumentBank, onUseDefaultInstrument, onStartingPoint, bankFollow = null, onInstrumentConstants, onLoadDemo, demos = [],
+  onLoadInstrument, onDataBank, onInstrumentBank, onUseDefaultInstrument, onStartingPoint, bankFollow = null, bankKept = null, onInstrumentConstants, onLoadDemo, demos = [],
   onOpenProject, viewRestore, useGpu = true,
   stepHistory, agentLink,
 }: PowderWorkbenchProps): JSX.Element {
@@ -1584,8 +1586,13 @@ export function PowderWorkbench({
                     options={dataBankChoices}
                     value={dataBank?.bankNumber ?? null}
                     {...(onDataBank ? { onChange: onDataBank } : {})}
-                    help="This data file holds several banks, and the page reads one at a time (a joint fit of several banks is not available). It opens on bank 1. Choosing another bank reads the file again as new data (one History step); the instrument stays as it is, and its card offers the matching bank."
+                    help="This data file holds several banks, and the page reads one at a time (a joint fit of several banks is not available). It opens on bank 1. Choosing another bank reads that bank in one History step: every refinement value and free, fixed or tied choice is kept, the scale and background included; the instrument follows the bank when its file has it, and its rows take that bank's values. Nothing is refined until you click Refine."
                   />
+                )}
+                {bankKept && (
+                  <div data-testid="data-bank-kept" role="status" style={{ ...noteBox, color: theme.noteInk }}>
+                    <span>{bankKept}</span>
+                  </div>
                 )}
                 {(detection || onOverrideXUnit) && (
                   <UnitDetection

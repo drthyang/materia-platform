@@ -45,7 +45,8 @@ import { parsePdfData } from "@/parsers/pdfData";
 import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
 import { currentDataBank, dataBankRef, dataBanksOf, defaultDataBank } from "@/app/bankChoice";
 import { defaultInstrumentById, defaultStepLabel, defaultUncovered } from "@/app/defaultInstruments";
-import { bankCoverage, followDataBank, followNote, followStepLabel, loadFollowStepLabel, startingPointStepLabel, startingPointWarning, switchedRows, withStartingPoint } from "@/app/bankFollow";
+import { bankCoverage, followNote, startingPointStepLabel, startingPointWarning, switchedRows, withStartingPoint } from "@/app/bankFollow";
+import { keptNote, landData, type DataBankSwitch, type DataLanding } from "@/app/bankKeep";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { loadLocalDemoModule, localDemoAvailable } from "@/app/localDemoGate";
@@ -304,6 +305,8 @@ export function App(): JSX.Element {
 
   // The instrument's switch with the data bank (app/bankFollow.ts): its line and rows, marked for the session it made.
   const [bankFollowMark, setBankFollowMark] = useState<{ readonly session: Session; readonly note: string; readonly rows: ReadonlySet<string> } | null>(null);
+  // The refinement values kept across a data-bank switch (app/bankKeep.ts): the Data card's line, for the session the switch made.
+  const [bankKeptMark, setBankKeptMark] = useState<{ readonly session: Session; readonly note: string } | null>(null);
   const { structure } = session;
 
   // ── Step history ────────────────────────────────────────────────────────
@@ -1134,12 +1137,13 @@ export function App(): JSX.Element {
 
   /**
    * Data card bank chooser: read another bank of the loaded GSAS histogram
-   * file. A re-load of the data, like a new file (one History step). An
-   * instrument file with several banks follows (app/bankFollow.ts): when it
-   * has the new data bank's bank, the instrument switches to it in the same
-   * step ("Instrument bank N, following data bank N"), and the card and the
-   * switched rows say so until the next action; when it has none, the
-   * instrument stays and Refine is held on the card.
+   * file, every refinement value and state kept (app/bankKeep.ts), in one
+   * History step ("Data bank N → M, refinement values kept"). An instrument
+   * file with several banks follows (app/bankFollow.ts): when it has the new
+   * data bank's bank, the instrument switches to it in the same step, its
+   * rows taking that bank's values, and the cards and the switched rows say
+   * so until the next action; when it has none, the instrument stays and
+   * Refine is held on the card.
    */
   function onDataBank(bank: number): void {
     const raw = session.rawData;
@@ -1170,16 +1174,15 @@ export function App(): JSX.Element {
   }
 
   /**
-   * New data on the page with the instrument following its bank: `next` is
-   * the page with the data, and the result is it with the instrument on the
-   * data's bank when the file has it (app/bankFollow.ts), the step's label,
-   * and the highlight to show.
+   * New data on the page (app/bankKeep.ts landData): the instrument follows
+   * the data's bank, another bank of the same file keeps the refinement
+   * values; the lines saying so are shown until the next action.
    */
-  function followed(before: PowderPage, next: PowderPage, dataLabel: string, how: "chooser" | "load"): { page: PowderPage; label: string } {
-    const f = followDataBank(next);
-    if (!f) return { page: next, label: dataLabel };
-    setBankFollowMark({ session: f.page.session, note: followNote(f.bank), rows: new Set(switchedRows(before.session.powderParams, f.page.session.powderParams)) });
-    return { page: f.page, label: how === "chooser" ? followStepLabel(f.bank, f.dataBank) : loadFollowStepLabel(dataLabel, f.bank) };
+  function followed(before: PowderPage, next: PowderPage, dataLabel: string, how: "chooser" | "load"): DataLanding {
+    const l = landData(before, next, dataLabel, how);
+    if (l.follow) setBankFollowMark({ session: l.page.session, note: followNote(l.follow.bank), rows: new Set(switchedRows(before.session.powderParams, l.page.session.powderParams)) });
+    if (l.kept) setBankKeptMark({ session: l.page.session, note: keptNote(l.kept) });
+    return l;
   }
 
   /**
@@ -1187,7 +1190,9 @@ export function App(): JSX.Element {
    * (app/bankFollow.ts), for a new file ("load": the step is the load's,
    * "… · instrument bank N") and for the Data card's chooser ("chooser":
    * "Instrument bank N, following data bank N"); a re-read of the same bank
-   * in another unit leaves the instrument as it is.
+   * in another unit leaves the instrument as it is. Another bank of the file
+   * on the page, by either way, keeps every refinement value and state
+   * (app/bankKeep.ts: "Data bank N → M, refinement values kept").
    */
   function applyPowder(text: string, filename: string, fmt: DetectedFormat, tag: string, askedBank?: number, follow: "chooser" | "load" | null = "load"): void {
     const id = `${structure.id}-powder`;
@@ -1200,12 +1205,12 @@ export function App(): JSX.Element {
     const bank = banks && banks.length > 1 ? (banks.find((b) => b.bankNumber === askedBank) ?? defaultDataBank(banks)).bankNumber : undefined;
     const bankOpt = bank !== undefined ? { bank } : {};
     const dataLabel = bank !== undefined ? `Loaded data ${filename}, bank ${bank}` : `Loaded data ${filename}`;
-    // The instrument follows the data's bank (one step, its label says so).
-    const land = (next: PowderPage): PowderPage => {
-      const out = follow ? followed(page, next, dataLabel, follow) : { page: next, label: dataLabel };
+    // The instrument follows the data's bank, and another bank of the file on the page keeps the refinement values (one step, its label says so).
+    const land = (next: PowderPage): { page: PowderPage; kept: DataBankSwitch | null } => {
+      const out = follow ? followed(page, next, dataLabel, follow) : { page: next, label: dataLabel, kept: null };
       requestStep("load", out.label);
       setPage(out.page);
-      return out.page;
+      return out;
     };
     const file = { name: filename, text, ...bankOpt };
     if (fmt.xUnit === "tof") {
@@ -1220,13 +1225,17 @@ export function App(): JSX.Element {
       // overlay), and without a TOF calibration (difC) peaks cannot be placed:
       // both stay view-only. A plain TOF pattern with a loaded TOF instrument is
       // refined with the back-to-back-exponential profile (withPattern).
-      const next = land(withPattern(page, parsed, file, overlay ? { calc: overlay.calc, background: overlay.background } : undefined));
+      const { page: next, kept } = land(withPattern(page, parsed, file, overlay ? { calc: overlay.calc, background: overlay.background } : undefined));
       if (next.session.powderProfile.shape !== "tof") {
         setMessage(
           overlay
             ? `Loaded powder “${filename}” · ${parsed.points.length} pts · TOF ${tag} with GSAS-II calc overlay (reference). ${fmt.note}`
             : `Loaded powder “${filename}” · ${parsed.points.length} pts · TOF ${tag}. Load a TOF instrument (.instprm with difC) to refine. ${fmt.note}`,
         );
+        return;
+      }
+      if (kept) {
+        setMessage(`Loaded powder “${filename}”, bank ${kept.to} · ${parsed.points.length} pts · TOF ${tag}. ${keptNote(kept)} ${fmt.note}`);
         return;
       }
       setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · TOF ${tag}. ${next.session.powderParams.length} parameters, back-to-back-exponential profile${carriedNote(structureCarried(next.session))} — click “Refine”. ${fmt.note}`);
@@ -1240,7 +1249,11 @@ export function App(): JSX.Element {
     // bundled demo's) doesn't apply, so the page goes back to the default
     // instrument (withPattern): loading a different dataset type switches the
     // workbench into the matching mode instead of staying view-only.
-    const next = land(withPattern(page, parsed, file));
+    const { page: next, kept } = land(withPattern(page, parsed, file));
+    if (kept) {
+      setMessage(`Loaded powder “${filename}”, bank ${kept.to} · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${keptNote(kept)} ${fmt.note}`);
+      return;
+    }
     setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${next.session.powderParams.length} symmetry-allowed parameters${carriedNote(structureCarried(next.session))}. Scale auto-estimated — click “Refine”. ${fmt.note}`);
   }
 
@@ -1476,6 +1489,7 @@ export function App(): JSX.Element {
         onStartingPoint={onStartingPoint}
         // The switch's highlight holds while the page is the one the switch made: the next action ends it.
         bankFollow={bankFollowMark && bankFollowMark.session === session ? bankFollowMark : null}
+        bankKept={bankKeptMark && bankKeptMark.session === session ? bankKeptMark.note : null}
         onInstrumentConstants={onInstrumentConstants}
         onLoadDemo={onLoadDemo}
         demos={demos}
