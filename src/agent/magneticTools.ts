@@ -125,6 +125,10 @@ export function k0Peaks(s: MagneticPanelState): number[] | null {
 /** An amplitude's esd after its value, " ± 0.010"; nothing without one. */
 const esdText = (esd: number | undefined): string => (esd !== undefined && esd > 0 ? ` ± ${sig(esd, 2)}` : "");
 
+/** Why an amplitude has no esd after the moments fit (core/magnetic/momentsFit.ts): held at 0, or its direction not determined; nothing otherwise. */
+const amplitudeStatus = (rounds: NonNullable<MagneticPanelState["selected"]>["fitRounds"], id: string): string =>
+  rounds?.undetermined?.includes(id) ? " (direction not determined)" : rounds?.heldAtZero?.includes(id) ? " (held at 0: not required by the data)" : "";
+
 /** The step as the model reads it: compact, the candidates that can carry a moment first. */
 export function magneticView(s: MagneticPanelState): Record<string, unknown> {
   const carrying = s.candidates.filter((c) => c.momentParameters > 0);
@@ -169,10 +173,10 @@ export function magneticView(s: MagneticPanelState): Record<string, unknown> {
         chosen: {
           id: s.selected.id,
           group: s.selected.symbol,
-          parameters: s.selected.parameters.map((p) => `${p.id} = ${sig(p.value, 4)}${esdText(s.selected!.fitRounds?.esd[p.id])}${p.tiedTo ? ` (= ${p.tiedTo})` : ""}`),
+          parameters: s.selected.parameters.map((p) => `${p.id} = ${sig(p.value, 4)}${esdText(s.selected!.fitRounds?.esd[p.id])}${amplitudeStatus(s.selected!.fitRounds, p.id)}${p.tiedTo ? ` (= ${p.tiedTo})` : ""}`),
           moments: s.selected.moments.map((m) => `${m.site}${m.orbit ? `#${m.orbit}` : ""}: ${sig(m.muB, 3)} µB`),
           ...(s.selected.fitAgreement !== null ? { momentsFitWR: pct(s.selected.fitAgreement) } : {}),
-          ...(s.selected.fitRounds ? { momentsFit: `${roundsText(s.selected.fitRounds)}${s.selected.fitRounds.esdIncludes ? "; the esds include the scale and the background" : "; the esds are of the moments alone (the data do not separate them from the scale and the background)"}` } : {}),
+          ...(s.selected.fitRounds ? { momentsFit: `${roundsText(s.selected.fitRounds)}${s.selected.fitRounds.esdIncludes ? "; the esds include the scale and the background" : s.selected.fitRounds.undetermined ? "; the esds are of the moments alone (a direction among the moments is not determined)" : "; the esds are of the moments alone (the data do not separate them from the scale and the background)"}${(s.selected.fitRounds.notes ?? []).length > 0 ? `. ${s.selected.fitRounds.notes!.join(" ")}` : ""}` } : {}),
         },
       }
       : {}),
@@ -338,7 +342,7 @@ export const MAGNETIC_PLANS: Pick<Plans<PowderAgentPort>, MagneticChangeTool> = 
       if (wR === null) return "The moments fit did not run.";
       const rounds = h.state().selected?.fitRounds;
       return rounds
-        ? `Moments fitted, ${roundsText(rounds)}: wR ${pct(wR)}%. The page's scale and background rows hold the re-refined values.`
+        ? `Moments fitted, ${roundsText(rounds)}: wR ${pct(wR)}%. The page's scale and background rows hold the re-refined values.${(rounds.notes ?? []).map((n) => ` ${n}`).join("")}`
         : `Moments fitted: wR ${pct(wR)}%.`;
     }));
   },

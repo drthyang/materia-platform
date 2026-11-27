@@ -85,7 +85,15 @@ export interface MagneticSelectionView {
    * That fit's rounds, where it ran as rounds (the powder page's refine_moments): how many, whether the moments
    * settled, and each amplitude's esd, with the scale's and the background's uncertainty in it (`esdIncludes`).
    */
-  readonly fitRounds?: { readonly count: number; readonly settled: boolean; readonly lastShiftOverEsd: number; readonly esd: Readonly<Record<string, number>>; readonly esdIncludes: boolean };
+  readonly fitRounds?: {
+    readonly count: number; readonly settled: boolean; readonly lastShiftOverEsd: number; readonly esd: Readonly<Record<string, number>>; readonly esdIncludes: boolean;
+    /** Amplitudes the fit left at 0 that the data do not require: held at 0, no esd (core/magnetic/momentsFit.ts). */
+    readonly heldAtZero?: readonly string[];
+    /** Amplitudes whose direction the data do not determine: no esd. */
+    readonly undetermined?: readonly string[];
+    /** What the zero-start test and the undetermined directions mean, one sentence each. */
+    readonly notes?: readonly string[];
+  };
 }
 
 export interface MagneticPanelState {

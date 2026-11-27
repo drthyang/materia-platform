@@ -80,7 +80,7 @@ import { buildDistortionModes, buildSymmetryModes } from "@/core/crystal/distort
 import { refine, refineParallel } from "@/core/refinement/engine";
 import { boxcarScan, momentMultiStart, poolSolver } from "@/workers/strategy";
 import { momentKickFloor, type MomentDegeneracy } from "@/core/magnetic/canonicalize";
-import { ALTERNATION_MAX_ROUNDS, runMomentsFit, type MomentsFitOutcome } from "@/core/magnetic/momentsFit";
+import { ALTERNATION_MAX_ROUNDS, runMomentsFit, zeroStartSentences, type MomentsFitOutcome, type ZeroStartTest } from "@/core/magnetic/momentsFit";
 import {
   boxcarPlanIssue,
   boxcarScannedMax,
@@ -1059,7 +1059,7 @@ const REFINE_MOMENTS_K_HELD = "k was held: refine_moments refines moment amplitu
 function momentsFitReading(out: MomentsFitOutcome): string {
   const wR = out.agreement === null ? "" : `: wR ${(100 * out.agreement).toFixed(2)}%`;
   if (Object.keys(out.reRefined).length === 0) {
-    return `Moments fitted with the nuclear model held, one moments step${wR}. There is no scale or background row to re-refine, and the esds are of the moments alone.`;
+    return `Moments fitted with the nuclear model held, one moments step${wR}. There is no scale or background row to re-refine, and the esds are of the moments alone.${zeroStartTail(out)}`;
   }
   const n = `${out.rounds} round${out.rounds === 1 ? "" : "s"}`;
   const rounds = out.settled
@@ -1067,8 +1067,16 @@ function momentsFitReading(out: MomentsFitOutcome): string {
     : `not settled after ${n} (the most a fit runs is ${ALTERNATION_MAX_ROUNDS}), a moment still moved by ${out.lastShiftOverEsd.toFixed(2)} esd; the last moments step is kept`;
   const esds = out.esdIncludes.length > 0
     ? "The esds include the scale and the background."
-    : "The esds are of the moments alone: the data do not separate them from the scale and the background.";
-  return `Moments fitted with the nuclear model held, ${rounds}${wR}. ${esds} \`parameters\` carries the re-refined scale and background.`;
+    : out.undetermined.length > 0
+      ? "The esds are of the moments alone: a direction among the moments is not determined."
+      : "The esds are of the moments alone: the data do not separate them from the scale and the background.";
+  return `Moments fitted with the nuclear model held, ${rounds}${wR}. ${esds} \`parameters\` carries the re-refined scale and background.${zeroStartTail(out)}`;
+}
+
+/** The zero-start test and the undetermined directions (momentsFit.ts), after the reading: nothing when the fit had neither. */
+function zeroStartTail(out: MomentsFitOutcome): string {
+  const words = zeroStartSentences(out);
+  return words.length > 0 ? ` ${words.join(" ")}` : "";
 }
 
 /**
@@ -1121,6 +1129,14 @@ export async function refine_moments(args: MagneticPowderArgs & {
   reRefined: Record<string, number>;
   /** The k rows passed free and held for this fit, with the reason. */
   kHeld?: { parameterIds: string[]; note: string };
+  /**
+   * The amplitudes the fit left at exactly 0, kicked to 0.1 µB and tested by the ranking's Hamilton test (q = the kicked rows):
+   * `kept` true, the kicked fit is the answer (`z`: their significance from Δχ², in σ, for one row); false, they are held at 0 and have no esd.
+   * Absent when no amplitude was left at 0.
+   */
+  zeroStart?: ZeroStartTest;
+  /** Moment rows whose direction the data do not determine (an equally good fit moves them), with no esd; absent when none. */
+  directionNotDetermined?: { rows: string[]; alternative?: Record<string, number> }[];
   /** The outcome in one line. */
   reading: string;
 }> {
@@ -1163,6 +1179,8 @@ export async function refine_moments(args: MagneticPowderArgs & {
       wR: out.agreement,
       reRefined: { ...out.reRefined },
       ...(kHeldIds.length > 0 ? { kHeld: { parameterIds: kHeldIds, note: REFINE_MOMENTS_K_HELD } } : {}),
+      ...(out.zeroStart ? { zeroStart: out.zeroStart } : {}),
+      ...(out.undetermined.length > 0 ? { directionNotDetermined: out.undetermined.map((f) => ({ rows: [...f.rows], ...(f.alternative ? { alternative: { ...f.alternative } } : {}) })) } : {}),
       reading: momentsFitReading(out),
     };
   } finally {

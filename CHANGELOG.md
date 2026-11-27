@@ -7,6 +7,27 @@ release fixes bugs.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Refine moments no longer leaves a moment component stuck at 0.** A free
+  amplitude that starts at exactly 0 in an irrep of its own has no gradient
+  there, so the fit never left it, reported it as "esd 0" and biased the other
+  components (a synthetic MnWO₄ with My = 1.5 µB: My 0(0), Mx 28 esd off).
+  Refine moments, on the page and over MCP (`refine_moments`), now kicks such
+  an amplitude to 0.1 µB, refits, and keeps it only when the data require it
+  (the ranking's Hamilton test at 5 %; several such amplitudes one at a time,
+  the least needed dropped first); its significance is given from Δχ², not
+  as value/esd (which reads twice that for a component the intensity has only
+  squared). Otherwise it is held at 0 with no esd, "not required by the data",
+  with the largest value the data allow (the 95 % profile limit), and the
+  other esds include the scale and the background again. Under model errors
+  the fit does not include, a truly zero component was kept in about 5 % to
+  8 % of synthetic tests. Where the
+  powder cannot determine a direction (a helix's cosine and sine on one axis
+  in an orthogonal cell), the fit says "direction not determined" and gives no
+  esd for those rows; an esd of exactly 0 is never given. MCP `refine_moments` adds `zeroStart` and
+  `directionNotDetermined`. The ranking is unchanged.
+
 ### Added
 
 - **The instrument follows the data's bank.** With an instrument file of
