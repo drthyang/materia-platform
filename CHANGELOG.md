@@ -150,6 +150,17 @@ release fixes bugs.
 
 ### Changed
 
+- **Switching data banks keeps the refinement values.** Choosing another bank
+  of a multi-bank data file (the Data card's chooser, or the same file loaded
+  again) keeps every refinement row's value and its free, fixed or tied state:
+  the scale, the background's type, terms and coefficients, the cell, atoms,
+  ADPs, occupancies, microstructure, corrections, added phases and magnetic
+  rows. The instrument still follows the bank, so the Instrument / profile
+  rows (TOF calibration, Zero, the file's peak-shape terms) take the new
+  bank's values. One History step, "Data bank N → M, refinement values kept",
+  and a line on the Data card; nothing is refined. On a bank the instrument
+  file does not cover, the values are kept and Refine stays held.
+
 - **Reflections at short d on time of flight follow the fit window (THY-90).**
   The fixed floor at d = 0.5 Å is gone: a TOF reflection list reaches the fit
   window's short-d edge less one peak support, and stops earlier only where
