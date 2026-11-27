@@ -92,9 +92,13 @@ before or after.
 ## What it means for the validation
 
 No agent snapshot (`src/agent/__snapshots__`) moved. The scripted eval
-replays all pass; their full-precision dump moves on every Mn₃Ga TOF page
-(numbers in tool texts), listed in the gate evidence. The live evaluations'
-recorded wR on the 350 K bank are baselines a paid re-run would move.
+replays all pass (172), and their full-precision dump against main's own run
+(66a82ec) differs in one scenario only, `file-profile-held` (a synthetic TOF
+bank): its `get_state` carries the new line, "Reflections down to d 0.620 Å,
+one peak support below the fit window's edge (0.620 Å)."; no number moves.
+The live evaluations that open the 350 K POWGEN bank on its own instrument
+file would move: its list now reaches 0.321 Å and 952 points below it leave
+the fit. Their recorded wR are baselines a paid re-run would replace.
 
 ## Not done
 
@@ -112,4 +116,8 @@ recorded wR on the 350 K bank are baselines a paid re-run would move.
 
 ## Checks
 
-Build, lint and the test suite at the branch head: see the pull request.
+At the branch head (rebased on main 66a82ec): `npm run build` and `npm run
+lint` clean; `npx vitest run`: 433 files and 3912 tests passed, 401 skipped,
+one failure (a test that pins the demo's rows), re-baselined in its own commit
+and passing alone. The MCP host and POWGEN background tests take longer than
+before (the whole POWGEN pattern is refined to its end).
