@@ -790,18 +790,38 @@ Making the name say its unit (for example `strainEpsilon` on the applied model
 and `mustrainPpm` for the row) is a rename in `apply.ts`, `powder.ts` and
 `bundle.ts`. It was not done here: this change is comments only.
 
-Related, found while reading (not changed; they are user-visible text):
+Related, found while reading and fixed in
+[#213](https://github.com/drthyang/materia-platform/pull/213) (user-visible
+text; no value changed):
 
-- `core/export/report.ts` `KIND_UNIT` gives "×10⁻⁶" for `stephensStrain`,
+- `core/export/report.ts` `KIND_UNIT` gave "×10⁻⁶" for `stephensStrain`,
   `mustrainPar` and `mustrainPerp`. In the code the Stephens S_HKL are in Å⁻⁴
-  with no 10⁻⁶ factor, and the uniaxial Y_⊥, Y_∥ are in centidegrees
-  (ε = π·Y/72000).
-- The same table gives "µm" for `sampleDisplacement`. In the code the row is
-  in degrees of 2θ (the shift is s·cosθ).
-- The microstrain tooltip in `app/PowderWorkbench.tsx` ("GSAS-II microstrain =
+  with no 10⁻⁶ factor, and the uniaxial Y_⊥, Y_∥ are in centidegrees of 2θ
+  (ε = π·Y/72000). The report now prints "Å⁻⁴" and "centidegrees 2θ".
+- The same table gave "µm" for `sampleDisplacement`. In the code the row is
+  in degrees of 2θ (the shift is s·cosθ). The report now prints "° 2θ".
+- The microstrain tooltip of `app/PowderWorkbench.tsx` ("GSAS-II microstrain =
   LY·π/72000·10⁶ ppm") and `docs/MICROSTRUCTURE.md` ("ε·10⁶ is GSAS-II's
-  microstrain") attribute π/72000 to GSAS-II. GSAS-II's Mustrain for the same
-  Y is 10⁶·π·Y/18000, four times the number shown.
+  microstrain") attributed π/72000 to GSAS-II. GSAS-II's Mustrain for the same
+  Y is 10⁶·π·Y/18000, four times the number shown
+  (GSASIIstrMath.py `GetSampleSigGam`, constant wavelength:
+  `Mgam = 0.018*Mustrain*tand(2θ/2)/π` centidegrees). Both now name the
+  Stokes–Wilson ε and give GSAS-II's number (`app/microstructureText.ts`).
+- Found in the same pass: on time of flight the report gave the zero shift in
+  "° 2θ" and difC, difA, difB in "µs". They are µs, and µs/Å, µs/Å², µs·Å
+  (`core/export/report.ts` `parameterUnit`).
+
+Not changed, and still as it was:
+
+- `core/export/reportMarkdownFrozen.ts` keeps its own copy of the unit table
+  with the earlier labels ("×10⁻⁶", "µm", "° 2θ" and "µs" as above). It is
+  frozen for the agent validation (its header): the number audit and the
+  evals read that text. The labels go when the frozen layout is retired.
+- Both layouts print "shift (frac.)" for every `positionShift` row. A
+  distortion-mode amplitude (ids `mode_…`, `core/crystal/distortionModes.ts`,
+  `parsers/modeCif.ts`) is in Å over the conventional child cell, not a
+  fractional shift. Its unit is to change after the validation freeze
+  ([ADR 0003](./adr/0003-isodistort-as-the-single-convention-system.md)).
 
 ## Deferred
 
