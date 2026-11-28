@@ -104,7 +104,7 @@ describe("a held calibration whose list passes the limit", () => {
     { bank: 4, difC: 7755.5, tth: 110.5 }, { bank: 5, difC: 10240.5, tth: 160, points: 200 }, { bank: 6, difC: 640.5, tth: 10, start: 350, points: 200 },
   ]);
   const onFive = (): PowderPage => withInstrumentFile(dataPage(5, GSA6), "mine.instprm", FIVE_BANK_INSTPRM).page;
-  const SENTENCE = "Bank 6's data at this instrument calibration reach d 0.034 Å: 2.2×10⁸ hkl to scan, over the limit. Load the instrument file for bank 6, or narrow the window.";
+  const SENTENCE = "Bank 6's data at this instrument calibration reach d 0.034 Å: 3.5×10⁸ hkl to scan, over the limit. Load the instrument file for bank 6, or narrow the window.";
   const workspaceOf = (p: PowderPage): PowderWorkspace => powderWorkspaceFrom(p.session, p.result, p.instrument, p.instrumentLoaded, { fitRange: null, displayUnit: null, manualPeakD: [] });
 
   it("bank 5 → 6: the page lands (no throw), its list is past the limit, and the sentence says where and what to do", () => {

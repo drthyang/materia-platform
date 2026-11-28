@@ -92,7 +92,7 @@ const BANK_WINDOWS: Readonly<Record<string, { readonly min: number; readonly max
 
 const BACKGROUND: { readonly type: BackgroundType; readonly terms: number } = { type: "chebyshev", terms: 7 };
 
-// Snapshot of a converged refinement inside FIT_RANGE: Rw 2.208 %, GoF 5.718
+// Snapshot of a converged refinement inside FIT_RANGE: Rw 2.207 %, GoF 5.714
 // with sixteen free rows (scale, seven Chebyshev terms, a, the four B_iso and the
 // three position modes), a = 10.37596(10) Å; status "converged", no near-null
 // SVD direction (the high correlations are among the background terms only).
@@ -103,20 +103,20 @@ const BACKGROUND: { readonly type: BackgroundType; readonly terms: number } = { 
 // held at 0, as it correlates with the background) and the structure (B_iso,
 // positions), each with scale, background and a, fifteen times each; the last
 // structure stage moved nothing by more than 0.001 esd. The profile stages put
-// the Lorentzian microstrain at 424(79) and the size at 0.0464(15) µm. The
+// the Lorentzian microstrain at 432(79) and the size at 0.0466(16) µm. The
 // example opens with the rows the spec frees (scale, background, a) free and
 // the rest held at these values. Keyed by parameter id, applied after the spec
 // is rebuilt from the model.
 const REFINED_PARAMS: Record<string, number> = {
-  scale: 0.00003699290913148213,
-  bkg0: 0.548273074558259,
-  bkg1: 0.15094797516697686,
-  bkg2: 0.15120735872055202,
-  bkg3: 0.012034143396177952,
-  bkg4: 0.1114262911331799,
-  bkg5: 0.012893821227680813,
-  bkg6: 0.04315476222016007,
-  cell_a: 10.375964764591364,
+  scale: 0.00003698332236711194,
+  bkg0: 0.5474255511188837,
+  bkg1: 0.1518782981664627,
+  bkg2: 0.14982579122575737,
+  bkg3: 0.01258004649805557,
+  bkg4: 0.11066029453370675,
+  bkg5: 0.013085694235755103,
+  bkg6: 0.042908858264659185,
+  cell_a: 10.3759640319384,
   tof_difC: 9068.553459758095,
   tof_difA: -23.07639352718455,
   tof_difB: 0,
@@ -132,16 +132,16 @@ const REFINED_PARAMS: Record<string, number> = {
   tof_gamY: 6.397888325532403,
   tof_gamZ: 0,
   tofSampleGauss: 0,
-  tofSampleLorentz: 423.8097118105326,
-  tofSampleSize: 0.046448604780985246,
+  tofSampleLorentz: 431.615415613254,
+  tofSampleSize: 0.046589219778765505,
   zero: -3.196819630450491,
-  B_Ga1: 0.3103685396674084,
-  B_Ta1: 0.343465076487938,
-  B_Se1: 0.44492811016940914,
-  B_Se2: 0.39307846732646057,
-  pos_Ta1_0: -0.00021716632322054744,
-  pos_Se1_0: -0.0004272710421696226,
-  pos_Se2_0: 0.0006012986590684235,
+  B_Ga1: 0.3094859085384337,
+  B_Ta1: 0.3427311569546792,
+  B_Se1: 0.4436512597247989,
+  B_Se2: 0.393078018848096,
+  pos_Ta1_0: -0.00021740271337322402,
+  pos_Se1_0: -0.000424960700987852,
+  pos_Se2_0: 0.0005988141737488195,
   occ_Ga1: 1,
   occ_Ta1: 1,
   occ_Se1: 1,

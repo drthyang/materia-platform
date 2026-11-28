@@ -27,7 +27,7 @@ release fixes bugs.
 
 - **The NOMAD example fits bank 4 over 3000–16000 µs** (d 0.331–1.773 Å, 1785
   points), the owner's window, in place of 1137–16905 µs. Refitted with the
-  same recipe: wR 2.21 %, GoF 5.72, a = 10.3760(1) Å, converged, no near-null
+  same recipe: wR 2.21 %, GoF 5.71, a = 10.3760(1) Å, converged, no near-null
   direction (`examples/gata4se8-nomad-300k/README.md`).
 
 - **The Instrument card says one short line per item.** The title names the
@@ -40,6 +40,24 @@ release fixes bugs.
   wording.
 
 ### Fixed
+
+- **A time-of-flight reflection list keeps its margin below the fit window
+  when the peaks have a Lorentzian width.** The list reaches one peak support
+  below the window's short-d edge (THY-90). With an instrument file's
+  Lorentzian width the support counted the tail as far as it is drawn, some
+  2000 Lorentzian widths: at short d more than the edge's own time of flight,
+  so no d ended it and the list started at the window's edge itself. A line
+  at the edge then dropped in and out of the model as the cell moved, a step
+  in χ² (230 on NOMAD bank 4 at 3000 µs) that could stall a refinement. The
+  margin is now 20 peak widths (2.3548σ + γ + 1/α + 1/β), as for every other
+  time-of-flight peak; the Lorentzian's far tail is still drawn for the lines
+  in the list. Pages on an instrument file with a Lorentzian width list more
+  lines (the NOMAD example 862 → 1225 families, to d 0.292 Å instead of
+  0.331 Å; about 1.3× the time per pattern) and their numbers move a little:
+  the example's refit gives wR 2.208 → 2.207 %, GoF 5.72 → 5.71, every row
+  within 0.2 esd. Profiles without a Lorentzian width are unchanged. The
+  sentence for a list past the limit now names the d the data reach and the
+  list's own count.
 
 - **The GSAS-II bundle carries the preferred orientation.** A textured fit's
   March–Dollase ratio and axis were written to the FullProf `.pcr` but

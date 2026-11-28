@@ -79,7 +79,7 @@ describe("the workbench past the reflection limit", () => {
     await act(async () => root!.render(createElement(Shell, { start: six })));
     expect(alerts().map((a) => a.textContent)).toEqual([]);
     expect(text()).not.toContain("cannot be calculated");
-    const sentence = "Bank 6's data at this instrument calibration reach d 0.034 Å: 2.2×10⁸ hkl to scan, over the limit. Load the instrument file for bank 6, or narrow the window.";
+    const sentence = "Bank 6's data at this instrument calibration reach d 0.034 Å: 3.5×10⁸ hkl to scan, over the limit. Load the instrument file for bank 6, or narrow the window.";
     expect(limit()).toEqual([sentence]);
     // Refine is held.
     expect(button("Refine")!.disabled).toBe(true);

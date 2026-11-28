@@ -12,7 +12,7 @@
 
 import { ReflectionLimitError, generateReflections, type ReflectionLimitOver } from "@/core/diffraction/reflections";
 import type { PowderPattern } from "@/core/diffraction/types";
-import { reflectionDRange, type PowderCurves } from "@/core/workflow/powder";
+import { reflectionRange, type PowderCurves } from "@/core/workflow/powder";
 import { appliedPhases, type ShortDPage, type Window } from "@/app/shortD";
 import { currentDataBank, dataBanksOf } from "@/app/bankChoice";
 
@@ -34,17 +34,19 @@ export function withinReflectionLimit<T>(read: () => T): T | null {
 
 /**
  * The first of the page's nuclear reflection lists (each phase's, over the
- * range its curve and ticks use: core/workflow/powder.ts reflectionDRange,
+ * range its curve and ticks use: core/workflow/powder.ts reflectionRange,
  * following the window) that passes the limit, or null when every one is
  * within it. The lists are the engine's own (memoized), so a list within the
- * limit is the one the curves then read.
+ * limit is the one the curves then read. Its `dMin` is the d the data reach
+ * (the window's short-d edge, as the sentence says it); the count is the
+ * list's, which reaches one peak support further.
  */
 export function pageReflectionLimit(p: ShortDPage, window: Window | null): ReflectionLimitOver | null {
   if (p.pattern.points.length === 0) return null;
   for (const a of appliedPhases(p)) {
-    const { dMin, dMax } = reflectionDRange(p.pattern, a, window ?? undefined);
-    const r = readWithinLimit(() => generateReflections(a.model.cell, a.model.spaceGroup, dMin, dMax));
-    if ("error" in r && r.error.over) return r.error.over;
+    const range = reflectionRange(p.pattern, a, window ?? undefined);
+    const r = readWithinLimit(() => generateReflections(a.model.cell, a.model.spaceGroup, range.dMin, range.dMax));
+    if ("error" in r && r.error.over) return { ...r.error.over, dMin: Math.max(r.error.over.dMin, range.windowD) };
   }
   return null;
 }
