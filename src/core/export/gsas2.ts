@@ -264,6 +264,23 @@ export interface GpxScriptOptions {
   readonly background?: readonly number[];
   /** The sample's TOF broadening, set on every phase for this histogram. */
   readonly sample?: Gsas2SampleTerms;
+  /** March–Dollase preferred orientation per phase, in phase order (main phase
+   *  first, then `extraPhases`); an absent entry leaves GSAS-II's default (none). */
+  readonly preferredOrientation?: readonly (Gsas2MarchDollase | undefined)[];
+}
+
+/**
+ * A phase's March–Dollase texture as GSAS-II holds it: the HAP entry
+ * 'Pref.Ori.' = ['MD', ratio, refine, [h, k, l], …] (GSASIIstrIO reads MD from
+ * [1] and MDAxis from [3]). GSASIIstrMath.GetPrefOri averages
+ * (MD²·cos²α + sin²α/MD)^(−3/2) over the Laue equivalents, α measured between
+ * reciprocal vectors with the reciprocal metric — MATERIA's marchDollaseFamily.
+ */
+export interface Gsas2MarchDollase {
+  /** The axis as reciprocal-lattice indices (h, k, l). */
+  readonly axis: readonly [number, number, number];
+  /** The March coefficient (1 = no texture). */
+  readonly ratio: number;
 }
 
 /** Python float literal (finite, compact). */
@@ -323,7 +340,8 @@ export function buildGpxScript(opts: GpxScriptOptions): string {
   extras.forEach((ph, i) => {
     lines.push(`phase${i + 2} = gpx.add_phase(${q(ph.cifFile)}, phasename=${q(ph.phaseName)}, fmthint='CIF')`);
   });
-  const phaseVars = ["phase", ...extras.map((_, i) => `phase${i + 2}`)].join(", ");
+  const phaseVarList = ["phase", ...extras.map((_, i) => `phase${i + 2}`)];
+  const phaseVars = phaseVarList.join(", ");
   if (opts.histogramKind === "single") {
     lines.push(`hist = gpx.add_single_histogram(${q(opts.dataFile)}, phase=phase${hint})`);
   } else {
@@ -361,6 +379,23 @@ export function buildGpxScript(opts: GpxScriptOptions): string {
       `    _hap['Size'][0] = 'isotropic'`,
       `    _hap['Size'][1][0] = _hap['Size'][1][1] = ${py(s.size)}`,
       "    _hap['Size'][1][2] = 1.0",
+    );
+  }
+  const poLines = opts.histogramKind === "single" ? [] : (opts.preferredOrientation ?? []).flatMap((po, i) => {
+    const v = phaseVarList[i];
+    if (!po || v === undefined) return [];
+    const axis = po.axis.map((x) => (Number.isInteger(x) ? String(x) : py(x))).join(", ");
+    return [
+      `_po = ${v}.data['Histograms'][hist.name]['Pref.Ori.']`,
+      `_po[0], _po[1], _po[2], _po[3] = 'MD', ${py(po.ratio)}, False, [${axis}]`,
+    ];
+  });
+  if (poLines.length) {
+    lines.push(
+      "",
+      "# MATERIA's refined March-Dollase preferred orientation: the ratio (1 = none) on an axis given as",
+      "# reciprocal-lattice indices [h, k, l], as GSAS-II's 'MD' model holds it; not refined yet.",
+      ...poLines,
     );
   }
   lines.push("", "gpx.save()", `print('Wrote ${opts.gpxName}')`);
