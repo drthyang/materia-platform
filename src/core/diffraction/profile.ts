@@ -9,6 +9,13 @@
  * Peak width follows the Caglioti form FWHM² = U·tan²θ + V·tanθ + W (Caglioti,
  * Paoletti & Ricci, *Nucl. Instrum.* 3 (1958) 223); the minimal engine exposes a
  * single width parameter and optional U,V,W.
+ *
+ * Units in this file: a shape function takes x, its centre and its FWHM in one
+ * common unit, the pattern's (degrees 2θ, µs, Å or Å⁻¹), and returns a
+ * density per that unit (unit area). The width functions `cagliotiFwhm` and
+ * `lorentzianFwhm` take 2θ in degrees and return CENTIDEGREES of 2θ (GSAS-II's
+ * unit for U, V, W, X, Y); the caller divides by 100. TOF widths are in µs.
+ * Index of every equation: docs/EQUATIONS.md.
  */
 
 import { evaluateBackground, type BackgroundType } from "@/core/diffraction/background";
@@ -16,18 +23,36 @@ import { evaluateBackground, type BackgroundType } from "@/core/diffraction/back
 const LN2 = Math.LN2;
 const SQRT_LN2_OVER_PI = Math.sqrt(LN2 / Math.PI);
 
+/**
+ * Unit-area Gaussian, written with its FWHM:
+ *   G(x) = (2/Γ)·√(ln2/π) · exp[−4 ln2 · (x − x₀)²/Γ²]
+ * Symbols → code: x `x`; x₀ `center`; Γ `fwhm` (FWHM = 2√(2 ln2)·σ). All three
+ * in the pattern's x unit; G is per that unit (∫G dx = 1).
+ */
 export function gaussian(x: number, center: number, fwhm: number): number {
   const sigmaFactor = (2 * SQRT_LN2_OVER_PI) / fwhm;
   const t = (x - center) / fwhm;
   return sigmaFactor * Math.exp(-4 * LN2 * t * t);
 }
 
+/**
+ * Unit-area Lorentzian:
+ *   L(x) = (Γ/2π) / [(x − x₀)² + (Γ/2)²]
+ * Symbols → code: x `x`; x₀ `center`; Γ `fwhm` (FWHM), Γ/2 `hwhm`. Units as
+ * {@link gaussian}.
+ */
 function lorentzian(x: number, center: number, fwhm: number): number {
   const hwhm = fwhm / 2;
   return (hwhm / Math.PI) / ((x - center) * (x - center) + hwhm * hwhm);
 }
 
-/** Pseudo-Voigt: η·L + (1−η)·G, η ∈ [0,1]. */
+/**
+ * Pseudo-Voigt: pV(x) = η·L(x) + (1−η)·G(x), η ∈ [0,1].
+ * Symbols → code: η `eta` (clamped to [0, 1], the Lorentzian fraction); L and
+ * G the unit-area {@link lorentzian} and {@link gaussian} of one common FWHM Γ
+ * `fwhm`. Units as {@link gaussian}; unit area. Γ and η from a Gaussian and a
+ * Lorentzian width: {@link tchPseudoVoigt}.
+ */
 export function pseudoVoigt(x: number, center: number, fwhm: number, eta: number): number {
   const e = Math.min(Math.max(eta, 0), 1);
   return e * lorentzian(x, center, fwhm) + (1 - e) * gaussian(x, center, fwhm);
@@ -39,7 +64,19 @@ export interface CagliotiParams {
   readonly w: number;
 }
 
-/** Gaussian FWHM(θ) from Caglioti U,V,W (θ in radians). Clamped to a small floor. */
+/**
+ * Gaussian FWHM from the Caglioti coefficients:
+ *   Γ_G² = U·tan²θ + V·tanθ + W
+ * Symbols → code: θ is half of `twoThetaDeg`, the argument, which is 2θ in
+ * DEGREES (the function converts to radians itself, `theta`); U, V, W `p.u`,
+ * `p.v`, `p.w`.
+ * Units: U, V, W in centidegrees² of 2θ, as this app holds them (FWHM², which
+ * is 8 ln 2 times the variances a GSAS-II file gives: see
+ * InstrumentParameters in instrument.ts). The result Γ_G is in CENTIDEGREES
+ * of 2θ; the caller divides by 100 for degrees (workflow/powder.ts). Γ_G² is
+ * floored at 10⁻⁶ centidegree².
+ * Reference: Caglioti, Paoletti & Ricci, Nucl. Instrum. 3 (1958) 223.
+ */
 export function cagliotiFwhm(twoThetaDeg: number, p: CagliotiParams): number {
   const theta = (twoThetaDeg / 2) * (Math.PI / 180);
   const t = Math.tan(theta);
@@ -55,7 +92,17 @@ export interface LorentzianParams {
   readonly y: number;
 }
 
-/** Lorentzian FWHM(θ) from GSAS-II X,Y: Γ_L = X/cosθ + Y·tanθ. Floored at 0. */
+/**
+ * Lorentzian FWHM from GSAS-II's X, Y:
+ *   Γ_L = X/cosθ + Y·tanθ        (floored at 0)
+ * Symbols → code: X `p.x` (size term), Y `p.y` (microstrain term); θ is half
+ * of `twoThetaDeg` (2θ in degrees).
+ * Units: X, Y and the result in centidegrees of 2θ; the caller divides by 100
+ * for degrees (workflow/powder.ts). X and Y convert to a crystallite size and
+ * a microstrain in microstructure.ts (D = 18000·K·λ/(π·X), ε = π·Y/72000).
+ * Reference: the Lorentzian width of the GSAS constant-wavelength profile
+ * (Larson & Von Dreele, GSAS manual, LAUR 86-748), as GSAS-II uses it.
+ */
 export function lorentzianFwhm(twoThetaDeg: number, p: LorentzianParams): number {
   const theta = (twoThetaDeg / 2) * (Math.PI / 180);
   return Math.max(p.x / Math.cos(theta) + p.y * Math.tan(theta), 0);
@@ -72,6 +119,10 @@ export function lorentzianFwhm(twoThetaDeg: number, p: LorentzianParams): number
  *        + 0.07842 Γ_G Γ_L⁴ + Γ_L⁵
  *   η  = 1.36603 (Γ_L/Γ) − 0.47719 (Γ_L/Γ)² + 0.11116 (Γ_L/Γ)³
  *
+ * Symbols → code: Γ_G `gammaG` (`g`, floored at 10⁻⁹); Γ_L `gammaL` (`l`,
+ * floored at 0); Γ `fwhm`; η `eta` (clamped to [0, 1]).
+ * Units: any one unit for the three widths (degrees 2θ on a CW pattern, µs
+ * on TOF); η is dimensionless.
  * Reference: Thompson, Cox & Hastings, *J. Appl. Cryst.* 20 (1987) 79.
  */
 export function tchPseudoVoigt(gammaG: number, gammaL: number): { fwhm: number; eta: number } {
@@ -351,6 +402,17 @@ export function imExpE1(x: number, y: number): number {
  * with u, v, y, z as above at σ = Γ/2√(2 ln 2), N = αβ/2(α+β), and p, q as
  * the file's program defines them ({@link TofLorentzForm}). Unit area. With
  * γ absent or ≤ 0 this is the Gaussian form above, unchanged.
+ *
+ * Symbols → code: Δ `delta` = t − t_hkl (µs), the time from the peak's
+ * centre; α `shape.alpha`, β `shape.beta` (µs⁻¹; floored at 10⁻⁹); σ
+ * `shape.sigma` (µs; floored at 10⁻⁶), σ² `s2`; γ `shape.gamma` (µs, FWHM);
+ * N `norm` (µs⁻¹); y, z `y`, `z` (dimensionless); Γ `fwhm`, η `eta` in
+ * `tofBackToBackPseudoVoigt`. H is in µs⁻¹ (∫H dΔ = 1).
+ * References: Von Dreele, Jorgensen & Windsor, J. Appl. Cryst. 15 (1982) 581;
+ * Larson & Von Dreele, GSAS manual (LAUR 86-748), TOF profile functions;
+ * Thompson, Cox & Hastings, J. Appl. Cryst. 20 (1987) 79; the FullProf manual
+ * (NPROF 9). α(d), β(d), σ²(d), γ(d) are formed in workflow/powder.ts
+ * (`tofWidthsAt`, `buildTofPeaks`): see docs/EQUATIONS.md.
  */
 export function tofBackToBack(delta: number, shape: TofShape): number {
   if (shape.gamma !== undefined && shape.gamma > 0) return tofBackToBackPseudoVoigt(delta, shape, shape.gamma);
@@ -372,6 +434,13 @@ export function tofBackToBack(delta: number, shape: TofShape): number {
 /** 2√(2 ln 2): Gaussian FWHM over its standard deviation. */
 const FWHM_PER_SIGMA = 2 * Math.sqrt(2 * LN2);
 
+/**
+ * The pseudo-Voigt branch of {@link tofBackToBack} (its second formula):
+ * Γ and η from 2√(2 ln 2)·σ and γ by {@link tchPseudoVoigt}; the Gaussian part
+ * is the closed form at σ = Γ/2√(2 ln 2), the Lorentzian part
+ * −(2N/π)·{Im[e^p E₁(p)] + Im[e^q E₁(q)]} with p = ∓αΔ + iαΓ/2 (`riseArgument`:
+ * − for "gsas", + for "fullprof") and q = −βΔ + iβΓ/2. Units as tofBackToBack.
+ */
 function tofBackToBackPseudoVoigt(delta: number, shape: TofShape, gamma: number): number {
   const alpha = Math.max(shape.alpha, 1e-9);
   const beta = Math.max(shape.beta, 1e-9);
@@ -486,6 +555,13 @@ export function synthesizePattern(
   opts: ProfileOptions,
 ): Float64Array {
   const y = new Float64Array(xValues.length);
+  // THE BACKGROUND DOMAIN. x_min and x_max of every background basis (the
+  // Chebyshev t ∈ [−1, 1], the cosine s ∈ [0, 1], the interpolation points) are
+  // the smallest and largest value of `xValues`, the abscissa array passed to
+  // this call, found here. The workflows pass every point of the pattern
+  // (`pattern.points`), inside the fit range or not. The domain is not stored
+  // with the coefficients: the same coefficients on another x array are another
+  // curve. See background.ts.
   // Chebyshev normalization needs the abscissa span; compute it once.
   const bgType = opts.backgroundType ?? "chebyshev";
   let xMin = Infinity;

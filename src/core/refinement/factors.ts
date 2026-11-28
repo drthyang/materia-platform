@@ -64,6 +64,18 @@ export function fitRangeMask(
   return xValues.map((x) => x < min || x > max);
 }
 
+/**
+ * The agreement factors of the module header:
+ *   R = Σ|y_o − y_c| / Σ|y_o|        R_wp = √[Σ w (y_o − y_c)² / Σ w y_o²]
+ *   R_exp = √[(N − P) / Σ w y_o²]    GoF = R_wp / R_exp,   χ²_red = GoF²
+ * Symbols → code: y_o `yObs`, y_c `yCalc`; w `weights` (1/σ²; a point with
+ * w ≤ 0 is left out of every sum); N `nUsed`; P `nParams`; N − P `dof`
+ * (at least 1); the four sums `sumAbsDiff`, `sumAbsObs`, `sumWDiff2`,
+ * `sumWObs2`. All four results are fractions (× 100 for %), GoF a ratio.
+ * Reference: Toby, Powder Diffr. 21 (2006) 67.
+ * Also in: app/powderPage.ts `weightedR` and `curvesGoodnessOfFit` (the page
+ * forms R_wp and GoF again over its own window; docs/EQUATIONS.md).
+ */
 export function computeAgreementFactors(
   yObs: Float64Array,
   yCalc: Float64Array,
@@ -101,7 +113,8 @@ export function computeAgreementFactors(
   return { rFactor, rWeighted, rExpected, goodnessOfFit };
 }
 
-/** Weighted sum of squared residuals, χ² = Σ w (obs − calc)². */
+/** Weighted sum of squared residuals, χ² = Σ w (obs − calc)² (dimensionless
+ *  with w = 1/σ²; not divided by N − P). */
 export function chiSquared(
   yObs: Float64Array,
   yCalc: Float64Array,

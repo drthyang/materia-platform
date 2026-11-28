@@ -39,7 +39,8 @@ import {
  */
 export const THERMAL_WAVELENGTH = 1.7982;
 
-/** Absorption cross-section σ_a(λ) via the 1/v law (barn). */
+/** Absorption cross-section σ_a(λ) via the 1/v law (barn):
+ *  σ_a(λ) = σ_a(2200 m/s)·λ/λ₀, λ `wavelength` (Å), λ₀ `THERMAL_WAVELENGTH` = 1.7982 Å. */
 export function absorptionCrossSection(element: string, wavelength: number): number {
   return crossSections(element).absorption * (wavelength / THERMAL_WAVELENGTH);
 }
@@ -101,6 +102,13 @@ export interface AbsorptionBreakdown {
  * at a given wavelength: μ, per-element contributions, and any resonance-
  * absorber warnings. Throws if an element is missing from the cross-section
  * table (naming it).
+ *
+ *   μ [cm⁻¹] = Σ_j N_j·[σ_a,j(λ) + σ_coh,j + σ_incoh,j] [barn] / V [Å³]
+ *
+ * Symbols → code: N_j `atomsPerCell` (multiplicity × occupancy); σ_a,j(λ)
+ * `sigmaAbsorption`, σ_coh + σ_incoh `sigmaScattering` (barn); V `volume`
+ * (Å³); each term `muContribution`, their sum `mu` (cm⁻¹: 1 barn/Å³ = 1 cm⁻¹).
+ * Reference: Sears, Neutron News 3(3) (1992) 26 (the cross sections).
  */
 export function absorptionBreakdown(structure: StructureModel, wavelength: number): AbsorptionBreakdown {
   const volume = cellVolume(structure.cell);

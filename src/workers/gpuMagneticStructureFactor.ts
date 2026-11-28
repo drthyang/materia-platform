@@ -22,6 +22,16 @@
  * MEASURED on hardware (Apple GPU, metal-3) via gpuValidationHarness.ts: max
  * relative |F_M|² deviation vs the CPU f64 truth 4.5e-7 on the Mn₃Ga AFM
  * (k=(½,0,0), 175 satellites) — far under the 1e-3 esd floor.
+ *
+ * EQUATIONS written again in the WGSL below (a hot loop; each is a copy to
+ * keep in step by hand): the sum of core/magnetic/structureFactor.ts
+ * `magneticStructureFactorEvaluator` for a real coefficient; the Debye–Waller
+ * factors of core/diffraction/structureFactor.ts `debyeWaller` and
+ * `anisotropicDebyeWaller`; ⟨j0⟩(s) of core/scattering/magnetic.ts
+ * `magneticFormFactorJ0`; M⊥ = M − q̂(M·q̂) of core/magnetic/moment.ts
+ * `perpendicularMoment`. p = 2.695 fm/μ_B is the CPU's `MAGNETIC_PREFACTOR`
+ * (one constant, shared). Units: moments in μ_B, s in Å⁻¹, B and U in Å², so
+ * F_M is in fm and |F_M|² in fm². Index: docs/EQUATIONS.md.
  */
 
 import type { StructureModel } from "@/core/crystal/types";

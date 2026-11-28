@@ -156,7 +156,18 @@ export function cagliotiOf(instrument: { readonly kind: string; readonly u?: num
   return u === 0 && v === 0 && w === 0 ? undefined : { u: u / 1e4, v: v / 1e4, w: w / 1e4 };
 }
 
-/** The back-to-back-exponential coefficients at d. */
+/**
+ * The back-to-back-exponential coefficients at d:
+ *   α = α₁/d        β = β₀ + β₁/d⁴ + β_q/d²        σ² = σ₀² + σ₁²·d² + σ₂²·d⁴ + σ_q²·d
+ * Symbols → code: α₁ `p.alpha` (Å/µs); β₀, β₁, β_q `p.beta0`, `p.beta1`,
+ * `p.betaQ`; σ₀², σ₁², σ₂², σ_q² `p.sig0`, `p.sig1`, `p.sig2`, `p.sigQ` (the
+ * names carry the square: each is a variance coefficient, µs² per its power
+ * of d); d `d` (Å). Returns α, β in µs⁻¹ (floored at 10⁻⁹) and σ in µs (σ²
+ * floored at 10⁻⁶ µs²).
+ * Reference: GSAS-II's getTOFalpha, getTOFbeta, getTOFsig.
+ * Also in: workflow/powder.ts `tofWidthsAt` and `buildTofPeaks` (the fit's
+ * own copies, with a constant α₀ and the sample terms); docs/EQUATIONS.md.
+ */
 export function tofShapeAt(d: number, p: LeBailTofProfile): TofShape {
   const alpha = Math.max(p.alpha / d, 1e-9);
   const beta = Math.max(p.beta0 + (p.beta1 ?? 0) / (d * d * d * d) + (p.betaQ ?? 0) / (d * d), 1e-9);
@@ -183,6 +194,7 @@ export function dToX(pattern: PowderPattern, d: number, tof?: TofCalibration): n
     case "dSpacing": return d;
     case "q": return (2 * Math.PI) / d;
     case "tof":
+      // T(d) = difC·d + difA·d² + difB/d + Zero (µs): a copy of diffraction/instrument.ts `tofFromD`.
       return tof ? tof.difC * d + tof.difA * d * d + tof.difB / d + tof.zero : NaN;
   }
 }

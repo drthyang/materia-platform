@@ -72,6 +72,14 @@ export interface PeakCorrection {
 const DISPLACEMENT_MESSAGE =
   "Zero (constant), displacement (∝cosθ) and transparency (∝sin2θ) are the three peak-position corrections; over a narrow 2θ range they are near-degenerate. Free at most one or two, and only with wide angular coverage.";
 
+/**
+ * Sample displacement (Bragg–Brentano): a shift of the peak's 2θ,
+ *   Δ2θ = s·cosθ
+ * Symbols → code: s `v.sampleDisplacement` (degrees of 2θ: the shift at
+ * θ = 0, which gathers the height error and the goniometer radius into one
+ * refined number); θ is half of `twoTheta` (degrees). Δ2θ in degrees, added
+ * to the Bragg angle.
+ */
 const displacement: PeakCorrection = {
   id: "displacement",
   shared: true,
@@ -86,6 +94,13 @@ const displacement: PeakCorrection = {
   ],
 };
 
+/**
+ * Sample transparency (Bragg–Brentano): a shift of the peak's 2θ,
+ *   Δ2θ = t·sin2θ
+ * Symbols → code: t `v.sampleTransparency` (degrees of 2θ: the shift at
+ * 2θ = 90°); 2θ `twoTheta` (degrees). Δ2θ in degrees, added to the Bragg
+ * angle after the displacement.
+ */
 const transparency: PeakCorrection = {
   id: "transparency",
   shared: true,
@@ -95,6 +110,10 @@ const transparency: PeakCorrection = {
   positionShift: (v, twoTheta) => (v.sampleTransparency ?? 0) * Math.sin(2 * ((twoTheta / 2) * RAD)),
 };
 
+/**
+ * Cylinder (capillary) absorption: the intensity times A(μR, 2θ), intensity.ts
+ * `cylinderAbsorption`. μR `v.absorption` (dimensionless).
+ */
 const absorption: PeakCorrection = {
   id: "absorption",
   // Kept per-phase to preserve prior behaviour (absorption was not in SHARED_KINDS).
@@ -105,6 +124,11 @@ const absorption: PeakCorrection = {
   intensityFactor: (v, twoTheta) => cylinderAbsorption(v.absorption ?? 0, twoTheta),
 };
 
+/**
+ * Surface roughness (Suortti): the intensity times C(θ), intensity.ts
+ * `surfaceRoughness`. SRA `v.surfaceRoughA`, SRB `v.surfaceRoughB`
+ * (dimensionless).
+ */
 const roughness: PeakCorrection = {
   id: "roughness",
   shared: true,

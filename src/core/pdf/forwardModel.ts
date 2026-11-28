@@ -53,7 +53,9 @@ export interface PdfModelParams {
 }
 
 /** Sphere characteristic function γ₀(r/d) — the small-angle envelope of a
- *  spherical particle of diameter d (Guinier; PDFfit2 `spdiameter`). */
+ *  spherical particle of diameter d (Guinier; PDFfit2 `spdiameter`):
+ *    γ₀(x) = 1 − (3/2)·x + (1/2)·x³ for x = r/d < 1, else 0
+ *  Symbols → code: r `r`, d `diameter` (Å); x `x`. Dimensionless; 1 when d ≤ 0. */
 export function sphereEnvelope(r: number, diameter: number): number {
   if (!(diameter > 0)) return 1;
   const x = r / diameter;
@@ -99,6 +101,25 @@ export const PAIR_REACH_MARGIN = 1.0;
  * point receives the same terms in the same order as in the whole curve, so
  * the block is bit-identical to that part of it. `pairs` must then hold every
  * pair whose ±5σ window reaches the block (workflow/pdf `shardShell`).
+ *
+ * The equation (module header), as the code forms it:
+ *
+ *   G(r) = scale · E(r) · { (1/(N⟨b⟩²)) Σ_pairs w_ij · 𝒩(r; r_ij, σ_ij)/r_ij − 4π r ρ₀ }
+ *   σ_ij² = msd_ij · (1 − δ1/r_ij − δ2/r_ij² + Qbroad²·r_ij²),   E(r) = γ₀(r/d)·exp(−(r·Qdamp)²/2)
+ *
+ * Symbols → code: N `weights.nEff` (atoms per cell, occupancies summed);
+ * |⟨b⟩|² `weights.bAvgAbs2` (fm² for neutrons; Z² for X-rays); 1/(N⟨b⟩²)
+ * `norm`; w_ij = Re(o_i b_i · o_j b_j*) `pairWeight(...)`; r_ij `r` (Å);
+ * msd_ij `msd` = n̂ᵀ(U_i + U_j)n̂ (Å², pairEnumerator.ts); σ_ij `sigma` (Å;
+ * × `sratio` below `rcut`, floored at 10⁻⁴ Å); the Gaussian's height
+ * `peak`, summed over ±5σ; ρ₀ `rho0` (Å⁻³); δ1 `d1` (Å), δ2 `d2` (Å²),
+ * Qbroad² `qb2` (Å⁻²); Qdamp `params.qdamp` (Å⁻¹); γ₀ {@link sphereEnvelope},
+ * d `spd` (Å). G in Å⁻².
+ * References: Farrow et al., J. Phys.: Condens. Matter 19 (2007) 335219
+ * (PDFfit2 and PDFgui); Proffen & Billinge, J. Appl. Cryst. 32 (1999) 572.
+ * The pair loop is a hot loop.
+ * Also in: pdf/partials.ts `computePartialsGofR` and pdf/gradients.ts (each
+ * repeats the pair term in the same order; tests pin them bit-identical).
  */
 export function computeGofR(
   cell: UnitCell,

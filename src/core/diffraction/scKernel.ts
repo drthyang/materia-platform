@@ -17,6 +17,20 @@
  *
  * with e = T·exp(iφ) per image. It reproduces `nuclearStructureFactor` to
  * round-off; one call with every derivative costs about two plain ones.
+ *
+ * Symbols → code: occ `site.occ`; a(s) `site.amp.re[i]`, `site.amp.im[i]` (fm
+ * for neutrons, electrons for X-rays, with f′ + i·f″ added at a laboratory
+ * line); s² `plan.s2[i]` (Å⁻²); h′ `hp`, `kp`, `lp`; h·t `ht`; φ `phase`
+ * (rad); T `t` (anisotropic) or `tIso` = exp(−B·s²) (isotropic), B `site.b`
+ * (Å²), U^ij `u` (Å²); a*, b*, c* `as`, `bs`, `cs` (Å⁻¹); w_k(h′) `w0…w5`.
+ * F is in fm (neutron) or electrons (X-ray).
+ * Reference: International Tables for Crystallography Vol. B, ch. 1.2; the
+ * displacement factors as Trueblood et al., Acta Cryst. A52 (1996) 770.
+ * Also in: the same sum is diffraction/structureFactor.ts
+ * `nuclearStructureFactor` (the named, readable form) and
+ * workers/gpuStructureFactor.ts (WGSL). The two Debye–Waller factors are
+ * written here again, inline, because this is a hot loop: the named ones are
+ * `debyeWaller` and `anisotropicDebyeWaller` in structureFactor.ts.
  */
 
 import type { StructureModel } from "@/core/crystal/types";
@@ -171,6 +185,8 @@ export function scStructureFactors(plan: ScPlan, model: StructureModel, derivati
         let t = 1;
         let w0 = 0, w1 = 0, w2 = 0, w3 = 0, w4 = 0, w5 = 0;
         if (u) {
+          // Anisotropic Debye–Waller, T = exp(−2π² Σ U^ij h′_i h′_j a*_i a*_j): a copy
+          // of structureFactor.ts `anisotropicDebyeWaller`, inline (hot loop).
           w0 = hp * hp * as * as;
           w1 = kp * kp * bs * bs;
           w2 = lp * lp * cs * cs;
@@ -198,6 +214,7 @@ export function scStructureFactors(plan: ScPlan, model: StructureModel, derivati
         }
       }
       // q = occ·a·T_iso: the site's prefactor (complex amplitude).
+      // T_iso = exp(−B·s²): a copy of structureFactor.ts `debyeWaller`, inline (hot loop).
       const tIso = u ? 1 : Math.exp(-site.b * s2);
       const qRe = site.occ * site.amp.re[i]! * tIso;
       const qIm = site.occ * site.amp.im[i]! * tIso;

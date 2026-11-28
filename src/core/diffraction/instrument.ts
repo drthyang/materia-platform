@@ -9,6 +9,13 @@
  *
  * The inverse (d from the abscissa) uses a couple of Newton iterations for TOF
  * (the difA·d²/difB·d⁻¹ terms are small) and the closed form for 2θ.
+ *
+ * Units: TOF and Zero in µs; d in Å; difC in µs/Å, difA in µs/Å², difB in
+ * µs·Å; λ in Å; 2θ and its zero in degrees.
+ * Reference: the GSAS-II TOF calibration (Toby & Von Dreele, J. Appl. Cryst.
+ * 46 (2013) 544); Bragg's law.
+ * The TOF centre is written more than once (docs/EQUATIONS.md lists the
+ * copies): `tofFromD` here is the named one.
  */
 
 import type { KAlpha2, PowderPattern, Radiation } from "@/core/diffraction/types";
@@ -103,6 +110,17 @@ export function withoutProfileProgram(instrument: InstrumentParameters): Instrum
   return rest;
 }
 
+/**
+ * TOF of a reflection from its d-spacing:
+ *   T(d) = Zero + difC·d + difA·d² + difB/d
+ * Symbols → code: d `d` (Å); difC `p.difC` (µs/Å); difA `difA` (µs/Å²); difB
+ * `difB` (µs·Å; the term is dropped at d = 0); Zero `zero` (µs). Returns T in µs.
+ * Reference: GSAS-II (Toby & Von Dreele, J. Appl. Cryst. 46 (2013) 544).
+ * Also in (the same sum, typed again): `dFromTof` below (its Newton residual);
+ * workflow/powder.ts (three places: `buildTofFilePeaks`, `buildTofPeaks` and
+ * `tofAt`, each with the applied `zeroShift` as Zero); workflow/leBail.ts
+ * (`dToX`).
+ */
 export function tofFromD(p: Extract<InstrumentParameters, { kind: "tof" }>, d: number): number {
   const difA = p.difA ?? 0;
   const difB = p.difB ?? 0;
@@ -110,6 +128,14 @@ export function tofFromD(p: Extract<InstrumentParameters, { kind: "tof" }>, d: n
   return zero + p.difC * d + difA * d * d + (d !== 0 ? difB / d : 0);
 }
 
+/**
+ * d-spacing from a TOF: the root of T(d) − t = 0 by Newton's method,
+ *   d ← d − [T(d) − t] / T′(d),   T′(d) = dT/dd = difC + 2·difA·d − difB/d²
+ * starting from d = (t − Zero)/difC, at most 8 steps, stopped when the step is
+ * below 10⁻¹⁰ Å.
+ * Symbols → code: t `tof` (µs); T(d) − t `f`; T′(d) `df` (µs/Å); d `d` (Å).
+ * T(d) is {@link tofFromD}, typed again here.
+ */
 export function dFromTof(p: Extract<InstrumentParameters, { kind: "tof" }>, tof: number): number {
   const difA = p.difA ?? 0;
   const difB = p.difB ?? 0;
@@ -127,6 +153,12 @@ export function dFromTof(p: Extract<InstrumentParameters, { kind: "tof" }>, tof:
   return d;
 }
 
+/**
+ * Bragg's law, d → 2θ:
+ *   2θ = 2·asin(λ/2d) + zero
+ * Symbols → code: λ `p.wavelength` (Å); d `d` (Å); zero `p.zero` (degrees).
+ * Returns 2θ in degrees; NaN when λ/2d > 1 (no reflection).
+ */
 export function twoThetaFromD(
   p: Extract<InstrumentParameters, { kind: "constantWavelength" }>,
   d: number,
@@ -136,6 +168,12 @@ export function twoThetaFromD(
   return (2 * Math.asin(arg) * 180) / Math.PI + (p.zero ?? 0);
 }
 
+/**
+ * Bragg's law, 2θ → d:
+ *   d = λ / (2·sinθ),   θ = (2θ − zero)/2
+ * Symbols → code: 2θ `twoThetaDeg` (degrees); zero `p.zero` (degrees); θ
+ * `theta` (radians); λ `p.wavelength` (Å). Returns d in Å.
+ */
 export function dFromTwoTheta(
   p: Extract<InstrumentParameters, { kind: "constantWavelength" }>,
   twoThetaDeg: number,
@@ -165,7 +203,8 @@ export function secondLine(pattern: Pick<PowderPattern, "xUnit" | "radiation">):
 }
 
 /** 2θ (degrees) of the second line for a reflection whose first line is at
- *  twoTheta1 (degrees, the Bragg angle without shifts); NaN past back-scattering. */
+ *  twoTheta1 (degrees, the Bragg angle without shifts); NaN past back-scattering.
+ *  Bragg's law at one d: sinθ₂ = (λ₂/λ₁)·sinθ₁. λ₂/λ₁ `lambdaRatio`. */
 export function secondLineTwoTheta(twoTheta1: number, lambdaRatio: number): number {
   const s = Math.sin((twoTheta1 * Math.PI) / 360) * lambdaRatio;
   return s < 1 ? (2 * Math.asin(s) * 180) / Math.PI : NaN;

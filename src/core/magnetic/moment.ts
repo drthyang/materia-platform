@@ -15,6 +15,8 @@ import { dot, norm, normalize, scale, sub } from "@/core/math/vec3";
  * Q vector in the Cartesian frame (Å⁻¹), including the 2π factor:
  *   Q = 2π · (M⁻¹)ᵀ · (h, k, l)
  * where M is the fractional→Cartesian orthogonalization matrix.
+ * Symbols → code: M `m` (Å; crystal/unitCell.ts `orthogonalizationMatrix`);
+ * (M⁻¹)ᵀ `reciprocalCart` (Å⁻¹, its columns a*, b*, c*); |Q| = 2π/d.
  */
 export function qCartesian(cell: UnitCell, h: number, k: number, l: number): Vec3 {
   return qCartesianFor(cell)(h, k, l);
@@ -28,13 +30,11 @@ export function qCartesianFor(cell: UnitCell): (h: number, k: number, l: number)
 }
 
 /**
- * Moment vector in the Cartesian frame (μ_B).
- *  - "cartesian": components are already Cartesian.
- *  - "crystallographic": components are along the normalized direct lattice
- *    directions (â, b̂, ĉ). For orthogonal cells this is the identity; for
- *    oblique cells it is a documented simplification (see LIMITATIONS.md).
+ * Convert crystal-axis moment components (μ_B along â, b̂, ĉ) to Cartesian:
+ *   m = m_a·â + m_b·b̂ + m_c·ĉ,   â = a/|a| etc.
+ * Symbols → code: (m_a, m_b, m_c) `comps` (μ_B); â, b̂, ĉ `ahat`, `bhat`,
+ * `chat` (unit vectors, Cartesian). Returns μ_B.
  */
-/** Convert crystal-axis moment components (μ_B along â, b̂, ĉ) to Cartesian. */
 export function crystalComponentsToCartesian(cell: UnitCell, comps: Vec3): Vec3 {
   const m = orthogonalizationMatrix(cell);
   // Columns of M are a, b, c in Cartesian; normalize each to a direction.
@@ -50,6 +50,13 @@ export function crystalComponentsToCartesian(cell: UnitCell, comps: Vec3): Vec3 
   ];
 }
 
+/**
+ * Moment vector in the Cartesian frame (μ_B).
+ *  - "cartesian": components are already Cartesian.
+ *  - "crystallographic": components are along the normalized direct lattice
+ *    directions (â, b̂, ĉ). For orthogonal cells this is the identity; for
+ *    oblique cells it is a documented simplification (see LIMITATIONS.md).
+ */
 export function momentCartesian(cell: UnitCell, moment: MagneticMoment): Vec3 {
   if (moment.frame === "cartesian") {
     return moment.components;
@@ -60,7 +67,12 @@ export function momentCartesian(cell: UnitCell, moment: MagneticMoment): Vec3 {
 /**
  * Perpendicular-moment projection: the component of M perpendicular to the
  * scattering direction q̂. Only M⊥ contributes to magnetic scattering.
- *   M⊥ = M − q̂ (M · q̂)
+ *   M⊥ = M − q̂ (M · q̂)        (= q̂ × (M × q̂))
+ * Symbols → code: M `moment` (any unit; μ_B or fm); q̂ `qhat` = `q`/|q| (`q`
+ * in any unit). M returned unchanged at q = 0.
+ * Reference: Halpern & Johnson, Phys. Rev. 55 (1939) 898.
+ * Also in: magnetic/structureFactor.ts (`perp`, inline in the per-reflection
+ * closure) and workers/gpuMagneticStructureFactor.ts (WGSL `mperp`).
  */
 export function perpendicularMoment(moment: Vec3, q: Vec3): Vec3 {
   if (norm(q) === 0) return moment;

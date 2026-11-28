@@ -10,6 +10,19 @@
  *
  * Nuclear and magnetic contributions are kept strictly separate: this module
  * never touches nuclear code.
+ *
+ * Symbols → code (in `magneticStructureFactorEvaluator`): p
+ * `MAGNETIC_PREFACTOR` (fm/μ_B); f_mag,j(s) `fMag` = ⟨j0⟩(s), s = sinθ/λ =
+ * 1/(2d) `s` (Å⁻¹); M⊥,j `mPerp` (μ_B, Cartesian), M⊥ = M − q̂(M·q̂) with q̂
+ * `qhat`; the phase `phase` (rad). The sum also carries the occupancy, the
+ * Debye–Waller factor and the two-arm factor: see that function.
+ * Units: F_M in fm; |F_M|² in fm², the scale of the nuclear |F_N|².
+ * References: Halpern & Johnson, Phys. Rev. 55 (1939) 898 (only M⊥ scatters);
+ * Squires, Introduction to the Theory of Thermal Neutron Scattering, ch. 7;
+ * Rodríguez-Carvajal, Physica B 192 (1993) 55 (the convention of FullProf).
+ * Also in: magnetic/fourierMoment.ts `fourierMagneticStructureFactor` (the
+ * same sum from explicit Fourier coefficients) and
+ * workers/gpuMagneticStructureFactor.ts (WGSL, f32). Index: docs/EQUATIONS.md.
  */
 
 import type { Complex, Vec3 } from "@/core/math/types";
@@ -252,6 +265,20 @@ interface PreparedMoment {
  * expansion serves every member. The arithmetic per reflection is the same,
  * operation for operation, as it was when the expansion was redone per call,
  * so the result is bit-identical.
+ *
+ *   F_M(h) = p · Σ_moments occ · f(s) · Σ_images T · A · [M⊥^cos + i·a·M⊥^sin] · exp[2πi(h·r − a·k·c)]
+ *
+ * Symbols → code: p `MAGNETIC_PREFACTOR` (2.695 fm/μ_B); occ `pm.occupancy`;
+ * f(s) `fMag` = ⟨j0⟩(s) (spin-only; 1 when the ion is not tabulated); s
+ * `s` (Å⁻¹), from 1/d² = hᵀG*h `inv` (Å⁻²); T `dw`, the Debye–Waller factor of
+ * diffraction/structureFactor.ts; A `arm`, the two-arm factor (½ when
+ * −k ≢ k, else 1); a `armSign` (+1 for H + k, −1 for H − k); M^cos `im.mCart`,
+ * M^sin `im.sCart` (μ_B, Cartesian, already rotated as axial vectors
+ * θ·det(R)·R·m), M⊥ = M − q̂(M·q̂) `perp`, q̂ `qhat`; r `im.p` (fractional,
+ * unwrapped); k·c `im.kc`; the weight p·occ·f·T·A `w`; the six sums
+ * `xr` … `zi`.
+ * Units: F_M in fm (complex, Cartesian); |F_M|² `squared` in fm².
+ * References: the module header. The loop over `prepared` is a hot loop.
  */
 export function magneticStructureFactorEvaluator(
   structure: StructureModel,
