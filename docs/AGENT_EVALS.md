@@ -20,7 +20,9 @@ where one fit takes seconds).
   was found (the checks written against it must fail). That shows each of
   those checks catches its failure: 64 of the suite's 72 checks so far; the
   rest (`calls identify_peaks` among them) have no failing replay yet. The scripts are in
-  [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
+  [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts) and the
+  `evals*.test.ts` files beside it (one file per group of scenarios, so no one
+  file sets the floor of a shard's time).
 - **On demand**, the same scenarios run against a real model
   ([`live.test.ts`](../src/agent/evals/live.test.ts)):
 

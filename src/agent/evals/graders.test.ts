@@ -207,7 +207,7 @@ describe("refinesMomentsAlone", () => {
   /**
    * Sonnet on magnetic-structure, 2026-11-03 (evalfix, run 2), failed on "calls refine_moments": its magnetic calls
    * and replies in order, as the run's log kept them. Its saved report is gone, so each refine's free set is the one
-   * its reply states, in the page's row ids (the scripted replay in evals.test.ts runs the same route on the page).
+   * its reply states, in the page's row ids (the scripted replay in evalsChecks.test.ts runs the same route on the page).
    */
   const sonnet = [
     call("search_propagation_vector"), call("set_propagation_vector"), call("rank_magnetic_groups"), call("choose_magnetic_group"),
