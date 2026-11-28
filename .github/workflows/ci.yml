@@ -1,16 +1,34 @@
 name: CI
 
+# One run per change: a pull request runs once (pull_request), and main runs
+# once per push. deploy.yml follows this workflow by its name, "CI", and
+# publishes a main commit only when the whole run succeeded: keep the name.
+#
+# What does not run, or looks odd:
+# - A branch pushed without a pull request does not run.
+# - A tag push does not run: a release commit is tested by its push to main.
+# - A pull request with a merge conflict gets no run until it is resolved
+#   (pull_request tests the merge with main, and there is none).
+# - A run that a newer commit cancelled shows "CI passed" as failed. That job
+#   runs with always() so that it reports a failure, not "skipped": a skipped
+#   required check counts as passing.
+# - Re-running a failed job of an older main run makes that run succeed, and
+#   deploy.yml then publishes that older commit. Re-run the newest main run.
 on:
   push:
+    branches: [main]
   pull_request:
 
+# A newer commit on the same ref cancels the run of the older one.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
+  # Typecheck (tsc -b, in the build), bundle and lint: once, not per shard.
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,4 +38,42 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run lint
-      - run: npm test
+
+  # The test suite in shards, each on its own runner. vitest assigns every
+  # test file to exactly one shard, so together they run the whole suite.
+  # The number of shards is the length of the matrix list, written once.
+  test:
+    name: test (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+  # The one check to require in branch protection: green only when the build
+  # and every shard are green. It runs even when one of them failed or was
+  # cancelled (always(): keep it), so it reports a failure instead of staying
+  # "skipped" (a skipped required check counts as passing).
+  ci:
+    name: CI passed
+    if: always()
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Build and every shard succeeded
+        env:
+          BUILD: ${{ needs.build.result }}
+          TEST: ${{ needs.test.result }}
+        run: |
+          echo "build: $BUILD, test shards: $TEST"
+          test "$BUILD" = success && test "$TEST" = success
