@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -216,8 +216,17 @@ describe("MCP host — an LLM-sized powder loop over a real client", () => {
 
   it("export_bundle writes the refined model into outDir, safely", async () => {
     writeFileSync(join(dir, "powgen.prm"), "POWGEN instrument, verbatim\n");
+    // The bundled pattern from d = 1 Å up (TOF ≥ difC · 1 Å): the same file, header and name, less its short-d rows.
+    // A model's reflections are calculated to the end of the pattern it is given (THY-90), and with the whole
+    // pattern (to 0.150 Å) that took this test 2.5–5.2 s on CI, against vitest's 5 s limit. The export does not
+    // depend on short d, and the loop test above refines the whole pattern through the host.
+    mkdirSync(join(dir, "long-d"), { recursive: true });
+    const rows = readFileSync(join(DATASETS, MN3GA_DAT), "utf8").split("\n");
+    const fromOneAngstrom = rows.filter((row) => !/^\s*\d/.test(row) || Number(row.trim().split(/\s+/)[0]) >= TOF.difC);
+    writeFileSync(join(dir, "long-d", MN3GA_DAT), fromOneAngstrom.join("\n"));
     const s = await call("parse_structure", { path: join(dir, "mn3ga.cif") });
-    const p = await call("parse_powder_data", { path: MN3GA_DAT });
+    const p = await call("parse_powder_data", { path: join("long-d", MN3GA_DAT) });
+    expect(p.pattern).toMatchObject({ points: 2240, xUnit: "tof" }); // of the file's 4613
     const b = await call("build_refinement", { structure: s.structure, pattern: p.pattern, instrument: TOF });
     const r = await call("refine_powder", {
       structure: s.structure, pattern: p.pattern, instrument: TOF, parameters: b.parameters, bindings: b.bindings, profile: b.profile,
