@@ -57,7 +57,12 @@ subset. Every bank has a weight factor, editable in the first delivery.
   that "no absorption correction was applied"). A shared-μR correction for data
   that were not corrected stays a later step (step 12); it is not needed before
   first real use.
-- **Q6:** no preferred orientation in the first delivery.
+- **Q6:** no preferred orientation in the first delivery. *Superseded for
+  later (owner, 2026-11-28, preferred-orientation plan Q17, "(c) Shared +
+  per-bank diagnostic"):* when texture joins the joint fit, it is one texture
+  per phase shared by all banks, each bank's ψ from its detector angles, plus
+  a per-bank fit offered as a diagnostic. This replaces the "one ratio per bank
+  on a shared axis" note. See `docs/plans/PREFERRED_ORIENTATION.md` (step 11).
 - **Q7:** excluded regions are out of scope.
 - **Q9:** the overall GoF judges the fit. Each bank in a worse band is named
   beside it.
