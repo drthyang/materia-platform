@@ -1,9 +1,9 @@
-# Plan: sample preferred orientation (DRAFT)
+# Plan: sample preferred orientation
 
-> **Status: questions open for the owner. Nothing here is built.** No Linear issue
-> yet. Each numbered QUESTION is a choice for the owner; my recommendation is
-> given with it, and all of them are collected in
-> [section 9](#9-the-questions-collected).
+> **Status: decided by the owner on 2026-11-28 (section 0). Nothing here is
+> built yet.** Step 0 (the GSAS-II bundle fix) is being built first; every
+> later step waits for its own go. Each numbered QUESTION below keeps its
+> options and recommendation for the record; section 0 gives the answers.
 >
 > Every number in this document comes from the formulas (a short script, kept
 > outside the repository), from running the app's code on invented structures,
@@ -56,9 +56,78 @@
 `GLOSSARY.md` has none of these words yet. The first step that adds a texture
 model adds them.
 
-## 0. Decisions
+## 0. Decisions (2026-11-28)
 
-None yet. The owner's answers to section 9 go here, as in THY-89.
+Decided by the owner, one question at a time, through the Session monitor.
+The option chosen is quoted. Where an answer differs from the recommendation
+in the question below, this section wins.
+
+**Order of work**
+
+- **Q16 GSAS-II bundle:** "(a) Fix now, own small PR". This is step 0, built
+  first. Every later step waits for its own go, one step at a time.
+- **Q1 Models:** "(b) Complete MD, then harmonics". March–Dollase on one axis
+  is made complete (magnetic peaks, every phase, the GSAS-II export, analytic
+  derivatives, validation). Spherical harmonics with cylindrical sample
+  symmetry come next.
+- **Q2 Exponential and Sasa–Uda:** "(a) Not offered".
+
+**Science and validation**
+
+- **Q6 Magnetic peaks:** "(a) Parent's texture per member". Each satellite
+  member's P comes from the parent phase's texture, weighted by its own
+  |F_M⊥|².
+- **Q9 Per phase:** "(a) Every phase its own".
+- **Q3 Geometry:** "(b) Per pattern, default flat plate". Today's function
+  is the "flat plate in reflection" default, so projects that keep it keep
+  their numbers.
+- **Q4 Bank angles and frame:** "(c) From .instprm, editable". The angles
+  come from the `.instprm` `2-theta` and `Azimuth`, checked against difC, and
+  can be edited on the page; the azimuth defaults to 0. Frame as proposed:
+  beam along +z, y up, the texture axis given in that frame, default vertical
+  (the can axis).
+- **Q5 Bank extent:** "(b) Pixel average with file, centre fallback". The
+  owner has the NOMAD detector geometry file. The texture is averaged over
+  each bank's pixels, weighted by solid angle, using the geometry file and
+  the pixel-to-bank grouping. Without a file, the bank-centre approximation
+  is used and stated. The file's format (Mantid IDF, DetCal, grouping) is
+  read from the file itself. The file stays local; the owner gives its path
+  when that step starts. Validation compares the pixel average with the
+  centre approximation on the owner's data.
+- **Q7 Highest order:** "(b) Up to 12". Start at the lowest order the Laue
+  class allows and go up one order at a time on the Hamilton test, never
+  automatically.
+- **Q8 Positivity:** "(a) Report first, penalty if needed". A negative pole
+  density is a finding in step 6. The grid penalty is added only if the
+  known-truth or real-data runs show negative densities.
+- **Q10 Guard:** "(b) Existing guard + move note". The existing correlation
+  guard applies (refuse at |ρ| ≥ 0.95, report from 0.8), plus a note when
+  freeing the texture moves a B, U or occupancy by more than 2 combined esds.
+- **Q11 Real data:** "(a) Your GSAS-II project + (b) if found". The owner's
+  local GSAS-II project with harmonic texture, kept local only. Also a public
+  GSAS-II tutorial dataset with texture, if one is found and its licence
+  allows.
+
+**Page, Copilot and format**
+
+- **Q12 Default axis:** "(b) Texture test's axis, else [001]". The field says
+  which.
+- **Q13 Tool shape:** "(a) Extend set_corrections". `preferredOrientation`
+  stays as the single-axis shorthand; an optional `texture` object is added.
+- **Q14 "(a capillary rarely is)":** "(b) now, (c) later". The text becomes
+  "(a spun capillary is less prone, not immune)" now. It is dropped, with the
+  geometry named, once the geometry menu exists.
+- **Q15 Format:** "(a) New schema version". Texture is kept in one place, and
+  old single-axis projects are migrated with the same function and the same
+  numbers. Coordinated with THY-88's and THY-89's versions: they must not be
+  in flight together.
+
+**Joint fit**
+
+- **Q17 THY-89 joint fit:** "(c) Shared + per-bank diagnostic". One texture
+  per phase, shared by all banks, each bank's ψ from its angles, plus a
+  per-bank fit offered as a diagnostic. This supersedes THY-89's note on its
+  Q6 ("one ratio per bank on a shared axis"); THY-89's plan records that.
 
 ## 1. What exists today
 
