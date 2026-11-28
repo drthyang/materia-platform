@@ -233,7 +233,9 @@ approximate, however plausible its output looks.
   cell usually is.
 - Where d_min is: on time of flight, the fit window's short-d edge less one
   peak support (the lines just outside the window are drawn, so every point in
-  it has all its lines), stopped earlier only where the peak terms give no
+  it has all its lines; the support is 20 peak widths, and a Lorentzian's far
+  tail, which is drawn further for the lines in the list, does not lengthen
+  it), stopped earlier only where the peak terms give no
   peak (σ², α or β not positive below some d: an instrument file's
   polynomials past the range its standard covered); at constant wavelength,
   the data's own range; for X-rays never below 0.25 Å (sin θ/λ = 2.0 Å⁻¹, the

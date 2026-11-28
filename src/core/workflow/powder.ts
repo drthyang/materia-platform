@@ -495,9 +495,35 @@ function profileValidFrom(applied: AppliedModel, dLo: number, dHi: number): { d:
 /**
  * The reflection list of a TOF pattern reaches no further below the window's
  * edge than this fraction of the edge's d, whatever the peak support says (a
- * decay rate that nears zero makes the support run away).
+ * decay rate that nears zero makes the support run away, and a support longer
+ * than the edge's own time of flight has no d to end at).
  */
 const SUPPORT_REACH_LIMIT = 0.5;
+
+/**
+ * How far above its centre (µs) a reflection at d reaches for the list: one
+ * support of its peak, PEAK_WINDOW_FWHM widths of 2.3548σ + γ + 1/α + 1/β.
+ * That is the support every TOF peak is drawn with, but for the extension a
+ * Lorentzian tail gets (buildTofFilePeaks, tofLorentzSupport), which is left
+ * out here. The extension is a drawing range: it keeps the area a listed peak
+ * loses under 2×10⁻⁴ and runs to some 2000 Lorentzian widths, at short d more
+ * than the whole time of flight, so as a list margin it has no end (the list
+ * then started at the window's edge itself, and a reflection there dropped in
+ * and out of the model as the cell moved: a step in χ²). A reflection 20
+ * widths below the window puts under 1 % of its area into it (the Lorentzian
+ * share beyond X is ηΓ/2πX, and Γ is no more than one width), thinly spread.
+ * A peak without a Lorentzian width has the reach it had. Null where no peak
+ * is defined.
+ */
+function tofListReach(pattern: PowderPattern, applied: AppliedModel, d: number): number | null {
+  let hi = -Infinity;
+  for (const p of placePeaks(pattern, applied, [{ d, intensity: 1 }])) {
+    const t = p.tof;
+    const width = t ? 2.3548 * t.sigma + (t.gamma ?? 0) + 1 / t.alpha + 1 / t.beta : p.fwhm;
+    hi = Math.max(hi, p.center + PEAK_WINDOW_FWHM * width);
+  }
+  return Number.isFinite(hi) ? hi - tofAt(applied, d) : null;
+}
 
 /**
  * The list's short-d end on a grid of 10⁻⁴ in ln d, rounded outward (down for
@@ -521,10 +547,16 @@ function tofReflectionRange(pattern: PowderPattern, applied: AppliedModel, windo
   let d = windowD;
   let converged = false;
   for (let i = 0; i < 20 && !converged; i++) {
-    const s = supportAt(pattern, applied, d);
-    if (!s) break;
-    const next = dAtTof(applied, xEdge - (s.hi - tofAt(applied, d)));
-    if (!(next > 0) || !Number.isFinite(next)) break;
+    const reach = tofListReach(pattern, applied, d);
+    if (reach === null) break;
+    const next = dAtTof(applied, xEdge - reach);
+    // A support longer than the edge's time of flight: no d ends it, and SUPPORT_REACH_LIMIT does. This holds for
+    // every TOF profile, with a Lorentzian width or without (20 widths above 5 % of the flight time, e.g. a very
+    // large σ²): such a list used to start at the edge itself, with no margin, and now reaches 0.5 × the edge's d.
+    if (!(next > 0) || !Number.isFinite(next)) {
+      lowest = 0;
+      break;
+    }
     lowest = Math.min(lowest, next);
     converged = Math.abs(next - d) <= 1e-9 * d;
     d = next;
@@ -544,7 +576,8 @@ function tofReflectionRange(pattern: PowderPattern, applied: AppliedModel, windo
  *
  * - Time of flight: from the fit window's short-d edge less one peak support
  *   (the lines just outside the window are drawn, so every point in it has
- *   all its lines), stopped earlier only where the peak terms define no peak
+ *   all its lines; the support is 20 peak widths, tofListReach, and a
+ *   Lorentzian's far tail does not lengthen it), stopped earlier only where the peak terms define no peak
  *   (a non-positive σ², α or β below some d: an instrument file's polynomials
  *   extrapolated past the range they were fitted on). No window: the whole
  *   pattern.

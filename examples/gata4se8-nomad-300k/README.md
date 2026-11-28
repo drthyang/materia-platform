@@ -23,7 +23,7 @@ The example uses bank 4 of the NOMAD 2023A instrument file that MATERIA ships as
 - Two peaks that no phase explains, at 17209 and 17274 µs (d ≈ 1.91 Å, up to 9σ), lie outside the window. Each is one data point wide, narrower than this instrument's line width there, and they sit where the bank's points carry 3.4× the relative σ of the middle; what they are is not known.
 - Background: Chebyshev, 7 terms.
 - Refined: scale, background, cell a; the sample profile (Lorentzian microstrain and size; the Gaussian microstrain held at 0, as it correlates with the background); B per site; the three position modes. Staged: scale, background and a first, then the profile and the structure in turn, fifteen times each; the last structure stage moved nothing by more than 0.001 esd.
-- Result: status converged, no near-null direction (the high correlations are among the background terms). wR 2.21 %, GoF 5.72 (16 free rows).
+- Result: status converged, no near-null direction (the high correlations are among the background terms). wR 2.21 %, GoF 5.71 (16 free rows).
 
 | | value |
 |---|---|
@@ -32,7 +32,7 @@ The example uses bank 4 of the NOMAD 2023A instrument file that MATERIA ships as
 | B Ta1 (Å²) | 0.343(19), U = 0.0043(2) |
 | B Se1 (Å²) | 0.44(3), U = 0.0056(4) |
 | B Se2 (Å²) | 0.39(3), U = 0.0050(4) |
-| Lorentzian microstrain | 424(79) |
-| size (µm) | 0.0464(15) |
+| Lorentzian microstrain | 432(79) |
+| size (µm) | 0.0466(16) |
 
-The example opens with scale, background and a free and the other rows held at these values; Refine from there converges where it stands (wR 2.21 %, GoF 5.71 with those nine rows free).
+The example opens with scale, background and a free and the other rows held at these values; Refine from there converges where it stands (wR 2.21 %, GoF 5.70 with those nine rows free).

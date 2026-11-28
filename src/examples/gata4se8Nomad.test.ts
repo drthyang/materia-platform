@@ -7,6 +7,10 @@ import { createHash } from "node:crypto";
 import { currentDataBank, dataBanksOf, dataBankOptions } from "@/app/bankChoice";
 import { followsInstrument, landData } from "@/app/bankKeep";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
+import { appliedPhases } from "@/app/shortD";
+import { placePeaks, reflectionRange } from "@/core/workflow/powder";
+import { PEAK_WINDOW_FWHM } from "@/core/diffraction/profile";
+import { generateReflections } from "@/core/diffraction/reflections";
 
 /**
  * The bundled GaTa₄Se₈ NOMAD bank-4 example opens on its converged fit: the
@@ -96,8 +100,8 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     expect(demo.fitRange).toEqual({ min: 3000, max: 16000 });
     expect(observationsIn(curves, demo.fitRange, session)).toBe(1785);
     expect((100 * weightedR(session, curves, demo.fitRange)).toFixed(2)).toBe("2.21");
-    // GoF over the nine rows the example opens with free (the refinement's own, with sixteen free, is 5.72: below).
-    expect(curvesGoodnessOfFit(session, curves, demo.fitRange).toFixed(2)).toBe("5.71");
+    // GoF over the nine rows the example opens with free (the refinement's own, with sixteen free, is 5.71: below).
+    expect(curvesGoodnessOfFit(session, curves, demo.fitRange).toFixed(2)).toBe("5.70");
   });
 
   it("refined from where it opens, with the structure rows free, converges in place with no near-null direction", async () => {
@@ -109,7 +113,7 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     expect(r.status).toBe("converged");
     expect(r.diagnostics?.svdZeroCount ?? 0).toBe(0);
     expect((100 * r.agreement.rWeighted!).toFixed(2)).toBe("2.21");
-    expect(r.agreement.goodnessOfFit!.toFixed(2)).toBe("5.72");
+    expect(r.agreement.goodnessOfFit!.toFixed(2)).toBe("5.71");
     // Nothing moves by more than a tenth of its esd.
     for (const id of [...BASE, ...STRUCTURE]) {
       const esd = r.esd[id]!;
@@ -118,5 +122,67 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     // a = 10.3760(1) Å; B = 8π²U for U Ga 0.0039(6), Ta 0.0043(2), Se1 0.0056(4), Se2 0.0050(4) Å².
     expect(r.parameters.cell_a!.toFixed(4)).toBe("10.3760");
     expect(r.esd.cell_a!).toBeLessThan(0.00015);
+  }, 120_000);
+
+  // The file's profile has a Lorentzian width, whose tail is drawn to ±10 800 µs at the window's edge (3000 µs): more
+  // than the edge's own time of flight. The list's margin is the peak's support without that tail (20 peak widths).
+  // Before, no d ended such a support and the list started at the edge itself.
+  it("lists the lines one peak support below its window: 20 peak widths, whatever the Lorentzian's drawn tail", () => {
+    const applied = appliedPhases(session)[0]!;
+    const r = reflectionRange(session.pattern, applied, demo.fitRange);
+    expect(r.stop).toBe("window");
+    expect(r.windowD).toBeCloseTo(0.33145, 5);
+    expect(r.dMin).toBeGreaterThan(0.28);
+    expect(r.dMin).toBeLessThan(0.30);
+    const core = (d: number): { reach: number; drawn: number } => {
+      const p = placePeaks(session.pattern, applied, [{ d, intensity: 1 }])[0]!;
+      const t = p.tof!;
+      return { reach: p.center + PEAK_WINDOW_FWHM * (2.3548 * t.sigma + t.gamma! + 1 / t.alpha + 1 / t.beta), drawn: PEAK_WINDOW_FWHM * p.fwhm };
+    };
+    // A line at the list's end reaches the edge with 20 widths (the end is rounded down on a 10⁻⁴ grid in ln d); one 1 % further does not.
+    expect(core(r.dMin).reach).toBeGreaterThanOrEqual(demo.fitRange.min * (1 - 1e-4));
+    expect(core(r.dMin * (1 + 1e-4)).reach).toBeGreaterThanOrEqual(demo.fitRange.min * (1 - 1e-9));
+    expect(core(r.dMin * 0.99).reach).toBeLessThan(demo.fitRange.min);
+    // The drawn Lorentzian tail is longer than the edge's time of flight: it does not set the list.
+    expect(core(r.windowD).drawn).toBeGreaterThan(demo.fitRange.min);
+  });
+
+  // The old list ended at the window's edge, rounded down on the 10⁻⁴ grid in ln d (0.3314428 Å). The line
+  // N = h² + k² + l² = 980 (d = a/√980) dropped in and out of the model as a passed that d·√980 = 10.3758012 Å:
+  // a step in χ² of 180 with these rows on this window under the old rule (230 on 3000–17023.4 µs, where the
+  // refinement stalled).
+  it("χ² has no step where a line crosses the old list's end or the window's edge, and a small one where a line enters the list", () => {
+    const applied = appliedPhases(session)[0]!;
+    const r = reflectionRange(session.pattern, applied, demo.fitRange);
+    const sigma = session.pattern.points.map((p) => p.sigma ?? 0);
+    const chi2 = (a: number): number => {
+      const at = { ...session, powderParams: session.powderParams.map((p) => (p.id === "cell_a" ? { ...p, value: a } : p)) };
+      const c = powderPageCurves(at, demo.fitRange).curves;
+      let sum = 0;
+      c.x.forEach((x, i) => {
+        if (x < demo.fitRange.min || x > demo.fitRange.max || !(sigma[i]! > 0)) return;
+        sum += ((c.yObs[i]! - c.yCalc[i]!) / sigma[i]!) ** 2;
+      });
+      return sum;
+    };
+    // χ² extrapolated to the crossing from each side (three points, 2·10⁻⁷ Å apart): the difference is the step.
+    const stepAt = (a: number): number => {
+      const h = 2e-7;
+      const f = [-3, -2, -1, 1, 2, 3].map((k) => chi2(a + k * h));
+      return 3 * f[3]! - 3 * f[4]! + f[5]! - (3 * f[2]! - 3 * f[1]! + f[0]!);
+    };
+    // Where the line N = 980 sits on the old list's end: none (180 under the old rule).
+    const oldListEnd = Math.exp(Math.floor(Math.log(r.windowD) / 1e-4) * 1e-4);
+    expect(oldListEnd * Math.sqrt(980)).toBeCloseTo(10.3758012, 6);
+    expect(Math.abs(stepAt(oldListEnd * Math.sqrt(980)))).toBeLessThan(1e-3);
+    // Where it sits on the window's edge itself: none, before and now.
+    expect(Math.abs(stepAt(r.windowD * Math.sqrt(980)))).toBeLessThan(1e-3);
+    // Where a line enters the list, 20 widths below the edge (the nearest such a), it enters with the far tail it has there.
+    const a0 = session.powderParams.find((p) => p.id === "cell_a")!.value;
+    const entering = generateReflections(applied.model.cell, applied.model.spaceGroup, r.dMin * 0.997, r.dMin * 1.003)
+      .map((q) => r.dMin * Math.sqrt(q.h * q.h + q.k * q.k + q.l * q.l))
+      .sort((p, q) => Math.abs(p - a0) - Math.abs(q - a0))[0]!;
+    expect(Math.abs(entering - a0)).toBeLessThan(0.02);
+    expect(Math.abs(stepAt(entering))).toBeLessThan(0.1);
   }, 120_000);
 });
