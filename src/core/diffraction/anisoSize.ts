@@ -53,7 +53,12 @@ function gStar(gStarTensor: Mat3, a: Vec3, b: Vec3): number {
   return s;
 }
 
-/** cos²ψ between reflection (hkl) and the unique axis, via the reciprocal metric. */
+/**
+ * cos²ψ between reflection (hkl) and the unique axis, via the reciprocal metric:
+ *   cos²ψ = (h·G*·t)² / [(h·G*·h)·(t·G*·t)]
+ * Symbols → code: h `refl`; t `axis` (reciprocal-lattice indices); G* `g`
+ * (Å⁻²). Dimensionless, clamped to [0, 1]; 0 for a null vector.
+ */
 export function cos2Psi(cell: UnitCell, h: number, k: number, l: number, axis: Vec3): number {
   const g = reciprocalMetricTensor(cell);
   const refl: Vec3 = [h, k, l];
@@ -65,10 +70,19 @@ export function cos2Psi(cell: UnitCell, h: number, k: number, l: number, axis: V
 }
 
 /**
- * Anisotropic Lorentzian size FWHM (degrees 2θ) for one reflection. The
- * direction-dependent coefficient X(hkl) = X_⊥ + (X_∥−X_⊥)·cos²ψ replaces the
- * isotropic X; the 1/cosθ angular shape is unchanged. Use this in place of the
- * isotropic Lorentzian size term when a uniaxial model is active.
+ * Anisotropic Lorentzian size FWHM (degrees 2θ) for one reflection, from the
+ * direction-dependent coefficient X(hkl) = X_⊥ + (X_∥−X_⊥)·cos²ψ with the
+ * 1/cosθ angular shape of the isotropic term. In the fit it is ADDED to the
+ * isotropic Lorentzian width X/cosθ + Y·tanθ (workflow/powder.ts
+ * `placePeaks`); it does not take the place of X/cosθ. (The uniaxial strain,
+ * anisoStrain.ts, does replace Y·tanθ.)
+ *
+ *   Γ_L = [X_⊥ + (X_∥ − X_⊥)·cos²ψ] / (100·cosθ)
+ *
+ * Symbols → code: X_⊥ `size.xPerp`, X_∥ `size.xPar` (centidegrees of 2θ);
+ * cos²ψ `c2`; θ `theta` (radians, Bragg's law with `wavelength` in Å); X(hkl)
+ * `x`. Returns DEGREES of 2θ; 0 when X ≤ 0.
+ * References: the module header.
  */
 export function uniaxialSizeFwhmDeg(
   h: number,
@@ -88,7 +102,9 @@ export function uniaxialSizeFwhmDeg(
   return x / (100 * Math.cos(theta)); // centidegrees → degrees, 1/cosθ shape
 }
 
-/** Two crystallite dimensions (nm) from the uniaxial coefficients. */
+/** Two crystallite dimensions (nm) from the uniaxial coefficients:
+ *  D = 18000·K·λ/(π·X) Å, /10 for nm (X in centidegrees, λ `wavelength` in Å,
+ *  K `scherrerK`); the same relation as microstructure.ts `extractSizeStrain`. */
 export function uniaxialSizeDimensions(
   size: UniaxialSize,
   wavelength: number,

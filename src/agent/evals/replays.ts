@@ -2,7 +2,7 @@
  * The scripted replays of the eval suite: for every scenario, the Agent as it
  * should behave (every check passes) and as it behaved when the failure was
  * found (the checks in \`catches\` must fail), and more failures for checks
- * every scenario holds. evals.test.ts replays them in CI; docsCounts.test.ts
+ * every scenario holds. The evals*.test.ts files replay them in CI; docsCounts.test.ts
  * counts from them how many checks are shown to catch their failure.
  */
 

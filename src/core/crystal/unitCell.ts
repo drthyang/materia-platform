@@ -14,7 +14,14 @@ import { inverse, mulVec } from "@/core/math/mat3";
 const DEG = Math.PI / 180;
 
 
-/** Direct metric tensor G (Å²). */
+/**
+ * Direct metric tensor G (Å²): G_ij = a_i·a_j,
+ *   G = [[a², ab·cosγ, ac·cosβ], [ab·cosγ, b², bc·cosα], [ac·cosβ, bc·cosα, c²]]
+ * Symbols → code: a, b, c `cell.a`, `cell.b`, `cell.c` (Å); α, β, γ
+ * `cell.alpha`, `cell.beta`, `cell.gamma` (degrees); cosα `ca`, cosβ `cb`,
+ * cosγ `cg`. Reference: International Tables for Crystallography Vol. B,
+ * ch. 1.1 (reciprocal space in crystallography).
+ */
 export function metricTensor(cell: UnitCell): Mat3 {
   const { a, b, c } = cell;
   const ca = Math.cos(cell.alpha * DEG);
@@ -58,7 +65,12 @@ export function reciprocalTensorA(cell: UnitCell): ReciprocalTensorA {
   };
 }
 
-/** Cell volume (Å³). */
+/**
+ * Cell volume (Å³):
+ *   V = a·b·c·√(1 − cos²α − cos²β − cos²γ + 2·cosα·cosβ·cosγ)
+ * Symbols → code: cosα `ca`, cosβ `cb`, cosγ `cg`; the radicand `factor`
+ * (floored at 0). Lengths in Å, angles in degrees.
+ */
 export function cellVolume(cell: UnitCell): number {
   const ca = Math.cos(cell.alpha * DEG);
   const cb = Math.cos(cell.beta * DEG);
@@ -67,7 +79,14 @@ export function cellVolume(cell: UnitCell): number {
   return cell.a * cell.b * cell.c * Math.sqrt(Math.max(factor, 0));
 }
 
-/** 1/d² for a reflection (Å⁻²). */
+/**
+ * 1/d² for a reflection (Å⁻²):
+ *   1/d² = hᵀ·G*·h = A11·h² + A22·k² + A33·l² + A12·hk + A13·hl + A23·kl
+ * Symbols → code: A_ij `A.a11` … `A.a23` from {@link reciprocalTensorA}
+ * (Å⁻²; the off-diagonal ones hold 2·G*_ij); h, k, l the Miller indices.
+ * Also in: magnetic/structureFactor.ts (the same sum, inline in the
+ * per-reflection closure of `magneticStructureFactorEvaluator`).
+ */
 export function inverseDSquared(cell: UnitCell, h: number, k: number, l: number): number {
   const A = reciprocalTensorA(cell);
   return (
@@ -80,7 +99,7 @@ export function inverseDSquared(cell: UnitCell, h: number, k: number, l: number)
   );
 }
 
-/** d-spacing for a reflection (Å). Returns Infinity for (000). */
+/** d-spacing for a reflection (Å): d = 1/√(hᵀ·G*·h). Returns Infinity for (000). */
 export function dSpacing(cell: UnitCell, h: number, k: number, l: number): number {
   const inv = inverseDSquared(cell, h, k, l);
   if (inv <= 0) return Infinity;
@@ -117,7 +136,12 @@ export function fractionalToCartesian(cell: UnitCell, frac: Vec3): Vec3 {
   return mulVec(orthogonalizationMatrix(cell), frac);
 }
 
-/** Bragg angle θ (radians) for a given d and wavelength; NaN if beyond range. */
+/**
+ * Bragg angle θ (radians) for a given d and wavelength; NaN if beyond range.
+ *   λ = 2d·sinθ   ⇒   θ = asin(λ/2d)
+ * Symbols → code: d `d` (Å); λ `wavelength` (Å); sinθ `s` (here `s` is sinθ,
+ * not sinθ/λ). Returns θ in RADIANS, not 2θ and not degrees.
+ */
 export function braggTheta(d: number, wavelength: number): number {
   const s = wavelength / (2 * d);
   if (s > 1) return NaN;

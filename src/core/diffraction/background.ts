@@ -7,6 +7,20 @@
  * terms stay O(1) and the coefficients are well separated — the standard choice
  * in GSAS-II / TOPAS. Both forms are provided; Chebyshev is the default for
  * refinement.
+ *
+ * THE DOMAIN (x_min, x_max). Every basis but the raw polynomial is defined on
+ * an interval [x_min, x_max] of the pattern's abscissa (2θ in degrees, TOF in
+ * µs, d in Å or Q in Å⁻¹). These functions take the two ends as the arguments
+ * `xMin`, `xMax`; they are not stored with the coefficients. Every caller
+ * passes the smallest and the largest x of the pattern it evaluates on
+ * (`pattern.points`, all of them, inside the fit range or not):
+ * profile.ts `synthesizePattern` (the fit), workflow/powder.ts and
+ * workflow/obsCalc.ts (the drawn background), export/bundle.ts (the exported
+ * curve), diagnostics/backgroundTerms.ts, app/powderSpec.ts and
+ * app/powderPage.ts. So the Chebyshev domain is the x extent of the loaded
+ * pattern: t = −1 at its first point and +1 at its last. Coefficients refined
+ * on one pattern mean another curve on a pattern with other end points (a
+ * cropped file, another bank). A coefficient is in the units of y (counts).
  */
 
 /**
@@ -41,13 +55,32 @@ export function backgroundLabel(type: BackgroundType | undefined, n: number): st
   }
 }
 
-/** Map an abscissa value onto the Chebyshev domain t ∈ [−1, 1]. */
+/**
+ * Map an abscissa value onto the Chebyshev domain t ∈ [−1, 1]:
+ *   t = 2·(x − x_min)/(x_max − x_min) − 1        (0 when x_max = x_min)
+ * Symbols → code: x `x`, x_min `xMin`, x_max `xMax` (the pattern's x unit; the
+ * x extent of the pattern, see the module header); t is dimensionless.
+ * Also in: workflow/leBailPrefit.ts (`u`, its own copy).
+ */
 function toChebyshevT(x: number, xMin: number, xMax: number): number {
   const span = xMax - xMin;
   return span > 0 ? (2 * (x - xMin)) / span - 1 : 0;
 }
 
-/** Σ cₙ·Tₙ(t) with Tₙ the Chebyshev polynomials of the first kind (recurrence). */
+/**
+ * Chebyshev background:
+ *   b(x) = Σ_{n=0}^{N−1} c_n·T_n(t),   t = 2·(x − x_min)/(x_max − x_min) − 1
+ *   T_0 = 1,  T_1 = t,  T_{n+1} = 2t·T_n − T_{n−1}
+ * with T_n the Chebyshev polynomials of the first kind.
+ * Symbols → code: c_n `coeffs[n]` (units of y); t `t` (dimensionless);
+ * T_{n−1}, T_n, T_{n+1} `tPrev`, `tCur`, `tNext`; x_min, x_max `xMin`, `xMax`.
+ * DOMAIN: t ∈ [−1, 1] over [x_min, x_max], the x extent of the pattern (the
+ * smallest and largest x of its points; see the module header). It is an
+ * argument, not a stored property of the coefficients.
+ * Reference: Abramowitz & Stegun, Handbook of Mathematical Functions, ch. 22
+ * (orthogonal polynomials; the recurrence).
+ * Also in: workflow/leBailPrefit.ts (the same recurrence on its own x span).
+ */
 export function chebyshevBackground(
   x: number,
   coeffs: readonly number[],
@@ -70,7 +103,9 @@ export function chebyshevBackground(
 }
 
 /** Fourier cosine series Σ cₙ·cos(nπ·s) with s = (x−xMin)/(xMax−xMin) ∈ [0, 1].
- *  n=0 gives the constant c₀; all terms are bounded (|cos| ≤ 1). */
+ *  n=0 gives the constant c₀; all terms are bounded (|cos| ≤ 1).
+ *  Symbols → code: cₙ `coeffs[n]` (units of y); s `s` (dimensionless). The
+ *  domain [xMin, xMax] is the x extent of the pattern (module header). */
 export function cosineBackground(
   x: number,
   coeffs: readonly number[],
@@ -86,7 +121,9 @@ export function cosineBackground(
 }
 
 /** Power series Σ cₙ·tⁿ in the *normalized* t ∈ [−1, 1] — a monomial basis that,
- *  unlike the raw-power polynomial, stays finite on a wide abscissa. */
+ *  unlike the raw-power polynomial, stays finite on a wide abscissa.
+ *  Symbols → code: cₙ `coeffs[n]` (units of y); t from `toChebyshevT` (the
+ *  Chebyshev domain: the x extent of the pattern, module header); tⁿ `tp`. */
 export function powerSeriesBackground(
   x: number,
   coeffs: readonly number[],
@@ -110,6 +147,14 @@ export function powerSeriesBackground(
  * (linear) or in log(x) (log). Endpoints are pinned to xMin/xMax. Memoized on the
  * last (n, range, log) since a whole pattern shares one set of anchors; the
  * returned array is the cache's — read it, do not change it.
+ *
+ *   linear: X_j = x_min + j·(x_max − x_min)/(N − 1)
+ *   log:    X_j = exp(ln x_min + j·(ln x_max − ln x_min)/(N − 1)),   j = 0 … N − 1
+ *
+ * Symbols → code: N `n`; x_min, x_max `xMin`, `xMax` (the x extent of the
+ * pattern, module header); X_j `pos[j]` (the pattern's x unit).
+ * Also in: export/bundle.ts `powderExtras` (`backgroundAnchors`, its own copy
+ * of the two formulas).
  */
 let anchorCache: { key: string; pos: number[] } | null = null;
 export function interpAnchors(n: number, xMin: number, xMax: number, log: boolean): number[] {
@@ -176,7 +221,9 @@ export function logInterpolateBackground(
   return interpolateAt(x, interpAnchors(coeffs.length, xMin, xMax, true), coeffs);
 }
 
-/** Raw-power polynomial c0 + c1·x + c2·x² + … (kept for compatibility). */
+/** Raw-power polynomial c0 + c1·x + c2·x² + … (kept for compatibility).
+ *  x in the pattern's own unit, not normalized: this basis has no domain, and
+ *  cₙ is in units of y per (x unit)ⁿ. */
 export function polynomialBackground(x: number, coeffs: readonly number[]): number {
   let value = 0;
   let xp = 1;
@@ -187,7 +234,9 @@ export function polynomialBackground(x: number, coeffs: readonly number[]): numb
   return value;
 }
 
-/** Evaluate a background of the given type at x (Chebyshev needs the x-range). */
+/** Evaluate a background of the given type at x (Chebyshev needs the x-range).
+ *  `xMin`, `xMax`: the domain of the basis, which every caller takes as the x
+ *  extent of the pattern's points (module header). Returns y units. */
 export function evaluateBackground(
   x: number,
   coeffs: readonly number[] | undefined,

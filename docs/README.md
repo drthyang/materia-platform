@@ -19,6 +19,7 @@ workbench? Start with the [user guide](./USER_GUIDE.md), and read
 
 | Document | Read it to learn |
 | --- | --- |
+| [EQUATIONS.md](./EQUATIONS.md) | Every equation in the code, once: the function that implements it, its units, its reference, and where it is written again |
 | [REFINEMENT_ENGINE.md](./REFINEMENT_ENGINE.md) | The least-squares engine: Levenberg–Marquardt, esds, posterior sampling, sequential refinement |
 | [MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md) | Magnetic space groups and representation analysis — the two routes to allowed moments |
 | [SINGLE_CRYSTAL.md](./SINGLE_CRYSTAL.md) | Single-crystal F² refinement, the magnetic-supercell merge, and absorption correction |

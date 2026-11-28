@@ -14,6 +14,16 @@ import { J0_COEFFS, J2_COEFFS } from "@/core/scattering/magneticFormFactorData";
 
 export { J0_COEFFS, J2_COEFFS };
 
+/**
+ * Spin-only magnetic form factor:
+ *   ⟨j0⟩(s) = A·exp(−a·s²) + B·exp(−b·s²) + C·exp(−c·s²) + D
+ * Symbols → code: A, B, C, D `k.A`, `k.B`, `k.C`, `k.D` (dimensionless);
+ * a, b, c `k.a`, `k.b`, `k.c` (Å²); s = sinθ/λ = 1/(2d) `s` (Å⁻¹).
+ * Dimensionless, 1 at s = 0.
+ * Reference: P. J. Brown, International Tables for Crystallography Vol. C,
+ * §4.4.5 (magnetic form factors).
+ * Also in: workers/gpuMagneticStructureFactor.ts (WGSL `fMag`, hot loop).
+ */
 export function magneticFormFactorJ0(ionId: string, s: number): number {
   const k = J0_COEFFS[ionId];
   if (!k) {
@@ -28,7 +38,12 @@ export function magneticFormFactorJ0(ionId: string, s: number): number {
   );
 }
 
-/** ⟨j2⟩(s), or NaN when the ion has no tabulated ⟨j2⟩ coefficients. */
+/**
+ * ⟨j2⟩(s) = [A·exp(−a·s²) + B·exp(−b·s²) + C·exp(−c·s²) + D]·s², or NaN when
+ * the ion has no tabulated ⟨j2⟩ coefficients. Same symbols and units as
+ * {@link magneticFormFactorJ0} (here A…D are in Å², so that ⟨j2⟩ is
+ * dimensionless); 0 at s = 0. Reference: Brown, ITC Vol. C §4.4.5.
+ */
 export function magneticFormFactorJ2(ionId: string, s: number): number {
   const k = J2_COEFFS[ionId];
   if (!k) return NaN;
@@ -42,6 +57,8 @@ export function magneticFormFactorJ2(ionId: string, s: number): number {
  * moment carries ⟨j0⟩ and the orbital part ⟨j0⟩ + ⟨j2⟩, so the ⟨j2⟩ weight is
  * the orbital fraction μ_L/μ = (2 − g)/g. Reduces to the spin-only ⟨j0⟩ when
  * g = 2 or when the ion has no tabulated ⟨j2⟩.
+ * Symbols → code: ⟨j0⟩ `j0`, ⟨j2⟩ `j2`, g `g` (Landé factor), s `s` (Å⁻¹).
+ * Dimensionless, 1 at s = 0.
  */
 export function magneticFormFactorDipole(ionId: string, s: number, g: number): number {
   const j0 = magneticFormFactorJ0(ionId, s);

@@ -8,6 +8,14 @@
  *   I(hkl) = scale · m · Lp(θ) · |F|²
  * where m is the reflection multiplicity and Lp is the Lorentz(-polarization)
  * factor. Polarization applies to X-rays only.
+ *
+ * In full, as `powderPeakIntensities` forms it:
+ *   I(hkl) = m · Lp · P_MD · |F_N|² · scale
+ * and the peak corrections that depend on the peak's place (absorption,
+ * surface roughness) multiply afterwards, in workflow/powder.ts through
+ * diffraction/corrections.ts. Units: |F_N|² in fm² (neutron) or electrons²
+ * (X-ray); the scale is a free factor, so I is in the units of the data.
+ * Index of every equation: docs/EQUATIONS.md.
  */
 
 import type { Radiation } from "@/core/diffraction/types";
@@ -25,6 +33,12 @@ import { nuclearStructureFactorSquared } from "@/core/diffraction/structureFacto
  *   P(α) = (r²·cos²α + sin²α / r)^(−3/2),
  * where α is the angle between the reflection's reciprocal vector and the PO
  * axis. Reference: Dollase, W. A. (1986), *J. Appl. Cryst.* 19, 267.
+ * Symbols → code: r `ratio` (dimensionless; in Bragg–Brentano geometry r < 1
+ * is platelets and r > 1 needles, for the axis normal to the plate or along
+ * the needle); cos²α `cos2`, sin²α
+ * `sin2`, with cosα = (h·G*·p)/(|h|·|p|) `cosA` in the reciprocal metric G*
+ * `g`; the axis p `poAxis` (reciprocal-lattice indices). P is a dimensionless
+ * factor on the intensity; its average over all directions is 1.
  */
 export function marchDollase(
   cell: UnitCell,
@@ -65,6 +79,11 @@ function orbitOf(sg: SpaceGroup, h: number, k: number, l: number): Vec3[] {
  * March–Dollase for a powder reflection: the mean of P(α) over the family's
  * Laue equivalents, which lie at different angles to the axis (as GSAS-II's
  * GetPrefOri). Cubic (100) on [001]: two members along the axis, four across.
+ *
+ *   P_MD(hkl) = (1/M) Σ_{h′ ∈ family} P(α_h′)
+ *
+ * Symbols → code: the family `orbit` (M = `orbit.length` members); P
+ * {@link marchDollase}; r `ratio`. Dimensionless.
  */
 export function marchDollaseFamily(
   cell: UnitCell,
@@ -93,6 +112,18 @@ export interface PreferredOrientation {
  *
  * μR is the linear absorption coefficient × capillary radius; for a hard X-ray
  * synchrotron capillary it is typically small (≲ 1).
+ *
+ *   μR ≤ 3:  A = exp(−T₀·μR − T₁·μR² − T₂·μR³ − T₃·μR⁴),   T₀ = 16/(3π)
+ *   μR > 3:  A = [(T₁ − T₄)/(1 + T₂·(μR − 3))^T₃ + T₄] / 100
+ *
+ * with T₁ … T₄ fitted functions of sin²θ (the constants below).
+ * Symbols → code: μR `muR` (dimensionless: μ in cm⁻¹ times R in cm); sin²θ
+ * `sth2`, θ half of `twoThetaDeg` (2θ in degrees); T₀ … T₄ `t0` … `t4`; the
+ * exponent or the percentage `trns`. A is dimensionless, ≤ 1, floored at 10⁻⁶
+ * on the second branch.
+ * Source: a port of GSAS-II's `Absorb`, cylinder branch (GSASIIpwd.py); the
+ * constants are GSAS-II's. The fit is credited to Lobanov & Alte da Veiga in
+ * GSAS-II's source (GSASIIpwd.py).
  */
 export function cylinderAbsorption(muR: number, twoThetaDeg: number): number {
   if (muR <= 0) return 1;
@@ -122,6 +153,9 @@ export function cylinderAbsorption(muR: number, twoThetaDeg: number): number {
  * beam samples the rough/porous surface, so C < 1 there and rises to 1 at high
  * angle — leaving low-angle intensity unsuppressed inflates B_iso and skews
  * occupancies. SRA ∈ (0,1], SRB ≥ 0; SRA = 1 or SRB = 0 ⇒ C ≡ 1 (no roughness).
+ * Symbols → code: SRA `sra`, SRB `srb` (dimensionless); sinθ `sinTheta`, θ
+ * half of `twoThetaDeg` (2θ in degrees). C is a dimensionless factor on the
+ * intensity.
  * Reference: Suortti, *J. Appl. Cryst.* 5 (1972) 325; GSAS-II `SurfaceRough`.
  * This is a reflection-geometry effect only — irrelevant for capillary /
  * cylindrical transmission, where `cylinderAbsorption` handles the low-angle
@@ -148,6 +182,13 @@ export function surfaceRoughness(sra: number, srb: number, twoThetaDeg: number):
  *    (Buras & Gerward; GSAS-II). The sin θ prefactor is constant per detector
  *    bank and absorbed into the refined scale.
  * Returns 1 when θ is undefined.
+ * Symbols → code: d `d` (Å); θ `theta` (radians), from Bragg's law with
+ * `radiation.wavelength` (Å); sinθ `sinT`, cosθ `cosT`, cos2θ `cos2T`; P `p`
+ * (`radiation.polarization`, 0.5 when absent); L `lorentz`.
+ * Units: dimensionless on CW; Å⁴ on TOF (a relative factor: the scale takes
+ * up the units).
+ * References: Buras & Gerward, Acta Cryst. A31 (1975) 372 (the TOF factor);
+ * Azároff, Acta Cryst. 8 (1955) 701 (polarization with a monochromator).
  */
 export function lorentzPolarization(radiation: Radiation, d: number): number {
   if (radiation.kind === "neutron-tof") return d * d * d * d;
@@ -181,6 +222,13 @@ export interface PowderPeak {
  * evaluator uses to inject its batched |F|² while reusing this exact intensity
  * assembly (multiplicity·Lp·PO·scale). Ignored unless its length matches
  * `reflections`, so a stale/mismatched cache silently falls back to the CPU sum.
+ *
+ *   I(hkl) = m · Lp · P_MD · |F_N|² · scale
+ *
+ * Symbols → code: m `r.multiplicity`; Lp `lp` ({@link lorentzPolarization});
+ * P_MD `poFactor` ({@link marchDollaseFamily}); |F_N|² `f2` (fm² or
+ * electrons²); `scale` last, so that the product is bit-identical to scaling
+ * a unit-scale intensity. 2θ = 2·asin(λ/2d) `twoTheta` (degrees; NaN on TOF).
  */
 export function powderPeakIntensities(
   model: StructureModel,

@@ -133,7 +133,9 @@ export function sigmaFFromSigmaS(q: ArrayLike<number>, sigmaS: ArrayLike<number>
   return out;
 }
 
-/** Lorch (1969) modification M(Q) = sin(πQ/Qmax)/(πQ/Qmax), M(0) = 1, M(Qmax) = 0. */
+/** Lorch (1969) modification M(Q) = sin(πQ/Qmax)/(πQ/Qmax), M(0) = 1, M(Qmax) = 0.
+ *  Symbols → code: Q `q`, Qmax `qmax` (Å⁻¹); dimensionless.
+ *  Reference: Lorch, J. Phys. C: Solid State Phys. 2 (1969) 229. */
 export function lorchModification(q: number, qmax: number): number {
   const x = (Math.PI * q) / qmax;
   return Math.abs(x) < 1e-8 ? 1 - (x * x) / 6 : Math.sin(x) / x;

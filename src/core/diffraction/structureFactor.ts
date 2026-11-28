@@ -9,6 +9,18 @@
  * anisotropic Debye-Waller factor. A real amplitude takes exactly the real
  * arithmetic it always did; only an absorbing nucleus (imaginary part ≠ 0)
  * takes the complex product.
+ *
+ * Symbols → code: occ_j `site.occupancy` (0–1); a_j `amp`, from
+ * `table.amplitude(element, s, isotope)`; s = sinθ/λ = 1/(2d) `s` (Å⁻¹);
+ * T_j `dw` / `isoDw` (dimensionless); (x_j, y_j, z_j) `p` (fractional);
+ * h, k, l the Miller indices.
+ * Units: F_N in fm for neutrons (b in fm) and in electrons for X-rays; |F_N|²
+ * in fm² or electrons². Phase sign exp(+2πi h·x), the crystallographic one.
+ * Reference: International Tables for Crystallography Vol. B, ch. 1.2
+ * (P. Coppens, "The structure factor").
+ * Also in (the same sum, written again): diffraction/scKernel.ts
+ * `scStructureFactors` (CPU, with the derivatives; hot loop) and
+ * workers/gpuStructureFactor.ts (WGSL, f32; hot loop). Index: docs/EQUATIONS.md.
  */
 
 import type { Complex, Vec3 } from "@/core/math/types";
@@ -77,7 +89,18 @@ export function distinctSiteOps(ops: readonly SymmetryOperation[], pos: Vec3): r
   return reps;
 }
 
-/** Isotropic Debye-Waller factor exp(−B_iso · s²), s = sinθ/λ = 1/(2d). */
+/**
+ * Isotropic Debye–Waller factor
+ *   T = exp(−B_iso · s²),   s = sinθ/λ = 1/(2d),   B_iso = 8π²·U_iso
+ * Symbols → code: B_iso `bIso` (Å²); s `s` (Å⁻¹). T is dimensionless and
+ * multiplies the amplitude F, so the intensity carries T².
+ * Reference: Trueblood et al., Acta Cryst. A52 (1996) 770 (atomic displacement
+ * parameter nomenclature).
+ * Also in: diffraction/scKernel.ts (`tIso`, hot loop), and the WGSL
+ * `debyeWaller` of workers/gpuStructureFactor.ts and
+ * workers/gpuMagneticStructureFactor.ts. The CPU magnetic structure factor
+ * calls this function.
+ */
 export function debyeWaller(bIso: number, s: number): number {
   return Math.exp(-bIso * s * s);
 }
@@ -86,6 +109,12 @@ export function debyeWaller(bIso: number, s: number): number {
  * Anisotropic Debye-Waller factor
  *   T = exp(−2π²(U11 h²a*² + U22 k²b*² + U33 l²c*² + 2U12 hk a*b* + 2U13 hl a*c* + 2U23 kl b*c*))
  * with reciprocal lengths a*=√G*11 etc. from the reciprocal metric tensor.
+ * Symbols → code: U^ij `u` = [U11, U22, U33, U12, U13, U23] (Å², the CIF
+ * `_atom_site_aniso_U_ij`); a*, b*, c* `as`, `bs`, `cs` (Å⁻¹); h, k, l the
+ * Miller indices. T is dimensionless.
+ * Reference: Trueblood et al., Acta Cryst. A52 (1996) 770.
+ * Also in: diffraction/scKernel.ts (hot loop; read with the rotated index
+ * h′ = Rᵀh instead of a rotated tensor) and the two WGSL kernels in workers/.
  */
 export function anisotropicDebyeWaller(
   cell: UnitCell,
@@ -112,6 +141,13 @@ export function anisotropicDebyeWaller(
 /**
  * Nuclear structure factor for one reflection. Expands the asymmetric unit over
  * all space-group operations (so occupancies/positions are per asymmetric site).
+ *
+ *   F_N(hkl) = Σ_sites occ · a(s) · Σ_orbit T · exp[2πi(h·x + k·y + l·z)]
+ *
+ * Symbols → code: occ `site.occupancy`; a(s) `amp` (`b` its real part);
+ * s = 1/(2d) `s` (Å⁻¹), d `d` (Å); T `dw`; 2π(h·x + k·y + l·z) `phase` (rad).
+ * Returns F_N, complex: fm (neutron) or electrons (X-ray). Symbols, units and
+ * the reference are in the module header.
  */
 export function nuclearStructureFactor(
   model: StructureModel,
@@ -257,7 +293,7 @@ export function nuclearStructureFactorPartials(
   return { f, s, perSite };
 }
 
-/** |F_N|². */
+/** |F_N|² = Re(F_N)² + Im(F_N)², in fm² (neutron) or electrons² (X-ray). */
 export function nuclearStructureFactorSquared(
   model: StructureModel,
   radiation: Radiation,

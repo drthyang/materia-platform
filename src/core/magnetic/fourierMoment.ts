@@ -23,7 +23,8 @@
  *
  *   **M**(**h**) = p · Σ_j f_j(s) · **S**_j · exp[2πi **h**·**r**_j]
  *
- * (sum over magnetic atoms in the cell; p = 0.2695 fm/μ_B). Only the component
+ * (sum over magnetic atoms in the cell; p = 2.695 fm/μ_B, `MAGNETIC_PREFACTOR`,
+ * the constant often quoted as 0.2695 × 10⁻¹² cm/μ_B). Only the component
  * of **M** perpendicular to **h** scatters, so the intensity is |**M**_⊥|²,
  * where **M**_⊥ = **M** − (**M**·ĥ)ĥ is applied to the real and imaginary parts
  * independently (ĥ is real). The −k satellite uses **S**_j* and gives the same
@@ -64,9 +65,9 @@ export interface FourierSite {
 }
 
 export interface FourierStructureFactor {
-  /** Perpendicular magnetic interaction vector M_⊥ (complex, Cartesian μ_B·fm). */
+  /** Perpendicular magnetic interaction vector M_⊥ (complex, Cartesian; in fm: p in fm/μ_B times S in μ_B). */
   readonly vector: readonly [Complex, Complex, Complex];
-  /** |M_⊥|² = Σ_a (Re M_⊥,a)² + (Im M_⊥,a)². */
+  /** |M_⊥|² = Σ_a (Re M_⊥,a)² + (Im M_⊥,a)², in fm² (the scale of the nuclear |F_N|²). */
   readonly squared: number;
 }
 
@@ -89,6 +90,8 @@ export function armMultiplicity(k: Vec3, centrings: readonly Vec3[] = []): 1 | 2
  * arm is distinct**. Getting this wrong is a factor-2 error in every quoted
  * moment at k = ½ (see docs/INCOMMENSURATE_PLAN.md §2): a self-conjugate k has
  * one arm, so m(n) = S·cos φ with S real.
+ * Symbols → code: S `sReal` + i·`sImag` (μ_B along the crystal axes); k `k`
+ * and n `n` in lattice units; φ `phi` (radians). The result is in μ_B.
  */
 export function momentInCell(sReal: Vec3, sImag: Vec3, k: Vec3, n: Vec3, centrings: readonly Vec3[] = []): Vec3 {
   const phi = TWO_PI * (k[0] * n[0] + k[1] * n[1] + k[2] * n[2]);
@@ -108,6 +111,20 @@ export function momentInCell(sReal: Vec3, sImag: Vec3, k: Vec3, n: Vec3, centrin
  * Fourier coefficients of all supplied magnetic atoms with the per-atom phase
  * exp[2πi(H+k)·r_j], projects perpendicular to the scattering vector, and returns
  * both M_⊥ and |M_⊥|².
+ *
+ *   M(h) = p · Σ_j occ_j · f_j(s) · S_j · exp[2πi h·r_j],   M_⊥ = M − ĥ(M·ĥ)
+ *
+ * Symbols → code: p `MAGNETIC_PREFACTOR` = 2.695 fm/μ_B; occ_j `occ`; f_j(s)
+ * `fMag` = ⟨j0⟩ (1 when the ion is not tabulated); s = 1/(2d) `s` (Å⁻¹);
+ * S_j `sRealCart` + i·`sImagCart` (μ_B, Cartesian; the −k arm takes S*);
+ * 2π h·r_j `phase` (rad), r_j `site.position` (fractional), h `index`
+ * (r.l.u., fractional for a satellite); ĥ from `q` (Å⁻¹, Cartesian);
+ * Re M, Im M `reAcc`, `imAcc`. No Debye–Waller factor here. M_⊥ in fm,
+ * |M_⊥|² in fm².
+ * References: the module header (Bertaut 1968; Rodríguez-Carvajal 1993).
+ * Also in: magnetic/structureFactor.ts `magneticStructureFactorEvaluator`,
+ * the fit's own sum (moments expanded over the magnetic group, with the
+ * Debye–Waller factor); docs/EQUATIONS.md.
  */
 export function fourierMagneticStructureFactor(
   cell: UnitCell,

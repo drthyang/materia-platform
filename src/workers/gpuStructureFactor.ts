@@ -38,6 +38,18 @@
  * batch — valid for position/occupancy/ADP columns (fixed cell). Cell columns
  * (which change s/metric, and are few) stay on the CPU. Magnetic |F_M|² is a
  * separate future kernel.
+ *
+ * EQUATIONS written again in the WGSL below (a hot loop: nothing is shared
+ * with the CPU code, so each is a copy to keep in step by hand):
+ *  - the structure-factor sum of core/diffraction/structureFactor.ts
+ *    `nuclearStructureFactor` (WGSL `main`);
+ *  - the Debye–Waller factors, T = exp(−B_iso·s²) and
+ *    T = exp(−2π² Σ U^ij h_i h_j a*_i a*_j), of structureFactor.ts `debyeWaller`
+ *    and `anisotropicDebyeWaller` (WGSL `debyeWaller`);
+ *  - the Cromer–Mann form factor f0(s) = Σ a_i·exp(−b_i·s²) + c of
+ *    core/scattering/xray.ts `xrayFormFactor` (WGSL `scatter`).
+ * Units as on the CPU: s in Å⁻¹, B and U in Å², b in fm, f0 in electrons, so
+ * |F|² is in fm² or electrons². Index: docs/EQUATIONS.md.
  */
 
 import type { StructureModel } from "@/core/crystal/types";

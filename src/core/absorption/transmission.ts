@@ -37,6 +37,16 @@ export interface TransmissionOptions {
  * Transmission factor A ∈ (0, 1] for a crystal `shape` with linear absorption
  * coefficient `mu`, incident beam direction `incident`, and diffracted beam
  * direction `diffracted` (directions of propagation; normalised internally).
+ *
+ *   A = (1/V) ∫_V exp(−μ·(L_in + L_out)) dV  ≈  Σ_n w_n·exp(−μ·L_n) / Σ_n w_n
+ *
+ * Symbols → code: μ `mu` (1/length, in the unit the shape is given in);
+ * L_in + L_out `path` (that length unit); the Gauss–Legendre weights `w`;
+ * the two sums `numerator`, `denominator`, over the nodes inside the shape.
+ * A is dimensionless, in (0, 1].
+ * Reference: the transmission factor as in International Tables for
+ * Crystallography Vol. C, ch. 6.3 (X-ray absorption); the quadrature is the
+ * module header's.
  */
 export function transmissionFactor(
   shape: ConvexShape,
