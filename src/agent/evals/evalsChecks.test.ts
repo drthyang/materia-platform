@@ -6,7 +6,7 @@ import { sentences } from "@/agent/evals/checks";
 import { executor, fakeHost } from "@/testSupport/agentHeadless";
 import { impurityD, mn3gaImpuritySession, mn3gaMisfitSession, powderPage } from "@/agent/evals/pages";
 import { MORE_FAILURES, REPLAYS, RIETVELD, SC } from "@/agent/evals/replays";
-import { failing, regraded, replay, verdicts, why } from "@/agent/evals/scriptedReplay";
+import { failing, regraded, replay, verdicts, why } from "@/agent/evals/scenarioReplays";
 
 /** The scripted eval suite (see evals.test.ts): the checks every scenario holds, and the cases written against one live failure each. */
 

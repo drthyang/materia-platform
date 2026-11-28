@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { SCENARIOS, scenario } from "@/agent/evals/scenarios";
-import { regrade, runScenario, savedRun, transcript, type EvalResult, type SavedRun } from "@/agent/evals/harness";
+import { regrade, runScenario, savedRun, transcript, type EvalResult, type EvalScenario, type SavedRun } from "@/agent/evals/harness";
 import { scriptedModel, type ScriptTurn } from "@/agent/evals/scripted";
 import { LIVE_TOOLS } from "@/agent/tools";
 import { REPLAYS } from "@/agent/evals/replays";
@@ -8,8 +8,8 @@ import { REPLAYS } from "@/agent/evals/replays";
 /**
  * What the scripted eval test files share: one replay of a scenario, how a
  * result is read, and the three cases every scenario gets. The cases are split
- * over several test files (evals*.test.ts) so that no one file holds the whole
- * suite's time and CI's shards balance; each scenario is in exactly one file.
+ * over several test files (evals*.test.ts) so that no one file sets the floor
+ * of a CI shard's time; each scenario is in exactly one file.
  */
 
 export async function replay(id: string, turns: readonly ScriptTurn[], toolScope?: "stage"): Promise<EvalResult & { overrun: number; offered: readonly (readonly string[])[] }> {
@@ -28,10 +28,10 @@ export const verdicts = (r: EvalResult): [string, boolean][] => r.grades.map((g)
 export const regraded = (r: EvalResult): [string, boolean][] => verdicts(regrade(JSON.parse(JSON.stringify(savedRun(r))) as SavedRun, scenario(r.scenario)));
 export const why = (r: EvalResult): string => `${r.grades.map((g) => `${g.pass ? "✓" : "✗"} ${g.check}: ${g.detail}`).join("\n")}\n---\n${transcript(r.run)}`;
 
-/** The test file a scenario's replays run in. Every id has one: what no rule names is in "powder". */
-export type EvalGroup = "powder" | "magnetic" | "magnetic-30k" | "pdf" | "sc";
-export function evalGroup(id: string): EvalGroup {
-  if (id === "magnetic-30k") return "magnetic-30k"; // the slowest scenario by far, alone in its file
+/** The test file a scenario's replays run in. Every scenario has one: what no rule names is in "powder". */
+export type EvalGroup = "powder" | "magnetic" | "slow" | "pdf" | "sc";
+export function evalGroup({ id, slow }: Pick<EvalScenario, "id" | "slow">): EvalGroup {
+  if (slow) return "slow"; // four-minute cases (today magnetic-30k alone): in their own file
   if (id.startsWith("sc-")) return "sc";
   if (id.startsWith("pdf-")) return "pdf";
   if (id.startsWith("magnetic-") || id === "local-data-user-flow") return "magnetic";
@@ -40,7 +40,7 @@ export function evalGroup(id: string): EvalGroup {
 
 /** The good, stage-scoped and bad replay of every scenario of one group. Call it inside `describe("Agent evals, scripted", …)`. */
 export function scenarioReplays(group: EvalGroup): void {
-  for (const s of SCENARIOS.filter((x) => evalGroup(x.id) === group)) {
+  for (const s of SCENARIOS.filter((x) => evalGroup(x) === group)) {
     // A scenario on data only some machines have (the user's own) replays where they are.
     describe.skipIf(!(s.available?.() ?? true))(s.id, () => {
       const r = REPLAYS[s.id]!;
