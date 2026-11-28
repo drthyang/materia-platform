@@ -328,10 +328,22 @@ export function PowderWorkbench({
   const heldLine = limitLine ?? instHold?.line ?? null;
   // Data loaded before a structure: the placeholder model (no atoms).
   const noStructure = session.structure.sites.length === 0;
+  // The view state a History step records (projectWorkspace, below). The
+  // resets and the restore below write it at once, so a step recorded in the
+  // commit where the pattern and a restored window land together (a bank
+  // switch to a bank whose window the file stores) holds that window, not
+  // the one the state still had.
+  // Manually added residual peaks (below).
+  const [manualPeakD, setManualPeakD] = useState<number[]>([]);
+  const stepView = useRef<{ fitRange: FitRangeSelection | null; displayUnit: DisplayUnit | null; manualPeakD: readonly number[] }>({ fitRange: null, displayUnit: null, manualPeakD: [] });
+  useEffect(() => {
+    stepView.current = { fitRange, displayUnit, manualPeakD };
+  });
   // A freshly-loaded pattern is a new object; drop the window and axis choice.
   useEffect(() => {
     setFitRange(null);
     setDisplayUnit(null);
+    stepView.current = { ...stepView.current, fitRange: null, displayUnit: null };
   }, [pattern]);
   // A new problem (structure/data/phases/magnetic model) invalidates a sampled
   // posterior: its free-parameter ids and resume token belong to the old one.
@@ -568,10 +580,10 @@ export function PowderWorkbench({
   // Manually added residual peaks (clicked on the magnetic page's pattern):
   // stored as d-spacings; height/significance are sampled from the residual at
   // the nearest data point so a hand-picked peak carries the same quantitative
-  // columns as a detected one. Dropped when the observed pattern changes.
-  const [manualPeakD, setManualPeakD] = useState<number[]>([]);
+  // columns as a detected one (the state is declared above, with the step view). Dropped when the observed pattern changes.
   useEffect(() => {
     setManualPeakD([]);
+    stepView.current = { ...stepView.current, manualPeakD: [] };
   }, [pattern]);
   // Project open: declared AFTER the pattern-change resets (fit range, display
   // unit, manual peaks) so that in the commit where the pattern and the restore
@@ -581,6 +593,7 @@ export function PowderWorkbench({
     setFitRange(viewRestore.fitRange);
     setDisplayUnit(viewRestore.displayUnit);
     setManualPeakD([...viewRestore.manualPeakD]);
+    stepView.current = { fitRange: viewRestore.fitRange, displayUnit: viewRestore.displayUnit, manualPeakD: [...viewRestore.manualPeakD] };
   }, [viewRestore]);
   const addManualPeak = useCallback((d: number): void => {
     if (!Number.isFinite(d) || d <= 0) return;
@@ -1261,7 +1274,7 @@ export function PowderWorkbench({
       ...(session.magnetic && session.magnetic.moments.length > 0 ? { mcif: exportMcif } : {}),
       csv: exportCsv,
       forMotif: { write: exportForMotif, choice: motifState },
-      projectWorkspace: () => powderWorkspaceFrom(session, powderResult, instrument, instrumentLoaded, { fitRange, displayUnit, manualPeakD }),
+      projectWorkspace: () => powderWorkspaceFrom(session, powderResult, instrument, instrumentLoaded, stepView.current),
       fullprofBundle: () => exportBundle("fullprof"),
       gsas2Bundle: () => exportBundle("gsas2"),
     };
@@ -1608,7 +1621,7 @@ export function PowderWorkbench({
                     options={dataBankChoices}
                     value={dataBank?.bankNumber ?? null}
                     {...(onDataBank ? { onChange: onDataBank } : {})}
-                    help="This data file holds several banks, and the page reads one at a time (a joint fit of several banks is not available). It opens on the file's first bank, or the bank a project or example saved. Choosing another bank reads that bank in one History step: every refinement value and free, fixed or tied choice is kept, the scale and background included; the instrument follows the bank when its file has it, and its rows take that bank's values. Nothing is refined until you click Refine."
+                    help="This data file holds several banks, and the page reads one at a time (a joint fit of several banks is not available). It opens on the file's first bank, or the bank a project or example saved. Choosing another bank reads that bank in one History step: every refinement value and free, fixed or tied choice is kept, the scale and background included; the instrument follows the bank when its file has it, and its rows take that bank's values. The fit window becomes the bank's own when the file stores one (an example or a project can), else the whole data. Nothing is refined until you click Refine."
                   />
                 )}
                 {bankKept && (

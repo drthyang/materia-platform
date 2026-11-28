@@ -19,6 +19,9 @@ release fixes bugs.
   the map open and switch unchanged. The NOMAD example stores the owner's
   windows: bank 1 1250–16400, bank 2 1400–17600, bank 3 2000–18500, bank 4
   3000–16000, bank 5 4000–15300 µs.
+  A History step recorded as a window lands with new data now holds that
+  window (it held the one the page had before, so Undo from the next step
+  went to a mixed state).
 
 ### Changed
 

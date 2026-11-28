@@ -10,7 +10,7 @@ A portion of this research used resources at the Spallation Neutron Source, a DO
 
 ## The file
 
-`NOM_GaTa4Se8_at_300K.gsa` is the six-bank GSAS file (FXYE: time of flight in µs, intensity, esd) as written, byte for byte, line ends included. All six banks are included, 2999 data lines each; the refinement the example opens on is bank 4. The Data card's bank chooser lists banks 1–6, so another bank can be read from the example; the values on the page are kept on a switch, and no refinement of another bank is shipped. MATERIA reads 2906 points of bank 4: the points with neither counts nor an esd are left out, as for any GSAS file.
+`NOM_GaTa4Se8_at_300K.gsa` is the six-bank GSAS file (FXYE: time of flight in µs, intensity, esd) as written, byte for byte, line ends included. All six banks are included, 2999 data lines each; the refinement the example opens on is bank 4. The Data card's bank chooser lists banks 1–6, so another bank can be read from the example; the values on the page are kept on a switch, and no refinement of another bank is shipped. The example stores the owner's fit window for banks 1–5 with the file, and choosing a bank sets the window to it: bank 1 1250–16400 µs, bank 2 1400–17600 µs, bank 3 2000–18500 µs, bank 4 3000–16000 µs, bank 5 4000–15300 µs, each inside its bank's data. Bank 6 has none (the instrument file has no bank 6). MATERIA reads 2906 points of bank 4: the points with neither counts nor an esd are left out, as for any GSAS file.
 
 ## The instrument
 
