@@ -6,6 +6,7 @@ import { parseSymmetryOperation } from "@/core/crystal/symmetry";
 import { powderDataXye, singleCrystalHkl, singleCrystalInt } from "@/core/export/data";
 import { fullprofBundle, gsas2Bundle, refinementBundle } from "@/core/export/bundle";
 import { zipStore } from "@/core/export/zip";
+import { GSAS2_NO_SIZE } from "@/core/export/gsas2";
 
 const structure: StructureModel = {
   id: "t", name: "MnO",
@@ -176,5 +177,120 @@ describe("refinementBundle", () => {
     expect(cif).toMatch(/_cell_length_a\s+4\.4512\(3\)/);
     expect(cif).toMatch(/Mn1 Mn .* Uiso 0\.0105\(3\)/); // B = 0.83 Å² as U = B/8π²
     expect(cif).not.toMatch(/9\.9/);
+  });
+});
+
+describe("GSAS-II bundle: constant-wavelength sample terms are written off", () => {
+  // MATERIA's CW Lorentzian width is X/cosθ + Y·tanθ alone, so the refined X, Y hold the fit's whole width.
+  // GSAS-II adds each phase's Size and Mustrain (a new phase: 1 µm and 1000), so every CW bundle sets them
+  // to none. Checked against GSAS-II itself: with these lines its per-reflection widths are the fit's.
+  const file = (e: { name: string; data: string | Uint8Array }[], name: string): string => e.find((x) => x.name === name)!.data as string;
+  const second: StructureModel = { ...structure, id: "u", name: "NiO", cell: { ...structure.cell, a: 4.177, b: 4.177, c: 4.177 } };
+  const third: StructureModel = { ...structure, id: "v", name: "CoO", cell: { ...structure.cell, a: 4.26, b: 4.26, c: 4.26 } };
+  const xy: RefinementParameter[] = [
+    { id: "profX", label: "X", kind: "profileX", value: 3.5, initialValue: 1, fixed: false },
+    { id: "profY", label: "Y", kind: "profileY", value: 7.25, initialValue: 0, fixed: false },
+  ];
+  const xyBindings: ParameterBinding[] = [
+    { parameterId: "profX", kind: "profileX", targetId: "p" },
+    { parameterId: "profY", kind: "profileY", targetId: "p" },
+  ];
+  const cwInstprm = { name: "hb2a.instprm", text: "#GSAS-II instrument parameter file\nType:PNC\nBank:1.0\nLam:1.5\nZero:0.0\nU:100.0\nV:-50.0\nW:200.0\nX:1.5\nY:2.5\nZ:0.0\nSH/L:0.002\nAzimuth:0.0\n" };
+  const xray: PowderPattern = { ...powder, radiation: { kind: "xray", wavelength: 1.5406 } };
+  const block = (phaseVars: string): string => [
+    "",
+    "# In MATERIA's constant-wavelength fit the Lorentzian X and Y hold the instrument's width and the sample's",
+    "# isotropic size and microstrain together, and they are in the .instprm. GSAS-II adds each phase's Size",
+    "# and Mustrain to X and Y (a new phase starts at Size 1 um and Mustrain 1000), so both are set to none",
+    "# here: Mustrain 0, and a Size of 1e6 um, whose width 1.8*lambda/(pi*Size*cos(theta)) is",
+    "# 5.7e-9*lambda/cos(theta) degrees (lambda in A).",
+    `for _phase in (${phaseVars},):`,
+    "    _hap = _phase.data['Histograms'][hist.name]",
+    "    _hap['Mustrain'][0] = 'isotropic'",
+    "    _hap['Mustrain'][1][0] = _hap['Mustrain'][1][1] = 0",
+    "    _hap['Mustrain'][1][2] = 1",
+    "    _hap['Size'][0] = 'isotropic'",
+    `    _hap['Size'][1][0] = _hap['Size'][1][1] = ${GSAS2_NO_SIZE}`,
+    "    _hap['Size'][1][2] = 1.0",
+    "",
+  ].join("\n");
+
+  const cwBundles: readonly [string, () => ReturnType<typeof gsas2Bundle>, string][] = [
+    ["no profile rows at all", () => gsas2Bundle(structure, powder), "phase"],
+    ["X-ray, no profile rows", () => gsas2Bundle(structure, xray), "phase"],
+    ["a refinement without X, Y rows", () => refinementBundle("gsas2", structure, powder, { params: [], bindings: [] }), "phase"],
+    ["refined X and Y", () => refinementBundle("gsas2", structure, powder, { params: xy, bindings: xyBindings }), "phase"],
+    ["the user's .instprm, patched", () => refinementBundle("gsas2", structure, powder, { params: xy, bindings: xyBindings, rawInstrument: cwInstprm }), "phase"],
+    ["the user's .instprm, verbatim", () => gsas2Bundle(structure, powder, { rawInstrument: cwInstprm }), "phase"],
+    ["two phases", () => refinementBundle("gsas2", structure, powder, { params: xy, bindings: xyBindings, phases: [second] }), "phase, phase2"],
+    ["three phases", () => refinementBundle("gsas2", structure, powder, { params: [], bindings: [], phases: [second, third] }), "phase, phase2, phase3"],
+  ];
+  for (const [what, make, phaseVars] of cwBundles) {
+    it(`${what}: Mustrain 0, LGmix 1, Size GSAS2_NO_SIZE on every phase`, () => {
+      const e = make();
+      const script = file(e, "build_gpx.py");
+      expect(script).toContain(block(phaseVars));
+      // Once, after the histogram (whose HAP entries it edits) and before the save.
+      expect(script.match(/_hap\['Size'\]\[1\]\[0\]/g)).toHaveLength(1);
+      expect(script.indexOf("add_powder_histogram")).toBeLessThan(script.indexOf("for _phase in"));
+      expect(script.indexOf("for _phase in")).toBeLessThan(script.indexOf("gpx.save()"));
+      const readme = file(e, "README.txt");
+      expect(readme).toMatch(/Sample broadening: in this constant-wavelength fit, X and Y of \S+\.instprm hold the whole Lorentzian\nwidth, instrument and sample together\./);
+      expect(readme).toContain("a new\nphase starts at Size 1 um and Mustrain 1000");
+      expect(readme).toContain(`Mustrain to 0 (LGmix 1) and its Size to ${GSAS2_NO_SIZE} um`);
+      expect(readme).toContain("An import through the GUI (Option B) starts from GSAS-II's defaults instead: set Mustrain to 0 there.");
+    });
+  }
+
+  it("the refined X and Y go into the .instprm unchanged: only the script and the README carry the fix", () => {
+    const e = refinementBundle("gsas2", structure, powder, { params: xy, bindings: xyBindings });
+    const instprm = file(e, "MnO.instprm");
+    expect(instprm).toContain("\nX:3.5\n");
+    expect(instprm).toContain("\nY:7.25\n");
+  });
+
+  it("a uniaxial size or microstrain model is named as the width X and Y do not hold", () => {
+    const uni = (perp: "anisoSizePerp" | "mustrainPerp", par: "anisoSizePar" | "mustrainPar"): string => {
+      const params: RefinementParameter[] = [
+        ...xy,
+        { id: "perp", label: "perp", kind: perp, value: 2, initialValue: 2, fixed: false },
+        { id: "par", label: "par", kind: par, value: 4, initialValue: 2, fixed: false },
+      ];
+      const bindings: ParameterBinding[] = [
+        ...xyBindings,
+        { parameterId: "perp", kind: perp, targetId: "p" },
+        { parameterId: "par", kind: par, targetId: "p", axis: [0, 0, 1] },
+      ];
+      return file(refinementBundle("gsas2", structure, powder, { params, bindings }), "README.txt");
+    };
+    const size = uni("anisoSizePerp", "anisoSizePar");
+    expect(size).toContain("width, instrument and sample together (but for the fit's uniaxial crystallite size, not carried: see below). GSAS-II adds");
+    expect(size).toContain("Not carried by these files (re-add in GSAS-II if needed): uniaxial crystallite size.");
+    const strain = uni("mustrainPerp", "mustrainPar");
+    expect(strain).toContain("(but for the fit's uniaxial microstrain, not carried: see below)");
+    // Without one, the sentence is plain.
+    expect(file(refinementBundle("gsas2", structure, powder, { params: xy, bindings: xyBindings }), "README.txt"))
+      .toContain("width, instrument and sample together. GSAS-II adds each phase's Size and Mustrain to X and Y");
+  });
+
+  it("the README gives what GSAS-II's largest typed Size (10 um) still adds at the bundle's wavelength", () => {
+    // 1.8·λ/(π·10) centidegrees per 1/cosθ: 0.0859 at 1.5 Å, 0.0883 at 1.5406 Å.
+    expect(file(gsas2Bundle(structure, powder), "README.txt")).toContain("which still adds 0.0859/cos(theta) centidegrees");
+    expect(file(gsas2Bundle(structure, xray), "README.txt")).toContain("which still adds 0.0883/cos(theta) centidegrees");
+  });
+
+  it("time of flight and single crystal are untouched: no constant-wavelength lines", () => {
+    const tofPowder: PowderPattern = {
+      id: "p", name: "MnO", xUnit: "tof", radiation: { kind: "neutron-tof" },
+      points: [{ x: 14300, yObs: 100 }, { x: 20000, yObs: 120, sigma: 11 }, { x: 30000, yObs: 90 }],
+    };
+    for (const e of [
+      gsas2Bundle(structure, tofPowder, { instrument: { kind: "tof", difC: 22585.8 } }),
+      refinementBundle("gsas2", structure, tofPowder, { params: [], bindings: [], phases: [second], instrument: { kind: "tof", difC: 22585.8 } }),
+      gsas2Bundle(structure, single),
+    ]) {
+      expect(file(e, "build_gpx.py")).not.toMatch(/Mustrain|Size|constant-wavelength/);
+      expect(file(e, "README.txt")).not.toMatch(/Sample broadening|constant-wavelength/);
+    }
   });
 });

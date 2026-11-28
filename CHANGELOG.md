@@ -41,6 +41,23 @@ release fixes bugs.
 
 ### Fixed
 
+- **The GSAS-II bundle of a constant-wavelength fit reproduces the fit's peak
+  widths.** MATERIA's X and Y hold the fit's whole Lorentzian width (instrument
+  and sample together) and go into the `.instprm`, but GSAS-II adds each
+  phase's Size and Mustrain on top, and a new phase starts at Size 1 µm and
+  Mustrain 1000: its peaks came out wider than the fit's (CeO₂ at Cu Kα₁, X,
+  Y = 3.5, 7.25: Lorentzian FWHM +0.024° at 28.5° to +0.17° at 138°, total
+  FWHM 1.4 to 1.6 times the fit's). `build_gpx.py` now sets every phase of
+  every constant-wavelength bundle to no sample broadening, written
+  explicitly: Mustrain 0, LGmix 1, Size 10⁶ µm. The README says what X and Y
+  hold, and what an import through GSAS-II's window needs (Mustrain 0; its
+  Size entry takes 10 µm at most). Checked against GSAS-II (a zero-cycle run
+  of the exported bundle, one and two phases): every reflection's Lorentzian
+  and total FWHM equal the fit's within 4·10⁻⁷. Only the bundle's script and
+  README change; no MATERIA number moves, and time-of-flight, single-crystal
+  and FullProf bundles are byte for byte what they were. The script is no
+  longer written with a sample term GSAS-II cannot hold (a Size of 0 or one
+  that is not a finite number); the export stops with a message instead.
 - **The GSAS-II bundle carries the preferred orientation.** A textured fit's
   March–Dollase ratio and axis were written to the FullProf `.pcr` but
   dropped from the GSAS-II bundle without a word. `build_gpx.py` now sets each

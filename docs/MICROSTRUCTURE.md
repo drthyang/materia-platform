@@ -164,6 +164,14 @@ three models.
   parameter.
 - Both subtract starting values, as breadths for CW and as variances in
   quadrature for TOF.
+- The GSAS-II bundle of a CW fit writes X and Y, the whole Lorentzian width,
+  into the `.instprm`, and its script sets every phase's GSAS-II Size and
+  Mustrain to none (Mustrain 0, LGmix 1, Size 10⁶ µm). GSAS-II adds those two
+  to X and Y and starts a new phase at 1 µm and 1000, which would widen every
+  peak by 1.8·λ/(π·cosθ) + (18/π)·tanθ centidegrees. Checked with a zero-cycle
+  GSAS-II run of the bundle: every reflection's Lorentzian and total FWHM
+  within 4·10⁻⁷ of the fit's
+  ([gsas2.ts](../src/core/export/gsas2.ts) `GSAS2_NO_SIZE`).
 
 **Approximate**
 - The starting values are not a refined standard: the instrument file's X and
