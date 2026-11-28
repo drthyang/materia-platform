@@ -58,6 +58,14 @@ release fixes bugs.
   within 0.2 esd. Profiles without a Lorentzian width are unchanged. The
   sentence for a list past the limit now names the d the data reach and the
   list's own count.
+  The known-truth silicon patterns (`src/testSupport/tofKnownTruth.json`) are
+  remade with the lines below their first point in them: their reflection
+  lists reach d 0.40 Å (GSAS-II's own lower limit for a histogram that starts
+  below it) where they ended at the patterns' own 0.62 Å. A truth without
+  those lines disagrees with a model that lists them, as a measured pattern
+  would not. The test and its limits are unchanged; the generator
+  (`scripts/tof-profile/simulate_known_truth.py`) records its date, command,
+  d-ranges and program versions in the file.
 
 - **The GSAS-II bundle carries the preferred orientation.** A textured fit's
   March–Dollase ratio and axis were written to the FullProf `.pcr` but

@@ -17,11 +17,32 @@ fixtures/synthetic_three_banks.instprm.
 
 Each case holds the abscissa, the calculated pattern on a flat background, and the same pattern
 with counting noise from a fixed seed.
+
+The patterns run from d = 0.62 to 3.30 A. Their reflection lists reach down to d = 0.40 A (D_LIST):
+a measured pattern carries the tails of the lines below its first point, and a refinement that
+lists the lines one peak support below its window (the app's rule, THY-90) draws them. Until
+2026-11-28 the lists ended at 0.62 A, as GSAS-II takes them for a histogram that starts there, so
+the truths had no line below their own end.
+  gsas2_*      GSAS-II lists the reflections inside the limits of the histogram it is given. The
+               histogram is simulated from d = 0.31 A (D_HIST), on the same grid (its start a whole
+               number of steps below the pattern's), and the points below the pattern's start are
+               dropped. GSAS-II itself puts the lower limit of a neutron TOF histogram that starts
+               below d = 0.4 A at d = 0.4 A (GSASIIscriptable: the default 'Limits'), so its list
+               is the lines above 0.40 A; nothing is set by hand. It draws each line over its own
+               peak range (50 FWHM each side, widened by the rise and the decay:
+               GSASIIpwd.getWidthsTOF).
+  reference_*  the sum runs over the lines from D_LIST up, GSAS-II's own limit; each is drawn over
+               the whole pattern.
+
+The file records what made it ("provenance"): the date, the command, the two d-ranges, GSAS-II's
+commit, and the Python, numpy and scipy versions.
 """
 import json
 import math
 import os
+import platform
 import shutil
+import subprocess
 import tempfile
 
 import numpy as np
@@ -34,6 +55,11 @@ OUT = os.path.join(HERE, "..", "..", "src", "testSupport", "tofKnownTruth.json")
 INST = os.path.join(HERE, "fixtures", "synthetic_three_banks.instprm")
 A, UISO, B_SI = 5.4310, 0.0060, 4.1491       # A, A^2, fm (Sears 1992)
 BACKGROUND = 40.0
+D_MIN, D_MAX = 0.62, 3.30                     # A: the patterns' range
+D_LIST = 0.40                                 # A: the reflection lists reach down to here: GSAS-II's default lower limit of a neutron TOF histogram
+D_HIST = 0.31                                 # A: where the histogram GSAS-II is given starts (half of D_MIN; anywhere below D_LIST gives the same list)
+T_STEP = 4.0e-4                               # deltaT/T of the GSAS-II and .instprm reference grids
+GENERATED = "2026-11-28"                      # the day the committed file was made; change it when the file is remade
 CIF = f"""data_Si
 _cell_length_a {A}
 _cell_length_b {A}
@@ -66,7 +92,11 @@ def noisy(y, seed):
 def gsas2_case(bank, size, mustrain, mix, peak_counts, seed):
     from GSASII import GSASIIscriptable as G2sc
     p = prog.read_instprm(INST, bank)
-    lo, hi = tof_range(p, 0.62, 3.30)
+    lo, hi = tof_range(p, D_MIN, D_MAX)
+    # The histogram GSAS-II is given starts `below` steps under the pattern, at or under d = D_HIST; the pattern's
+    # own points are the same grid from `below` on. GSAS-II sets its lower limit, and so its list, at d = 0.4 A.
+    below = int(math.ceil(math.log(lo / (p["difC"] * D_HIST)) / T_STEP))
+    tmin = lo * math.exp(-below * T_STEP)
     work = tempfile.mkdtemp(prefix="tofkt_")
     try:
         cif = os.path.join(work, "si.cif")
@@ -74,7 +104,7 @@ def gsas2_case(bank, size, mustrain, mix, peak_counts, seed):
         gpxfile = os.path.join(work, "si.gpx")
         gpx = G2sc.G2Project(newgpx=gpxfile)
         phase = gpx.add_phase(cif, phasename="Si", fmthint="CIF")
-        hist = gpx.add_simulated_powder_histogram("sim", INST, lo / 1000.0, hi / 1000.0, Tstep=4.0e-4, phases=[phase], scale=1.0, ibank=bank)
+        hist = gpx.add_simulated_powder_histogram("sim", INST, tmin / 1000.0, hi / 1000.0, Tstep=T_STEP, phases=[phase], scale=1.0, ibank=bank)
         for hap in phase.data["Histograms"].values():
             hap["Size"][1][0] = hap["Size"][1][1] = size
             hap["Mustrain"][1][0] = hap["Mustrain"][1][1] = mustrain
@@ -87,11 +117,15 @@ def gsas2_case(bank, size, mustrain, mix, peak_counts, seed):
         gpx.do_refinements([{}])
         gpx = G2sc.G2Project(gpxfile)
         hist = gpx.histograms()[0]
-        x = np.array(hist.getdata("x"), float)
-        yc = np.array(hist.getdata("ycalc"), float) - np.array(hist.getdata("background"), float)
+        x = np.array(hist.getdata("x"), float)[below:]
+        yc = (np.array(hist.getdata("ycalc"), float) - np.array(hist.getdata("background"), float))[below:]
         refl = np.array(hist.reflections()["Si"]["RefList"], float)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    # The pattern is the grid the shorter histogram had: it starts within one step of `lo` (GSAS-II's first point
+    # of a histogram from `lo` is half a step above it).
+    assert lo <= x[0] < lo * math.exp(T_STEP), (x[0], lo)
+    assert D_LIST <= refl[:, 4].min() < D_LIST + 0.01, refl[:, 4].min()
     y = yc * (peak_counts / yc.max()) + BACKGROUND
     return {"program": "gsas2", "bank": bank, "sample": {"size": size, "mustrain": mustrain, "mustrainMix": mix},
             "x": [round(float(v), 3) for v in x], "y": [float("%.8g" % v) for v in y], "yNoisy": [int(v) for v in noisy(y, seed)],
@@ -124,11 +158,11 @@ def diamond_reflections(dmin, dmax):
 
 def reference_case(bank, form, mustrain, size, gauss, peak_counts, seed):
     p = prog.read_instprm(INST, bank)
-    lo, hi = tof_range(p, 0.62, 3.30)
-    x = lo * np.exp(4.0e-4 * np.arange(int(math.log(hi / lo) / 4.0e-4) + 1))
+    lo, hi = tof_range(p, D_MIN, D_MAX)
+    x = lo * np.exp(T_STEP * np.arange(int(math.log(hi / lo) / T_STEP) + 1))
     y = np.zeros_like(x)
-    # The reflections inside the pattern's own d-range, as a refinement program takes them.
-    for d, inten in diamond_reflections(0.62, 3.30):
+    # The reflections from D_LIST up (GSAS-II's own limit): those below the pattern's first point reach it with their tails.
+    for d, inten in diamond_reflections(D_LIST, D_MAX):
         t = prog.gsas2_terms(p, d, size=size, mustrain=mustrain)
         sig2 = t["sig2"] + (abs(p["difC"] + 2 * p["difA"] * d - p["difB"] / d**2) * gauss * 1e-6 * d) ** 2
         y += inten * ref.b2b_pv(x - t["pos"], t["alpha"], t["beta"], sig2, max(t["gam"], 0.0), form=form)
@@ -140,16 +174,35 @@ def reference_case(bank, form, mustrain, size, gauss, peak_counts, seed):
 def reference_irf_case(fixture, gauss, peak_counts, seed, step=6.0e-4):
     path = os.path.join(HERE, "fixtures", fixture)
     p = prog.read_irf(path)
-    lo, hi = prog.fullprof_terms(p, 0.62)["pos"], prog.fullprof_terms(p, 3.30)["pos"]
+    lo, hi = prog.fullprof_terms(p, D_MIN)["pos"], prog.fullprof_terms(p, D_MAX)["pos"]
     x = lo * np.exp(step * np.arange(int(math.log(hi / lo) / step) + 1))
     y = np.zeros_like(x)
-    for d, inten in diamond_reflections(0.62, 3.30):
+    for d, inten in diamond_reflections(D_LIST, D_MAX):
         t = prog.fullprof_terms(p, d)
         t["sig2"] += (abs(p["dtt1"] + 2 * p["dtt2"] * d) * gauss * 1e-6 * d) ** 2
         y += inten * prog.fullprof_peak(x - t["pos"], t)
     y = y * (peak_counts / y.max()) + BACKGROUND
     return {"program": "reference", "form": "fullprof", "instrument": "scripts/tof-profile/fixtures/" + fixture,
             "sample": {"gauss": gauss}, "x": [round(float(v), 3) for v in x], "y": [float("%.8g" % v) for v in y], "yNoisy": [int(v) for v in noisy(y, seed)]}
+
+
+def provenance():
+    """What made the file: the date it was made, the command, the d-ranges, and the programs' versions."""
+    out = {"generated": GENERATED, "command": "python simulate_known_truth.py (in scripts/tof-profile, GSAS-II's Python)",
+           "patternD": [D_MIN, D_MAX], "listD": [D_LIST, D_MAX],
+           "python": platform.python_version(), "numpy": np.__version__}
+    try:
+        import scipy
+        out["scipy"] = scipy.__version__
+    except ImportError:
+        pass
+    if prog.gsas2_module() is not None:
+        root = os.environ.get("GSAS2_ROOT", os.path.expanduser("~/.local/share/validation-engine/gsas2-env/GSAS-II"))
+        try:
+            out["gsas2Commit"] = subprocess.run(["git", "-C", root, "log", "-1", "--format=%H %cI"], capture_output=True, text=True, check=True).stdout.strip()
+        except Exception:
+            out["gsas2Commit"] = "unknown"
+    return out
 
 
 def main():
@@ -163,7 +216,7 @@ def main():
     cases["reference_bank3_fullprof_form"] = reference_case(3, "fullprof", 1800.0, 0.5, 900.0, 40000.0, 14)
     cases["reference_irf_a"] = reference_irf_case("synthetic_a.irf", 600.0, 40000.0, 15)
     cases["reference_irf_b_negative_gamma"] = reference_irf_case("synthetic_b_negative_gamma.irf", 0.0, 40000.0, 16)
-    json.dump({"note": "written by scripts/tof-profile/simulate_known_truth.py; do not edit", "structure": {"cif": CIF, "a": A, "uiso": UISO},
+    json.dump({"note": "written by scripts/tof-profile/simulate_known_truth.py; do not edit", "provenance": provenance(), "structure": {"cif": CIF, "a": A, "uiso": UISO},
                "background": BACKGROUND, "instrumentFile": "scripts/tof-profile/fixtures/synthetic_three_banks.instprm", "cases": cases},
               open(OUT, "w"), separators=(",", ":"))
     for k, c in cases.items():
