@@ -190,6 +190,13 @@ function checkRawFile(v: unknown, path: string): void {
   opt(f.bank, `${path}.bank`, num);
   opt(f.bundledDefault, `${path}.bundledDefault`, str);
   opt(f.startingPointFor, `${path}.startingPointFor`, num);
+  if (f.bankWindows !== undefined) {
+    const m = rec(f.bankWindows, `${path}.bankWindows`);
+    for (const [k, w] of Object.entries(m)) {
+      if (!/^\d+$/.test(k)) fail(`${path}.bankWindows`, `key "${k}" must be a bank number`);
+      checkWindow(w, `${path}.bankWindows.${k}`);
+    }
+  }
 }
 
 function checkResult(v: unknown, path: string): void {

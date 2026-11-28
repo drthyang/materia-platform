@@ -17,7 +17,9 @@ import { parseInstrumentFile } from "@/parsers/instrument";
 import { DEFAULT_INSTRUMENTS } from "@/app/defaultInstruments";
 import { withBackgroundTerms, withBackgroundType, withInstrumentFile, withParameterTies, withPattern, withStructure, emptyPage, type PowderPage } from "@/app/powderPage";
 import { bankCoverage, loadFollowStepLabel } from "@/app/bankFollow";
-import { dataBankSwitch, followsInstrument, keptNote, keptStepLabel, landData, withRefinementKept } from "@/app/bankKeep";
+import { dataBankSwitch, followsInstrument, keptNote, keptStepLabel, landData, storedBankWindow, withRefinementKept } from "@/app/bankKeep";
+import { projectFileFor } from "@/app/projectIo";
+import { parseProject, serializeProject } from "@/core/project/io";
 import { powderWorkspaceFrom, sessionFromPowderWorkspace } from "@/app/projectIo";
 import { snapProjectStructures } from "@/app/snapOnOpen";
 import { lineage, recordStep, restoreStep, undoTarget } from "@/core/project/history";
@@ -185,5 +187,83 @@ describe("refinement values kept across a data-bank switch", () => {
   it("names the step and the card's line", () => {
     expect(keptStepLabel({ from: 4, to: 3 })).toBe("Data bank 4 → 3, refinement values kept");
     expect(keptNote({ from: 4, to: 3 })).toBe("Refinement values kept from bank 4.");
+    expect(keptStepLabel({ from: 4, to: 5 }, true)).toBe("Data bank 4 → 5, refinement values kept, bank 5's fit window");
+    expect(keptNote({ from: 4, to: 5 }, true)).toBe("Refinement values kept from bank 4; fit window set to bank 5's.");
   });
 });
+
+describe("fit windows stored per bank with the data file", () => {
+  const WINDOWS = { "4": { min: 3000, max: 16000 }, "5": { min: 4000, max: 15300 } };
+  /** The refined bank-4 page with the file's windows (as the NOMAD example carries them). */
+  const windowed = (): PowderPage => {
+    const p = refinedOn(4);
+    return { ...p, session: { ...p.session, rawData: { ...p.session.rawData!, bankWindows: WINDOWS } } };
+  };
+  const workspaceAt = (p: PowderPage, fitRange: { min: number; max: number } | null): PowderWorkspace =>
+    powderWorkspaceFrom(p.session, p.result, p.instrument, p.instrumentLoaded, { fitRange, displayUnit: null, manualPeakD: [] });
+
+  it("4 → 5 → 4 gives each bank's window exactly, keeps every value, and Undo restores the window and the bank", () => {
+    const at4 = windowed();
+    const to5 = landData(at4, toDataBank(at4, 5), `Loaded data ${NAME}, bank 5`, "chooser");
+    expect(to5.window).toEqual({ min: 4000, max: 15300 });
+    expect(to5.label).toBe("Data bank 4 → 5, refinement values kept, bank 5's fit window");
+    expect(to5.page.session.rawData!.bankWindows).toEqual(WINDOWS);
+    expectKept(at4, to5.page);
+    const back = landData(to5.page, toDataBank(to5.page, 4), `Loaded data ${NAME}, bank 4`, "chooser");
+    expect(back.window).toEqual({ min: 3000, max: 16000 });
+    expect(back.page.session.rawData!.bank).toBe(4);
+    expectKept(at4, back.page);
+    // The steps as App records them: each with the window the page then shows.
+    let history = recordStep(null, { kind: "load", label: "Refined bank 4", structures: [structure], workspace: workspaceAt(at4, WINDOWS["4"]) });
+    history = recordStep(history, { kind: "load", label: to5.label, structures: [structure], workspace: workspaceAt(to5.page, to5.window) });
+    const undone = sessionFromPowderWorkspace(restoreStep(history, undoTarget(history)!).workspace as PowderWorkspace, [structure]);
+    expect(undone.view.fitRange).toEqual({ min: 3000, max: 16000 });
+    expect(undone.session.rawData!.bank).toBe(4);
+    expect(undone.session.powderParams).toEqual(at4.session.powderParams);
+  }, T);
+
+  it("a bank with no stored window gets the whole data, as before, and keeps the file's windows for later", () => {
+    const at4 = windowed();
+    const to3 = landData(at4, toDataBank(at4, 3), `Loaded data ${NAME}, bank 3`, "chooser");
+    expect(to3.window).toBeNull();
+    expect(to3.label).toBe("Data bank 4 → 3, refinement values kept");
+    expect(to3.page.session.rawData!.bankWindows).toEqual(WINDOWS);
+    expect(storedBankWindow(to3.page.session.rawData, 5)).toEqual({ min: 4000, max: 15300 });
+  }, T);
+
+  it("another file drops the windows; a file without them switches as before", () => {
+    const at4 = windowed();
+    const other = multiBankGsaOther();
+    const l = landData(at4, toDataBank(at4, 5, other), `Loaded data ${NAME}, bank 5`, "load");
+    expect(l.window).toBeNull();
+    expect(l.page.session.rawData!.bankWindows).toBeUndefined();
+    const plain = refinedOn(4);
+    const p = landData(plain, toDataBank(plain, 5), `Loaded data ${NAME}, bank 5`, "chooser");
+    expect(p.window).toBeNull();
+    expect(p.page.session.rawData!.bankWindows).toBeUndefined();
+  }, T);
+
+  it("is saved inside the data file's record and read back; a project without it opens unchanged", () => {
+    const at4 = windowed();
+    const save = (p: PowderPage) => serializeProject(projectFileFor({ structures: [structure], workspace: workspaceAt(p, WINDOWS["4"]), title: "t", step: 0 }));
+    const back = parseProject(save(at4));
+    expect((back.workspace as PowderWorkspace).rawData!.bankWindows).toEqual(WINDOWS);
+    expect(sessionFromPowderWorkspace(back.workspace as PowderWorkspace, back.structures).session.rawData!.bankWindows).toEqual(WINDOWS);
+    // Without the map: the file has no such key and reads back as it was written.
+    const plain = refinedOn(4);
+    const text = save(plain);
+    expect(text).not.toContain("bankWindows");
+    const reread = parseProject(text);
+    expect(reread).toEqual(parseProject(text));
+    expect((reread.workspace as PowderWorkspace).rawData).toEqual(plain.session.rawData);
+    // A malformed map is refused with its path.
+    const bad = text.replace(`"bank": 4`, `"bank": 4, "bankWindows": { "x": { "min": 1, "max": 2 } }`);
+    expect(bad).not.toBe(text);
+    expect(() => parseProject(bad)).toThrow(/bankWindows/);
+  }, T);
+});
+
+/** The made-up six-bank file with other counts: another file of the same banks. */
+function multiBankGsaOther(): string {
+  return NOMAD_STYLE_GSA.replace("# File generated by a made-up reduction:", "# File generated by another made-up reduction:");
+}

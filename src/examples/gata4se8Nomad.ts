@@ -64,7 +64,7 @@ export interface GaTa4Se8NomadExample {
   readonly backgroundType: BackgroundType;
   readonly backgroundTerms: number;
   /** The two files as loaded (the whole six-bank data file), kept in the session as a loaded file's are. */
-  readonly rawData: { readonly name: string; readonly text: string; readonly bank: number };
+  readonly rawData: { readonly name: string; readonly text: string; readonly bank: number; readonly bankWindows: Readonly<Record<string, { readonly min: number; readonly max: number }>> };
   readonly rawInstrument: { readonly name: string; readonly text: string; readonly bank: number; readonly bundledDefault: string };
 }
 
@@ -76,6 +76,19 @@ export interface GaTa4Se8NomadExample {
 // being resolved, to fit faster, and calls it a large cut to put to the user
 // first; the example keeps the owner's window.
 const FIT_RANGE = { min: 3000, max: 16000 };
+
+// The owner's fit window for each bank of the data file (TOF, µs), stored with
+// the file (rawData.bankWindows): choosing a bank in the Data card's chooser
+// sets the window to that bank's (app/bankKeep.ts). Each lies inside its
+// bank's data. Bank 6 has none: the instrument file has no bank 6, and the
+// page holds Refine there.
+const BANK_WINDOWS: Readonly<Record<string, { readonly min: number; readonly max: number }>> = {
+  "1": { min: 1250, max: 16400 },
+  "2": { min: 1400, max: 17600 },
+  "3": { min: 2000, max: 18500 },
+  "4": FIT_RANGE,
+  "5": { min: 4000, max: 15300 },
+};
 
 const BACKGROUND: { readonly type: BackgroundType; readonly terms: number } = { type: "chebyshev", terms: 7 };
 
@@ -152,7 +165,7 @@ export function gata4se8NomadExample(): GaTa4Se8NomadExample {
     fitRange: FIT_RANGE,
     backgroundType: BACKGROUND.type,
     backgroundTerms: BACKGROUND.terms,
-    rawData: { name: NOMAD_DATA_NAME, text: patternText, bank: NOMAD_BANK },
+    rawData: { name: NOMAD_DATA_NAME, text: patternText, bank: NOMAD_BANK, bankWindows: BANK_WINDOWS },
     rawInstrument: { name: "NOMAD_2023A_five_banks_Shifter_Si_640e_instrument_file.instprm", text: instrumentText, bank: NOMAD_BANK, bundledDefault: "nomad-2023A" },
   };
   return cached;

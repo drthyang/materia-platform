@@ -8,14 +8,17 @@
  * The instrument follows the bank (app/bankFollow.ts): the rows the
  * instrument owns, the "Instrument / profile" group that followDataBank's
  * switch re-reads from the file (calibration, zero, file profile, peak shape),
- * take the values of the instrument now on the page. Nothing is refined.
- * Pure: the shell calls these.
+ * take the values of the instrument now on the page. A data file can carry a
+ * fit window per bank (`rawData.bankWindows`, saved with the file in a
+ * project): a switch to a bank with one sets the page's window to it, in the
+ * same History step; a bank without one gets the whole data, as before.
+ * Nothing is refined. Pure: the shell calls these.
  */
 
 import type { RefinementParameter } from "@/core/refinement/types";
 import type { Session } from "@/app/powderSession";
 import { buildSpecFor, keptBindings, keptRows } from "@/app/powderSession";
-import { changed, type PowderPage } from "@/app/powderPage";
+import { changed, type FitWindow, type PowderPage } from "@/app/powderPage";
 import { followDataBank, followStepLabel, loadFollowStepLabel, type BankFollow } from "@/app/bankFollow";
 import { parameterGroupOf } from "@/app/ui/parameterGroups";
 
@@ -43,14 +46,14 @@ export function dataBankSwitch(before: Session["rawData"], after: Session["rawDa
   return { from: before.bank, to: after.bank };
 }
 
-/** The History step of a switch: "Data bank 4 → 3, refinement values kept". */
-export function keptStepLabel(s: DataBankSwitch): string {
-  return `Data bank ${s.from} → ${s.to}, refinement values kept`;
+/** The History step of a switch: "Data bank 4 → 3, refinement values kept" (", bank 3's fit window" when the file stores one for it). */
+export function keptStepLabel(s: DataBankSwitch, windowed = false): string {
+  return `Data bank ${s.from} → ${s.to}, refinement values kept${windowed ? `, bank ${s.to}'s fit window` : ""}`;
 }
 
 /** The Data card's line after a switch, until the next action. */
-export function keptNote(s: DataBankSwitch): string {
-  return `Refinement values kept from bank ${s.from}.`;
+export function keptNote(s: DataBankSwitch, windowed = false): string {
+  return windowed ? `Refinement values kept from bank ${s.from}; fit window set to bank ${s.to}'s.` : `Refinement values kept from bank ${s.from}.`;
 }
 
 /** Rows the page cannot refine: TOF data without a TOF calibration, or GSAS-II's own calc shown with them. */
@@ -97,6 +100,14 @@ export interface DataLanding {
   readonly follow: BankFollow | null;
   /** Another bank of the same file, the refinement values kept. */
   readonly kept: DataBankSwitch | null;
+  /** The fit window the data file stores for the bank switched to (native unit), or null: the whole data, as for any new data. */
+  readonly window: FitWindow | null;
+}
+
+/** The fit window a data file stores for its bank `bank`, or null. */
+export function storedBankWindow(raw: Session["rawData"], bank: number | undefined): FitWindow | null {
+  const w = bank !== undefined ? raw?.bankWindows?.[String(bank)] : undefined;
+  return w ? { min: w.min, max: w.max } : null;
 }
 
 /**
@@ -105,15 +116,21 @@ export interface DataLanding {
  * bank, and when the data are another bank of the file on the page, by the
  * Data card's chooser ("chooser") or the same file loaded again ("load"),
  * the refinement values are kept, in one step "Data bank N → M, refinement
- * values kept". `dataLabel`: the step of any other load.
+ * values kept". `dataLabel`: the step of any other load. On a switch the
+ * file's stored windows (`bankWindows`) stay with it, and `window` is the
+ * one for the new bank, if any.
  */
 export function landData(before: PowderPage, next: PowderPage, dataLabel: string, how: "chooser" | "load"): DataLanding {
   const follow = followDataBank(next);
   const onBank = follow ? follow.page : next;
   const asked = dataBankSwitch(before.session.rawData, next.session.rawData);
-  const page = asked ? withRefinementKept(before, onBank) : onBank;
+  const switched = asked ? withRefinementKept(before, onBank) : onBank;
   // View-only rows (no TOF calibration) are not kept: nothing to say of them.
-  const kept = asked && page !== onBank ? asked : null;
-  const label = kept ? keptStepLabel(kept) : !follow ? dataLabel : how === "chooser" ? followStepLabel(follow.bank, follow.dataBank) : loadFollowStepLabel(dataLabel, follow.bank);
-  return { page, label, follow, kept };
+  const kept = asked && switched !== onBank ? asked : null;
+  const windows = asked ? before.session.rawData?.bankWindows : undefined;
+  const raw = switched.session.rawData;
+  const page = windows && raw ? changed(switched, { ...switched.session, rawData: { ...raw, bankWindows: windows } }) : switched;
+  const window = asked ? storedBankWindow(page.session.rawData, asked.to) : null;
+  const label = kept ? keptStepLabel(kept, window !== null) : !follow ? dataLabel : how === "chooser" ? followStepLabel(follow.bank, follow.dataBank) : loadFollowStepLabel(dataLabel, follow.bank);
+  return { page, label, follow, kept, window };
 }

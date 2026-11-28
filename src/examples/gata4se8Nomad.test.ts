@@ -53,7 +53,33 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     const l = landData(page, withPattern(page, bank3, { name: session.rawData!.name, text, bank: 3 }), "Loaded data, bank 3", "chooser");
     expect(l.kept).toEqual({ from: 4, to: 3 });
     expect(l.page.session.rawData?.bank).toBe(3);
+    expect(l.window).toEqual({ min: 2000, max: 18500 });
     for (const r of session.powderParams.filter((x) => !followsInstrument(x))) expect(l.page.session.powderParams.find((x) => x.id === r.id)?.value, r.id).toBe(r.value);
+  });
+
+  it("stores the owner's window for banks 1–5 and none for bank 6; 4 → 5 → 4 by the chooser gives them exactly, values kept", () => {
+    expect(session.rawData?.bankWindows).toEqual({
+      "1": { min: 1250, max: 16400 }, "2": { min: 1400, max: 17600 }, "3": { min: 2000, max: 18500 }, "4": { min: 3000, max: 16000 }, "5": { min: 4000, max: 15300 },
+    });
+    const text = session.rawData!.text;
+    // Every window lies inside its bank's data.
+    for (const [bank, w] of Object.entries(session.rawData!.bankWindows!)) {
+      const xs = parseGsasHistogramPattern(text, "x", "x", { radiation: { kind: "neutron-tof" }, bank: Number(bank) }).points.map((p) => p.x);
+      expect(w.min, bank).toBeGreaterThanOrEqual(xs[0]!);
+      expect(w.max, bank).toBeLessThanOrEqual(xs[xs.length - 1]!);
+    }
+    const toBank = (from: PowderPage, bank: number) => {
+      const p = parseGsasHistogramPattern(text, "gata4se8-powder", `bank ${bank}`, { radiation: { kind: "neutron-tof" }, bank });
+      return landData(from, withPattern(from, p, { name: session.rawData!.name, text, bank }), `Loaded data, bank ${bank}`, "chooser");
+    };
+    const to5 = toBank(page, 5);
+    expect(to5.window).toEqual({ min: 4000, max: 15300 });
+    expect(to5.label).toBe("Data bank 4 → 5, refinement values kept, bank 5's fit window");
+    const back = toBank(to5.page, 4);
+    expect(back.window).toEqual(demo.fitRange);
+    expect(back.page.session.rawData?.bank).toBe(4);
+    for (const r of session.powderParams.filter((x) => !followsInstrument(x))) expect(back.page.session.powderParams.find((x) => x.id === r.id)?.value, r.id).toBe(r.value);
+    expect(toBank(page, 6).window).toBeNull();
   });
 
   it("opens on the saved refinement: Chebyshev 7, the spec's free rows, every row with a saved value", () => {

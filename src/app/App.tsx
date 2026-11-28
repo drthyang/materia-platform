@@ -1181,7 +1181,11 @@ export function App(): JSX.Element {
   function followed(before: PowderPage, next: PowderPage, dataLabel: string, how: "chooser" | "load"): DataLanding {
     const l = landData(before, next, dataLabel, how);
     if (l.follow) setBankFollowMark({ session: l.page.session, note: followNote(l.follow.bank), rows: new Set(switchedRows(before.session.powderParams, l.page.session.powderParams)) });
-    if (l.kept) setBankKeptMark({ session: l.page.session, note: keptNote(l.kept) });
+    if (l.kept) setBankKeptMark({ session: l.page.session, note: keptNote(l.kept, l.window !== null) });
+    // The data file's window for the new bank (app/bankKeep.ts), set in the same commit as the new
+    // pattern, so the workbench's pattern-change reset gives way to it and the step records it.
+    const window = l.window;
+    if (window) setRestore((prev) => ({ token: prev.token + 1, powderView: { fitRange: window, displayUnit: null, manualPeakD: [], token: prev.token + 1 } }));
     return l;
   }
 
@@ -1235,7 +1239,7 @@ export function App(): JSX.Element {
         return;
       }
       if (kept) {
-        setMessage(`Loaded powder “${filename}”, bank ${kept.to} · ${parsed.points.length} pts · TOF ${tag}. ${keptNote(kept)} ${fmt.note}`);
+        setMessage(`Loaded powder “${filename}”, bank ${kept.to} · ${parsed.points.length} pts · TOF ${tag}. ${keptNote(kept, next.session.rawData?.bankWindows?.[String(kept.to)] !== undefined)} ${fmt.note}`);
         return;
       }
       setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · TOF ${tag}. ${next.session.powderParams.length} parameters, back-to-back-exponential profile${carriedNote(structureCarried(next.session))} — click “Refine”. ${fmt.note}`);
@@ -1251,7 +1255,7 @@ export function App(): JSX.Element {
     // workbench into the matching mode instead of staying view-only.
     const { page: next, kept } = land(withPattern(page, parsed, file));
     if (kept) {
-      setMessage(`Loaded powder “${filename}”, bank ${kept.to} · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${keptNote(kept)} ${fmt.note}`);
+      setMessage(`Loaded powder “${filename}”, bank ${kept.to} · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${keptNote(kept, next.session.rawData?.bankWindows?.[String(kept.to)] !== undefined)} ${fmt.note}`);
       return;
     }
     setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${next.session.powderParams.length} symmetry-allowed parameters${carriedNote(structureCarried(next.session))}. Scale auto-estimated — click “Refine”. ${fmt.note}`);
