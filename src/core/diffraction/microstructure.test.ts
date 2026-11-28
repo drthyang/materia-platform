@@ -11,12 +11,26 @@ describe("extractSizeStrain", () => {
     expect(r.strain.value).toBe(0);
   });
 
-  it("matches the GSAS-II microstrain constant ε = π·Y/72000 and reports ppm/%", () => {
+  it("gives the Stokes–Wilson strain ε = π·Y/72000 and reports ppm/%", () => {
     const r = extractSizeStrain({ x: 5, y: 20, wavelength: 1.5406 });
     const eps = (Math.PI * 20) / 72000;
     expect(r.strain.value).toBeCloseTo(eps, 10);
     expect(r.strainPpm.value).toBeCloseTo(eps * 1e6, 6);
     expect(r.strainPercent.value).toBeCloseTo(eps * 100, 10);
+  });
+
+  it("is a quarter of GSAS-II's Mustrain for the same Y", () => {
+    // GSAS-II, GSASIIstrMath.py GetSampleSigGam, constant wavelength, isotropic:
+    //   Mgam = 0.018*Mustrain*tand(2θ/2)/π   (centidegrees)
+    // The same width here is Y·tanθ centidegrees, so Mustrain = π·Y/0.018 = 10⁶·π·Y/18000.
+    const y = 20;
+    const gsas2Mustrain = (Math.PI * y) / 0.018;
+    expect(gsas2Mustrain).toBeCloseTo((1e6 * Math.PI * y) / 18000, 6);
+    const r = extractSizeStrain({ x: 5, y, wavelength: 1.5406 });
+    expect(gsas2Mustrain / r.strainPpm.value).toBeCloseTo(4, 10);
+    // And the Stokes–Wilson breadth 4·ε·tanθ (radians) is that width: Y·tanθ/100 degrees.
+    const tanTheta = Math.tan((35 * Math.PI) / 180);
+    expect(4 * r.strain.value * tanTheta).toBeCloseTo(((y * tanTheta) / 100) * (Math.PI / 180), 12);
   });
 
   it("deconvolutes an instrument standard (breadths subtract; errors add in quadrature)", () => {

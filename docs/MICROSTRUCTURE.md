@@ -39,7 +39,7 @@ instrument deconvolution and esds
 | Quantity | Formula | Note |
 | --- | --- | --- |
 | Size (Scherrer) | D = 18000·K·λ / (π·X) [Å], shown in nm | K = 0.9 by default; cosθ cancels, so D is angle-independent; GSAS-II's p = 18000·K·λ/(π·LX) |
-| Microstrain (Williamson–Hall) | ε = π·Y / 72000, shown in % and ×10⁻⁶ | from β = 4·ε·tanθ; ε·10⁶ is GSAS-II's microstrain |
+| Microstrain (Williamson–Hall) | ε = π·Y / 72000, shown in % and ×10⁻⁶ | the Stokes–Wilson strain, from β = 4·ε·tanθ; GSAS-II's Mustrain for the same Y is 10⁶·π·Y/18000, four times ε·10⁶ |
 
 - **Deconvolution.** Lorentzian breadths add, so the code subtracts a standard
   (LaB₆, Si, CeO₂) refined the same way: X_s = X − X_instr, Y_s = Y − Y_instr.
@@ -48,7 +48,8 @@ instrument deconvolution and esds
 - `williamsonHall`, the model-independent cross-check, fits
   β·cosθ = K·λ/D + 4·ε·sinθ to separately measured peak breadths and returns
   size, strain and R².
-- Checked against the GSAS-II constants and a synthetic Williamson–Hall recovery
+- Checked: the constants (ε = π·Y/72000, a quarter of GSAS-II's Mustrain; the
+  size constant 18000/π) and a synthetic Williamson–Hall recovery
   ([microstructure.test.ts](../src/core/diffraction/microstructure.test.ts)).
 
 ## 3. Generalized microstrain: Stephens (1999) ✅

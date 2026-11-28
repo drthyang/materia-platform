@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { LinearRestraint, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { StructureModel } from "@/core/crystal/types";
 import { exampleStructure } from "@/examples/mn3ga";
-import { reportHtml, formatParameterValue, qualityItems, type ReportInput } from "@/core/export/report";
+import { reportHtml, formatParameterValue, parameterUnit, qualityItems, type ReportInput } from "@/core/export/report";
 import { reportMarkdown } from "@/core/export/reportMarkdown";
 import { frozenReportMarkdown } from "@/core/export/reportMarkdownFrozen";
 import { formatWithEsd } from "@/core/export/cif";
@@ -430,6 +430,83 @@ describe("report helpers", () => {
     expect(formatParameterValue(p("scale", 0.0123456))).toBe("0.012346");
     expect(formatParameterValue(p("scale", 1234567))).toBe("1.2346e+6");
     expect(formatParameterValue(p("momentMode", -0.0004))).toBe("0.000");
+  });
+
+  it("prints a broadening or displacement row's unit as the fit computes with it, with no conversion", () => {
+    // Rows as structureRefinement.ts and corrections.ts emit them. The values go to the model as they are:
+    // S_HKL into σ²(1/d²) in Å⁻⁴, Y⊥ and Y∥ into Y·tanθ/100 degrees, s into Δ2θ = s·cosθ degrees.
+    const row = (id: string, label: string, kind: RefinementParameter["kind"], value: number): RefinementParameter =>
+      ({ id, label, kind, value, initialValue: value, fixed: false });
+    const rows = [
+      row("stephens_0", "strain S400", "stephensStrain", 2.5e-7),
+      row("mustrainPerp", "mustrain Y⊥", "mustrainPerp", 12.3),
+      row("mustrainPar", "mustrain Y∥", "mustrainPar", 23.4),
+      row("sampleDispl", "sample displ. (°·cosθ)", "sampleDisplacement", 0.0456),
+      row("mustrainIso", "mustrain (×10⁻⁶)", "mustrainIso", 1234),
+    ];
+    const input: ReportInput = { ...powderInput(), parameters: [...powderInput().parameters, ...rows] };
+    const md = reportMarkdown(input);
+    for (const line of [
+      "| strain S400 | 2.5000e-7 | Å⁻⁴ | refined |",
+      "| mustrain Y⊥ | 12.300 | centidegrees 2θ | refined |",
+      "| mustrain Y∥ | 23.400 | centidegrees 2θ | refined |",
+      "| sample displ. (°·cosθ) | 0.045600 | ° 2θ | refined |",
+      "| mustrain (×10⁻⁶) | 1234.0 | ×10⁻⁶ | refined |",
+    ]) expect(md, line).toContain(line);
+    const shown = text(reportHtml(input));
+    for (const cells of ["strain S4002.5000e-7Å⁻⁴", "mustrain Y⊥12.300centidegrees 2θ", "mustrain Y∥23.400centidegrees 2θ", "sample displ. (°·cosθ)0.045600° 2θ"]) expect(shown, cells).toContain(cells);
+    // The sibling rows, which had no unit: each is the unit placePeaks computes with (the widths divided by 100 to reach degrees).
+    const siblings = [
+      row("profU", "prof U", "profileU", 149.72), row("profV", "prof V", "profileV", -149.72), row("profW", "prof W", "profileW", 149.72),
+      row("profX", "size (Lorentzian X)", "profileX", 2.9), row("profY", "mustrain (Lorentzian Y)", "profileY", 17.05),
+      row("sizePerp", "size X⊥", "anisoSizePerp", 1.1), row("sizePar", "size X∥", "anisoSizePar", 2.2),
+      row("sampleTransp", "transparency (°·sin2θ)", "sampleTransparency", 0.0031),
+    ];
+    expect(siblings.map((p) => parameterUnit(p, siblings))).toEqual([
+      "centidegrees²", "centidegrees²", "centidegrees²", "centidegrees 2θ", "centidegrees 2θ", "centidegrees 2θ", "centidegrees 2θ", "° 2θ",
+    ]);
+    const mdSiblings = reportMarkdown({ ...powderInput(), parameters: [...powderInput().parameters, ...siblings] });
+    for (const line of ["| prof U | 149.72 | centidegrees² | refined |", "| mustrain (Lorentzian Y) | 17.050 | centidegrees 2θ | refined |", "| size X⊥ | 1.1000 | centidegrees 2θ | refined |", "| transparency (°·sin2θ) | 0.0031000 | ° 2θ | refined |"]) expect(mdSiblings, line).toContain(line);
+    // Rows with no single unit stay blank: a scale, a background term, an occupancy, the asymmetry, μR.
+    for (const kind of ["scale", "background", "occupancy", "asymSL", "asymHL", "absorption", "peakWidth"] as const) expect(parameterUnit(row("x", "x", kind, 1), siblings), kind).toBe("");
+    // None of the four is a microstrain in 10⁻⁶ or a height in µm.
+    for (const wrong of ["| strain S400 | 2.5000e-7 | ×10⁻⁶", "| mustrain Y⊥ | 12.300 | ×10⁻⁶", "| mustrain Y∥ | 23.400 | ×10⁻⁶", "| µm |"]) expect(md, wrong).not.toContain(wrong);
+  });
+
+  it("on time of flight the zero is in µs and each calibration term has its own unit", () => {
+    // T = zero + difC·d + difA·d² + difB/d, T in µs and d in Å (core/diffraction/instrument.ts).
+    const row = (id: string, label: string, kind: RefinementParameter["kind"], value: number, fixed: boolean): RefinementParameter =>
+      ({ id, label, kind, value, initialValue: value, fixed });
+    const zero = row("zero", "zero shift", "zeroShift", -3.21, false);
+    const tof = [row("tof_difC", "TOF difC", "tofCalibration", 5262.31, true), row("tof_difA", "TOF difA", "tofCalibration", -1.23, true), row("tof_difB", "TOF difB", "tofCalibration", 0.45, true), zero];
+    expect(tof.map((p) => parameterUnit(p, tof))).toEqual(["µs/Å", "µs/Å²", "µs·Å", "µs"]);
+    // Constant wavelength: no calibration rows, the zero in degrees of 2θ, as before.
+    expect(parameterUnit(zero, [zero])).toBe("° 2θ");
+    // A calibration row that is none of the three gets no unit, never a wrong one; the id is matched whole.
+    for (const id of ["tof_other", "x_tof_difC", "tof_difCx", "difC"]) expect(parameterUnit(row(id, "TOF other", "tofCalibration", 1, true), tof), id).toBe("");
+    // Every other kind keeps its unit by kind.
+    expect(parameterUnit(row("a", "a", "cellLength", 5, false), tof)).toBe("Å");
+    expect(parameterUnit(row("scale", "scale", "scale", 1, false), tof)).toBe("");
+
+    const input: ReportInput = { ...powderInput(), parameters: [...powderInput().parameters, ...tof] };
+    const md = reportMarkdown(input);
+    for (const line of ["| zero shift | −3.2100 | µs |", "| zero shift | −3.2100 | µs | refined |", "| TOF difC | 5262.310 | µs/Å | fixed |", "| TOF difA | −1.230 | µs/Å² | fixed |", "| TOF difB | 0.450 | µs·Å | fixed |"]) expect(md, line).toContain(line);
+    expect(md).not.toContain("| zero shift | −3.2100 | ° 2θ");
+    const shown = text(reportHtml(input));
+    for (const cells of ["zero shift−3.2100µs", "TOF difC5262.310µs/Åfixed", "TOF difA−1.230µs/Å²fixed", "TOF difB0.450µs·Åfixed"]) expect(shown, cells).toContain(cells);
+    const cw: ReportInput = { ...powderInput(), parameters: [...powderInput().parameters, { ...zero, value: 0.0123, initialValue: 0.0123 }] };
+    expect(reportMarkdown(cw)).toContain("| zero shift | 0.0123 | ° 2θ | refined |");
+  });
+
+  it("the frozen layout keeps the unit labels it had, while the validation freeze lasts", () => {
+    // reportMarkdownFrozen.ts must not move (its header); it still prints "×10⁻⁶" and "µm" for these rows.
+    // They are wrong there as they were here, and go when the frozen layout is retired.
+    const row = (id: string, label: string, kind: RefinementParameter["kind"], value: number): RefinementParameter =>
+      ({ id, label, kind, value, initialValue: value, fixed: false });
+    const input: ReportInput = { ...powderInput(), parameters: [...powderInput().parameters, row("mustrainPerp", "mustrain Y⊥", "mustrainPerp", 12.3), row("sampleDispl", "sample displ. (°·cosθ)", "sampleDisplacement", 0.0456)] };
+    const frozen = frozenReportMarkdown(input);
+    expect(frozen).toContain("| mustrain Y⊥ | 12.300 | ×10⁻⁶ | refined |");
+    expect(frozen).toContain("| sample displ. (°·cosθ) | 0.045600 | µm | refined |");
   });
 
   it("picks nice axis ticks", () => {

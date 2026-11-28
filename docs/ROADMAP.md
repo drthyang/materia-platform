@@ -380,7 +380,8 @@ texture.
 5. A powder-page control for uniaxial size, which exists in the core only.
 
 **Validation gate**
-- ✅ Scherrer and microstrain constants match GSAS-II
+- ✅ Scherrer and microstrain constants checked (the microstrain is a quarter
+  of GSAS-II's Mustrain)
   ([`microstructure.test.ts`](../src/core/diffraction/microstructure.test.ts)).
 - ⬜ A known size and strain are recovered from NIST LaB₆ 660.
 - ⬜ March–Dollase and Stephens coefficients match GSAS-II on one pattern.

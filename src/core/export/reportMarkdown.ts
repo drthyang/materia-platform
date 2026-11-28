@@ -38,7 +38,7 @@ import {
   fixed,
   formatParameterValue,
   indicesOf,
-  KIND_UNIT,
+  parameterUnit,
   magneticFacts,
   momentRows,
   parameterGroups,
@@ -227,7 +227,7 @@ function fitMarkdown(input: ReportInput): string {
     input.figure ? figureMarkdown(input.figure) : "",
     indicesMarkdown(indicesOf(input)),
     other.length > 0
-      ? `**Other refined values**\n\n${table(["Parameter", "Value", "Unit"], other.map((p) => shownParameter(p, input.technique)).map(({ parameter: p, value }) => [p.label, value, KIND_UNIT[p.kind] ?? ""]), ["l", "r", "l"])}`
+      ? `**Other refined values**\n\n${table(["Parameter", "Value", "Unit"], other.map((p) => shownParameter(p, input.technique)).map(({ parameter: p, value }) => [p.label, value, parameterUnit(p, input.parameters)]), ["l", "r", "l"])}`
       : "",
     input.modes ? modesMarkdown(input.modes) : "",
     input.boxcar ? boxcarMarkdown(input.boxcar) : "",
@@ -297,7 +297,7 @@ function parametersMarkdown(params: readonly RefinementParameter[], technique: R
     const free = rows.filter((p) => !p.fixed && !p.expression).length;
     return `**${title}** — ${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined\n\n${table(
       ["Parameter", "Value", "Unit", "Status"],
-      rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [p.label, value, KIND_UNIT[p.kind] ?? "", parameterStatus(p)]),
+      rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [p.label, value, parameterUnit(p, params), parameterStatus(p)]),
       ["l", "r", "l", "l"],
     )}`;
   };
