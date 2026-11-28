@@ -25,6 +25,20 @@ release fixes bugs.
 
 ### Changed
 
+- **A data-bank switch takes the Lorentzian X and Y from the new bank's
+  instrument file.** On constant-wavelength data the rows "size (Lorentzian
+  X)" and "mustrain (Lorentzian Y)", listed under Microstructure, are the
+  instrument file's X and Y (the profile has no Z). Choosing another bank of
+  the data file kept them at the old bank's values; they now take the new
+  bank's file values, as U, V, W and the zero do and as a time-of-flight
+  file's X, Y, Z already did. They come back held, are marked with the other
+  switched rows, and Undo takes the step back whole. A bank whose file gives
+  no X or Y keeps the row. The sample's own rows are kept as before: the
+  uniaxial and Stephens microstrain, and on time of flight the size and the
+  microstrain. A refined X or Y also holds the sample's size or strain
+  broadening, which a switch therefore does not carry: free the row again on
+  the new bank.
+
 - **The NOMAD example fits bank 4 over 3000–16000 µs** (d 0.331–1.773 Å, 1785
   points), the owner's window, in place of 1137–16905 µs. Refitted with the
   same recipe: wR 2.21 %, GoF 5.72, a = 10.3760(1) Å, converged, no near-null

@@ -54,7 +54,7 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     expect(l.kept).toEqual({ from: 4, to: 3 });
     expect(l.page.session.rawData?.bank).toBe(3);
     expect(l.window).toEqual({ min: 2000, max: 18500 });
-    for (const r of session.powderParams.filter((x) => !followsInstrument(x))) expect(l.page.session.powderParams.find((x) => x.id === r.id)?.value, r.id).toBe(r.value);
+    for (const r of session.powderParams.filter((x) => !followsInstrument(x, l.page.instrument))) expect(l.page.session.powderParams.find((x) => x.id === r.id)?.value, r.id).toBe(r.value);
   });
 
   it("stores the owner's window for banks 1–5 and none for bank 6; 4 → 5 → 4 by the chooser gives them exactly, values kept", () => {
@@ -78,7 +78,7 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     const back = toBank(to5.page, 4);
     expect(back.window).toEqual(demo.fitRange);
     expect(back.page.session.rawData?.bank).toBe(4);
-    for (const r of session.powderParams.filter((x) => !followsInstrument(x))) expect(back.page.session.powderParams.find((x) => x.id === r.id)?.value, r.id).toBe(r.value);
+    for (const r of session.powderParams.filter((x) => !followsInstrument(x, back.page.instrument))) expect(back.page.session.powderParams.find((x) => x.id === r.id)?.value, r.id).toBe(r.value);
     expect(toBank(page, 6).window).toBeNull();
   });
 

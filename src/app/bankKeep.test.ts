@@ -4,10 +4,13 @@
  * loaded again, keeps every refinement row's value (bit for bit) and its free,
  * fixed or tied state, the scale and the background's type, terms and
  * coefficients included; the instrument's rows take the new bank's file
- * values (app/bankFollow.ts); one History step, which undo takes back whole;
+ * values (app/bankFollow.ts), the Lorentzian X, Y, Z of the file with them
+ * (time of flight: `tofFileProfile` rows; constant wavelength: the size and
+ * mustrain rows, `profileX` and `profileY`) while the sample's own size and
+ * microstrain rows are kept; one History step, which undo takes back whole;
  * a data bank the instrument file has no bank for keeps the values and Refine
  * stays held. Nothing is refined. Synthetic data; the instrument file is the
- * bundled NOMAD 2023A default.
+ * bundled NOMAD 2023A default, or a made-up file.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -15,8 +18,8 @@ import { parseCif } from "@/parsers/cif";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { parseInstrumentFile } from "@/parsers/instrument";
 import { DEFAULT_INSTRUMENTS } from "@/app/defaultInstruments";
-import { withBackgroundTerms, withBackgroundType, withInstrumentFile, withParameterTies, withPattern, withStructure, emptyPage, type PowderPage } from "@/app/powderPage";
-import { bankCoverage, loadFollowStepLabel } from "@/app/bankFollow";
+import { withBackgroundTerms, withBackgroundType, withInstrumentFile, withMustrain, withParameterTies, withPattern, withStructure, emptyPage, type PowderPage } from "@/app/powderPage";
+import { bankCoverage, loadFollowStepLabel, switchedRows } from "@/app/bankFollow";
 import { dataBankSwitch, followsInstrument, keptNote, keptStepLabel, landData, storedBankWindow, withRefinementKept } from "@/app/bankKeep";
 import { projectFileFor } from "@/app/projectIo";
 import { parseProject, serializeProject } from "@/core/project/io";
@@ -24,8 +27,9 @@ import { powderWorkspaceFrom, sessionFromPowderWorkspace } from "@/app/projectIo
 import { snapProjectStructures } from "@/app/snapOnOpen";
 import { lineage, recordStep, restoreStep, undoTarget } from "@/core/project/history";
 import type { PowderWorkspace } from "@/core/project/types";
+import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { RefinementParameter } from "@/core/refinement/types";
-import { NOMAD_STYLE_GSA, multiBankGsa } from "@/testSupport/instprmFixtures";
+import { FIVE_BANKS, NOMAD_STYLE_GSA, SIX_BANK_GSA, multiBankGsa, multiBankInstprm, type BankText } from "@/testSupport/instprmFixtures";
 
 const T = 30_000;
 const NOMAD = DEFAULT_INSTRUMENTS.find((d) => d.instrument === "NOMAD")!;
@@ -40,16 +44,17 @@ const withDefault = (bank: number): PowderPage => withInstrumentFile(dataPage(ba
 const toDataBank = (p: PowderPage, bank: number, text = NOMAD_STYLE_GSA): PowderPage => withPattern(p, patternOf(bank, text), { name: NAME, text, bank });
 const workspaceOf = (p: PowderPage): PowderWorkspace => powderWorkspaceFrom(p.session, p.result, p.instrument, p.instrumentLoaded, { fitRange: null, displayUnit: null, manualPeakD: [] });
 const row = (p: PowderPage, id: string) => p.session.powderParams.find((r) => r.id === id);
-const carried = (p: PowderPage): readonly RefinementParameter[] => p.session.powderParams.filter((r) => !followsInstrument(r));
-const instrumentRows = (p: PowderPage): readonly RefinementParameter[] => p.session.powderParams.filter(followsInstrument);
+/** The rows kept on a switch to `instrument` (the page's own, unless the new bank's is given). */
+const carried = (p: PowderPage, instrument: InstrumentParameters = p.instrument): readonly RefinementParameter[] => p.session.powderParams.filter((r) => !followsInstrument(r, instrument));
+const instrumentRows = (p: PowderPage): readonly RefinementParameter[] => p.session.powderParams.filter((r) => followsInstrument(r, p.instrument));
 
 /**
  * A page as a user leaves it after refining: a cosine background of six
  * terms, every row at a value no file or estimate gives, some rows freed and
  * some fixed, B_O1 tied to B_Mn1.
  */
-function refinedOn(bank: number): PowderPage {
-  const p = withDefault(bank);
+const refinedOn = (bank: number): PowderPage => refined(withDefault(bank));
+function refined(p: PowderPage): PowderPage {
   let s = withBackgroundType(p.session, "cosine");
   s = withBackgroundTerms(s, 6, p.instrument);
   s = withParameterTies(s, { equal: ["B_Mn1", "B_O1"] });
@@ -59,15 +64,15 @@ function refinedOn(bank: number): PowderPage {
     powderParams: s.powderParams.map((r) => {
       k++;
       if (r.expression) return r;
-      return { ...r, value: r.value * (1 + k * 0.0123456789) + k * 0.000317, fixed: followsInstrument(r) ? r.fixed : k % 3 === 0 };
+      return { ...r, value: r.value * (1 + k * 0.0123456789) + k * 0.000317, fixed: followsInstrument(r, p.instrument) ? r.fixed : k % 3 === 0 };
     }),
   };
   return { ...p, session: s };
 }
 
-/** Every carried row of `after` is `before`'s, bit for bit, in value, free state and tie. */
+/** Every carried row of `after` (the rows its instrument does not own) is `before`'s, bit for bit, in value, free state and tie. */
 function expectKept(before: PowderPage, after: PowderPage): void {
-  const was = carried(before);
+  const was = carried(before, after.instrument);
   const now = carried(after);
   expect(now.map((r) => r.id)).toEqual(was.map((r) => r.id));
   for (const r of was) {
@@ -109,7 +114,7 @@ describe("refinement values kept across a data-bank switch", () => {
 
   it("the instrument rows are the ones #179's switch marks (Instrument / profile), and every other row is kept", () => {
     const before = refinedOn(2);
-    const ids = before.session.powderParams.map((r) => `${r.id}:${followsInstrument(r) ? "instrument" : "kept"}`);
+    const ids = before.session.powderParams.map((r) => `${r.id}:${followsInstrument(r, before.instrument) ? "instrument" : "kept"}`);
     expect(ids).toContain("zero:instrument");
     expect(ids).toContain("tof_difC:instrument");
     expect(ids).toContain("tof_sig1:instrument");
@@ -267,3 +272,200 @@ describe("fit windows stored per bank with the data file", () => {
 function multiBankGsaOther(): string {
   return NOMAD_STYLE_GSA.replace("# File generated by a made-up reduction:", "# File generated by another made-up reduction:");
 }
+
+// ── the Lorentzian X, Y, Z follow the bank's instrument file (owner, 2026-11-28) ──
+
+/** Bank 3 of the NOMAD 2023A file, as the file writes it. */
+const NOMAD_BANK3 = { X: 11.09530822035512, Y: 4.167422848299058, Z: 0 };
+
+const CW_NAME = "made_up_cw.gsa";
+/**
+ * A made-up constant-wavelength histogram of three banks (CONST, 20°–80° in
+ * 0.05° steps, λ 1.54 Å): a flat level with a bump at each of MnO's first
+ * reflections, a little wider on each later bank.
+ */
+const CW_GSA = (() => {
+  const out = ["made-up constant-wavelength banks  Wavelength: 1.54 A"];
+  for (const bank of [1, 2, 3]) {
+    const n = 1201;
+    out.push(`BANK ${bank} ${n} ${n} CONST 2000 5 0 0 FXYE`);
+    for (let j = 0; j < n; j++) {
+      const x = 2000 + 5 * j;
+      const y = 50 + 5 * bank + [3492, 4055, 5868, 7015, 7378].reduce((sum, c) => sum + 400 * Math.exp(-(((x - c) / (12 * bank)) ** 2)), 0);
+      out.push(`${x} ${y.toFixed(3)} ${Math.sqrt(y).toFixed(3)}`);
+    }
+  }
+  return out.join("\n") + "\n";
+})();
+const CW_COMMON: BankText = { Type: "PNC", Lam: "1.54", "Polariz.": "0.0", Azimuth: "0.0", "SH/L": "0.002" };
+/** A made-up three-bank constant-wavelength instrument file: banks 1 and 2 give the Lorentzian X, Y (and a Z, which the profile leaves out); bank 3 gives none. */
+const CW_BANKS: Readonly<Record<number, BankText>> = {
+  1: { ...CW_COMMON, Bank: "1.0", Zero: "0.0125", U: "30.5", V: "-12.25", W: "8.75", X: "0.21", Y: "1.3", Z: "0.0" },
+  2: { ...CW_COMMON, Bank: "2.0", Zero: "-0.0375", U: "95.5", V: "-40.5", W: "21.25", X: "0.47", Y: "3.9", Z: "0.05" },
+  3: { ...CW_COMMON, Bank: "3.0", Zero: "0.0625", U: "140.25", V: "-66.5", W: "33.5" },
+};
+const CW_INSTPRM = multiBankInstprm(CW_BANKS, [1, 2, 3]);
+const CW_INSTRUMENT = "made_up_cw.instprm";
+
+const cwPatternOf = (bank: number) => parseGsasHistogramPattern(CW_GSA, "d", CW_NAME, { bank });
+/** The constant-wavelength file's bank on the page, its instrument file loaded after it (it opens on the data's bank). */
+const cwPage = (bank: number): PowderPage =>
+  withInstrumentFile(withPattern(withStructure(emptyPage(), structure), cwPatternOf(bank), { name: CW_NAME, text: CW_GSA, bank }), CW_INSTRUMENT, CW_INSTPRM).page;
+const toCwBank = (p: PowderPage, bank: number): PowderPage => withPattern(p, cwPatternOf(bank), { name: CW_NAME, text: CW_GSA, bank });
+
+type ConstantWavelength = Extract<InstrumentParameters, { kind: "constantWavelength" }>;
+/** The switched-row mark as App.followed asks for it: the rows the new bank's instrument owns, at another value than before. */
+const marked = (before: PowderPage, after: PowderPage): readonly string[] =>
+  switchedRows(before.session.powderParams, after.session.powderParams, (r) => followsInstrument(r, after.instrument));
+
+describe("the Lorentzian X, Y, Z follow the bank's instrument file", () => {
+  it("time of flight, 4 → 3: X, Y and Z are bank 3's file values exactly, and the sample's size and microstrain rows stay bit for bit", () => {
+    const before = refinedOn(4);
+    const l = landData(before, toDataBank(before, 3), `Loaded data ${NAME}, bank 3`, "chooser");
+    // The numbers are the file's own, as bank 3's block writes them.
+    const block = TEXT.split(/^#Bank /m).find((b) => b.startsWith("3:"))!;
+    expect(block).toMatch(/^X:11\.09530822035512\r?$/m);
+    expect(block).toMatch(/^Y:4\.167422848299058\r?$/m);
+    expect(block).toMatch(/^Z:0\.0\r?$/m);
+    expect(row(l.page, "tof_gamX")!.value).toBe(NOMAD_BANK3.X);
+    expect(row(l.page, "tof_gamY")!.value).toBe(NOMAD_BANK3.Y);
+    expect(row(l.page, "tof_gamZ")!.value).toBe(NOMAD_BANK3.Z);
+    for (const id of ["tof_gamX", "tof_gamY", "tof_gamZ"]) {
+      const r = row(l.page, id)!;
+      expect(r.kind, id).toBe("tofFileProfile");
+      expect(followsInstrument(r, l.page.instrument), id).toBe(true);
+      // Reset goes to the file's value too, and the row was somewhere else on bank 4.
+      expect(r.initialValue, id).toBe(r.value);
+      expect(r.value, id).not.toBe(row(before, id)!.value);
+    }
+    // The sample's rows: the refined values, not the ones a fresh page on bank 3 starts at.
+    const fresh = withDefault(3);
+    for (const id of ["tofSampleGauss", "tofSampleLorentz", "tofSampleSize"]) {
+      const r = row(l.page, id)!;
+      expect(followsInstrument(r, l.page.instrument), id).toBe(false);
+      expect(r.value, id).toBe(row(before, id)!.value);
+      expect(r.fixed, id).toBe(row(before, id)!.fixed);
+      expect(r.value, id).not.toBe(row(fresh, id)!.value);
+    }
+  }, T);
+
+  it("constant wavelength, 1 → 2: the Lorentzian X and Y (the size and mustrain rows) are bank 2's file values exactly; the uniaxial microstrain rows and every other value stay bit for bit", () => {
+    const start = cwPage(1);
+    expect(start.session.rawInstrument!.bank).toBe(1);
+    // The two rows: the file's X and Y, listed as the size and the microstrain; the profile has no constant term, so no Z row.
+    expect(row(start, "profX")).toMatchObject({ kind: "profileX", label: "size (Lorentzian X)", value: 0.21, fixed: true });
+    expect(row(start, "profY")).toMatchObject({ kind: "profileY", label: "mustrain (Lorentzian Y)", value: 1.3, fixed: true });
+    expect(start.session.powderParams.filter((r) => /Lorentzian/.test(r.label)).map((r) => r.id)).toEqual(["profX", "profY"]);
+    const before = refined({ ...start, session: withMustrain(start.session, "uniaxial", start.instrument) });
+    expect(row(before, "profX")!.value).not.toBe(0.21);
+    expect(row(before, "profY")!.value).not.toBe(1.3);
+    const ids = before.session.powderParams.map((r) => `${r.id}:${followsInstrument(r, before.instrument) ? "instrument" : "kept"}`);
+    for (const id of ["profU", "profV", "profW", "profX", "profY", "zero"]) expect(ids).toContain(`${id}:instrument`);
+    for (const id of ["scale", "bkg0", "cell_a", "B_Mn1", "mustrainPerp", "mustrainPar"]) expect(ids).toContain(`${id}:kept`);
+
+    const l = landData(before, toCwBank(before, 2), `Loaded data ${CW_NAME}, bank 2`, "chooser");
+    expect(l.kept).toEqual({ from: 1, to: 2 });
+    expect(l.follow!.bank).toBe(2);
+    expect(l.label).toBe("Data bank 1 → 2, refinement values kept");
+    expect(l.page.instrument).toEqual(parseInstrumentFile(CW_INSTPRM).banks.find((b) => b.bank === 2)!.parameters);
+    // Bank 2's block writes X:0.47 and Y:3.9.
+    expect(row(l.page, "profX")!.value).toBe(0.47);
+    expect(row(l.page, "profY")!.value).toBe(3.9);
+    expect(row(l.page, "profX")!.initialValue).toBe(0.47);
+    expect(row(l.page, "profY")!.initialValue).toBe(3.9);
+    // Every instrument row is the one a fresh page on bank 2 has, held as on load.
+    const fresh = instrumentRows(cwPage(2));
+    expect(fresh.map((r) => r.id)).toEqual(["profU", "profV", "profW", "profX", "profY", "zero"]);
+    expect(instrumentRows(l.page).map((r) => r.id)).toEqual(fresh.map((r) => r.id));
+    for (const r of fresh) {
+      expect(row(l.page, r.id)!.value, r.id).toBe(r.value);
+      expect(row(l.page, r.id)!.fixed, r.id).toBe(r.fixed);
+    }
+    // Every other row is bank 1's, the anisotropic microstrain rows among them.
+    expectKept(before, l.page);
+    expect(l.page.session.mustrain).toBe("uniaxial");
+    for (const id of ["mustrainPerp", "mustrainPar"]) {
+      expect(row(l.page, id)!.value, id).toBe(row(before, id)!.value);
+      expect(row(l.page, id)!.fixed, id).toBe(row(before, id)!.fixed);
+      expect(row(l.page, id)!.value, id).not.toBe(3.9);
+    }
+    // The rows marked as switched with the instrument are the ones that took the file's values, X and Y with them.
+    const rows = marked(before, l.page);
+    for (const id of ["profU", "profV", "profW", "profX", "profY", "zero"]) expect(rows).toContain(id);
+    expect(rows.some((id) => id === "scale" || id.startsWith("bkg") || id.startsWith("mustrain"))).toBe(false);
+    // Without the instrument, the mark is the Instrument / profile group alone, as before.
+    expect(switchedRows(before.session.powderParams, l.page.session.powderParams)).toEqual(rows.filter((id) => id !== "profX" && id !== "profY"));
+  }, T);
+
+  it("Undo restores the old bank's X and Y (and X, Y, Z of a time-of-flight file) as they were refined", () => {
+    const undo = (before: PowderPage, after: PowderPage, label: string) => {
+      let history = recordStep(null, { kind: "load", label: "Refined", structures: [structure], workspace: workspaceOf(before) });
+      history = recordStep(history, { kind: "load", label, structures: [structure], workspace: workspaceOf(after) });
+      return sessionFromPowderWorkspace(restoreStep(history, undoTarget(history)!).workspace as PowderWorkspace, [structure]);
+    };
+    const cw = refined(cwPage(1));
+    const l = landData(cw, toCwBank(cw, 2), `Loaded data ${CW_NAME}, bank 2`, "chooser");
+    expect(row(l.page, "profX")!.value).toBe(0.47);
+    const back = undo(cw, l.page, l.label);
+    expect(back.session.rawData!.bank).toBe(1);
+    expect(back.session.rawInstrument!.bank).toBe(1);
+    expect(back.instrument).toEqual(cw.instrument);
+    expect((back.instrument as ConstantWavelength).x).toBe(0.21);
+    expect(back.session.powderParams).toEqual(cw.session.powderParams);
+    for (const id of ["profX", "profY"]) {
+      expect(back.session.powderParams.find((r) => r.id === id)!.value, id).toBe(row(cw, id)!.value);
+      expect(back.session.powderParams.find((r) => r.id === id)!.fixed, id).toBe(row(cw, id)!.fixed);
+    }
+    const tof = refinedOn(4);
+    const t = landData(tof, toDataBank(tof, 3), `Loaded data ${NAME}, bank 3`, "chooser");
+    const tofBack = undo(tof, t.page, t.label);
+    expect(tofBack.session.rawInstrument!.bank).toBe(4);
+    for (const id of ["tof_gamX", "tof_gamY", "tof_gamZ"]) expect(tofBack.session.powderParams.find((r) => r.id === id)!.value, id).toBe(row(tof, id)!.value);
+  }, T);
+
+  it("a file without X, Y, Z is unaffected: a constant-wavelength bank that gives none keeps the refined X and Y; a time-of-flight file has no such rows and switches as before", () => {
+    // Constant wavelength, 1 → 3: bank 3's block has U, V, W and no X, Y, so there is no file value to take.
+    const before = refined(cwPage(1));
+    const l = landData(before, toCwBank(before, 3), `Loaded data ${CW_NAME}, bank 3`, "chooser");
+    expect(l.follow!.bank).toBe(3);
+    expect(l.label).toBe("Data bank 1 → 3, refinement values kept");
+    const held = l.page.instrument as ConstantWavelength;
+    expect(held.x).toBeUndefined();
+    expect(held.y).toBeUndefined();
+    for (const id of ["profX", "profY"]) {
+      const r = row(l.page, id)!;
+      expect(followsInstrument(r, l.page.instrument), id).toBe(false);
+      expect(r.value, id).toBe(row(before, id)!.value);
+      expect(r.fixed, id).toBe(row(before, id)!.fixed);
+    }
+    expectKept(before, l.page);
+    // The rest of the instrument still follows: U, V, W and the zero are bank 3's.
+    const fresh = instrumentRows(cwPage(3));
+    expect(fresh.map((r) => r.id)).toEqual(["profU", "profV", "profW", "zero"]);
+    for (const r of fresh) expect(row(l.page, r.id)!.value, r.id).toBe(r.value);
+    expect(marked(before, l.page)).toEqual(["profU", "profV", "profW", "zero"]);
+    // One bank gives X and the other does not (3 → 2): the row takes the file's value where there is one.
+    const on3 = refined(cwPage(3));
+    const to2 = landData(on3, toCwBank(on3, 2), `Loaded data ${CW_NAME}, bank 2`, "chooser");
+    expect(row(to2.page, "profX")!.value).toBe(0.47);
+    expect(row(to2.page, "profY")!.value).toBe(3.9);
+
+    // Time of flight: the made-up five banks with their X, Y, Z lines taken out.
+    const without = (b: BankText): BankText => Object.fromEntries(Object.entries(b).filter(([key]) => !["X", "Y", "Z"].includes(key)));
+    const bare = multiBankInstprm(Object.fromEntries(Object.entries(FIVE_BANKS).map(([n, b]) => [n, without(b)])), [1, 2, 3, 4, 5]);
+    expect(bare).not.toMatch(/^[XYZ]:/m);
+    const onBare = (bank: number): PowderPage => withInstrumentFile(dataPage(bank, SIX_BANK_GSA), "bare.instprm", bare).page;
+    const tof = refined(onBare(2));
+    const gam = (p: PowderPage) => p.session.powderParams.filter((r) => r.id.startsWith("tof_gam")).map((r) => r.id);
+    expect(gam(tof)).toEqual([]);
+    const t = landData(tof, toDataBank(tof, 3, SIX_BANK_GSA), `Loaded data ${NAME}, bank 3`, "chooser");
+    expect(t.kept).toEqual({ from: 2, to: 3 });
+    expect(t.follow!.bank).toBe(3);
+    expect(gam(t.page)).toEqual([]);
+    expectKept(tof, t.page);
+    for (const id of ["tofSampleGauss", "tofSampleLorentz", "tofSampleSize"]) expect(row(t.page, id)!.value, id).toBe(row(tof, id)!.value);
+    const freshTof = instrumentRows(onBare(3));
+    expect(instrumentRows(t.page).map((r) => r.id)).toEqual(freshTof.map((r) => r.id));
+    for (const r of freshTof) expect(row(t.page, r.id)!.value, r.id).toBe(r.value);
+  }, T);
+});

@@ -8,13 +8,16 @@
  * The instrument follows the bank (app/bankFollow.ts): the rows the
  * instrument owns, the "Instrument / profile" group that followDataBank's
  * switch re-reads from the file (calibration, zero, file profile, peak shape),
- * take the values of the instrument now on the page. A data file can carry a
+ * take the values of the instrument now on the page, and with them the
+ * constant-wavelength Lorentzian X and Y when the instrument file gives them
+ * (owner, 2026-11-28; `followsInstrument`). A data file can carry a
  * fit window per bank (`rawData.bankWindows`, saved with the file in a
  * project): a switch to a bank with one sets the page's window to it, in the
  * same History step; a bank without one gets the whole data, as before.
  * Nothing is refined. Pure: the shell calls these.
  */
 
+import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { RefinementParameter } from "@/core/refinement/types";
 import type { Session } from "@/app/powderSession";
 import { buildSpecFor, keptBindings, keptRows } from "@/app/powderSession";
@@ -25,9 +28,30 @@ import { parameterGroupOf } from "@/app/ui/parameterGroups";
 /** The group whose rows follow the instrument, as bankFollow.switchedRows marks them. */
 const INSTRUMENT_GROUP = "Instrument / profile";
 
-/** A row the instrument owns: it takes the new bank's instrument values on a switch. */
-export function followsInstrument(p: Pick<RefinementParameter, "kind">): boolean {
-  return parameterGroupOf(p.kind) === INSTRUMENT_GROUP;
+/**
+ * The constant-wavelength Lorentzian X or Y, when `instrument` gives it. The
+ * panel lists the two rows under "Microstructure" as the size and the
+ * microstrain (kinds `profileX`, `profileY`), and each is the instrument
+ * file's own term, Γ_L = X/cosθ + Y·tanθ (GSAS-II's X and Y), starting at the
+ * file's value (powderSpec.buildPowderSpec). The profile has no constant
+ * term: a file's Z is read and left out (bankChoice.unusedNote). A time of
+ * flight file's X, Y, Z are `tofFileProfile` rows of INSTRUMENT_GROUP, the
+ * sample's size and microstrain being rows of their own beside them.
+ */
+function fileLorentzian(kind: RefinementParameter["kind"], instrument: InstrumentParameters): boolean {
+  if (instrument.kind !== "constantWavelength") return false;
+  return (kind === "profileX" && instrument.x !== undefined) || (kind === "profileY" && instrument.y !== undefined);
+}
+
+/**
+ * A row the instrument owns: on a switch it takes the value `instrument`, the
+ * new bank's, gives it. The rows of INSTRUMENT_GROUP, and the
+ * constant-wavelength Lorentzian X and Y of a file that gives them (owner,
+ * 2026-11-28: they follow the bank). Where the file gives no X or Y there is
+ * no file value to take, and that row is kept like every other.
+ */
+export function followsInstrument(p: Pick<RefinementParameter, "kind">, instrument: InstrumentParameters): boolean {
+  return parameterGroupOf(p.kind) === INSTRUMENT_GROUP || fileLorentzian(p.kind, instrument);
 }
 
 /** A switch between two banks of one data file. */
@@ -66,9 +90,10 @@ function viewOnly(s: Session): boolean {
  * with `before`'s refinement kept: the settings that shape the rows (added
  * phases, background type and terms, Lorentz, site ties, microstrain model,
  * corrections) and every row the instrument does not own, at its value and
- * its free, fixed or tied state. The instrument's rows are `after`'s. A row's
- * starting value (where Reset goes) is the new bank's. A page whose rows are
- * view-only is returned as it is.
+ * its free, fixed or tied state. The instrument's rows (`followsInstrument`,
+ * for the instrument `after` holds) are `after`'s. A row's starting value
+ * (where Reset goes) is the new bank's. A page whose rows are view-only is
+ * returned as it is.
  */
 export function withRefinementKept(before: PowderPage, after: PowderPage): PowderPage {
   const b = before.session;
@@ -77,8 +102,9 @@ export function withRefinementKept(before: PowderPage, after: PowderPage): Powde
   const backgroundType = b.powderProfile.backgroundType;
   const spec = buildSpecFor(b.structure, b.extraPhases, a.pattern, after.instrument, b.powderProfile.lorentz ?? true, b.backgroundTerms, b.siteTies, b.mustrain ?? "isotropic", b.corrections, backgroundType);
   const starting = new Map(spec.params.map((p) => [p.id, p.initialValue]));
-  const rows = keptRows(spec.params, b.powderParams.filter((p) => !followsInstrument(p)))
-    .map((p) => (starting.has(p.id) && !followsInstrument(p) ? { ...p, initialValue: starting.get(p.id)! } : p));
+  const follows = (p: RefinementParameter): boolean => followsInstrument(p, after.instrument);
+  const rows = keptRows(spec.params, b.powderParams.filter((p) => !follows(p)))
+    .map((p) => (starting.has(p.id) && !follows(p) ? { ...p, initialValue: starting.get(p.id)! } : p));
   return changed(after, {
     ...a,
     extraPhases: b.extraPhases,

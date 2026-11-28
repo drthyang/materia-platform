@@ -46,7 +46,7 @@ import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
 import { currentDataBank, dataBankRef, dataBanksOf, defaultDataBank } from "@/app/bankChoice";
 import { defaultInstrumentById, defaultStepLabel, defaultUncovered } from "@/app/defaultInstruments";
 import { bankCoverage, followNote, startingPointStepLabel, startingPointWarning, switchedRows, withStartingPoint } from "@/app/bankFollow";
-import { keptNote, landData, type DataBankSwitch, type DataLanding } from "@/app/bankKeep";
+import { followsInstrument, keptNote, landData, type DataBankSwitch, type DataLanding } from "@/app/bankKeep";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { loadLocalDemoModule, localDemoAvailable } from "@/app/localDemoGate";
@@ -1180,7 +1180,8 @@ export function App(): JSX.Element {
    */
   function followed(before: PowderPage, next: PowderPage, dataLabel: string, how: "chooser" | "load"): DataLanding {
     const l = landData(before, next, dataLabel, how);
-    if (l.follow) setBankFollowMark({ session: l.page.session, note: followNote(l.follow.bank), rows: new Set(switchedRows(before.session.powderParams, l.page.session.powderParams)) });
+    // The rows marked are the ones that took the new bank's values: the instrument's, a constant-wavelength file's Lorentzian X and Y among them.
+    if (l.follow) setBankFollowMark({ session: l.page.session, note: followNote(l.follow.bank), rows: new Set(switchedRows(before.session.powderParams, l.page.session.powderParams, (p) => followsInstrument(p, l.page.instrument))) });
     if (l.kept) setBankKeptMark({ session: l.page.session, note: keptNote(l.kept, l.window !== null) });
     // The data file's window for the new bank (app/bankKeep.ts), set in the same commit as the new
     // pattern, so the workbench's pattern-change reset gives way to it and the step records it.

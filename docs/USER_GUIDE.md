@@ -175,6 +175,9 @@ banks loaded (yours or the default), choosing another bank on the **Data** card,
 or loading new data, also switches the instrument to the file's bank for it, by bank number checked
 against the DIFC the data file states. The instrument rows take the new bank's
 values from the file, replacing what a fit had refined for the old bank. The
+Lorentzian X and Y of a constant-wavelength file are among them: the rows
+**size (Lorentzian X)** and **mustrain (Lorentzian Y)** under
+**Microstructure** start from the file's X and Y, and take the new bank's. The
 Instrument card and the changed rows are marked "Instrument switched to bank N
 with the data bank" until your next action, and the History step reads
 "Instrument bank N, following data bank N" (for new data, the load's own step

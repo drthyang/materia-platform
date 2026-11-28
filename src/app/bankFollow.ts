@@ -74,10 +74,19 @@ export function loadFollowStepLabel(dataLabel: string, bank: number): string {
   return `${dataLabel} · instrument bank ${bank}`;
 }
 
-/** The Instrument / profile rows a switch changed: new, or at another value than before it. */
-export function switchedRows(before: readonly RefinementParameter[], after: readonly RefinementParameter[]): readonly string[] {
+/**
+ * The instrument's rows a switch changed: new, or at another value than before
+ * it. `owned` says which rows are the instrument's: the Instrument / profile
+ * group, unless the caller knows more (bankKeep.followsInstrument adds the
+ * constant-wavelength Lorentzian X and Y of a file that gives them).
+ */
+export function switchedRows(
+  before: readonly RefinementParameter[],
+  after: readonly RefinementParameter[],
+  owned: (p: RefinementParameter) => boolean = (p) => parameterGroupOf(p.kind) === "Instrument / profile",
+): readonly string[] {
   const was = new Map(before.map((p) => [p.id, p.value]));
-  return after.filter((p) => parameterGroupOf(p.kind) === "Instrument / profile" && was.get(p.id) !== p.value).map((p) => p.id);
+  return after.filter((p) => owned(p) && was.get(p.id) !== p.value).map((p) => p.id);
 }
 
 // ── a data bank the file has no bank for ──────────────────────────────────
