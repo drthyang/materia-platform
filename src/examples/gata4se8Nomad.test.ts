@@ -64,15 +64,14 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     expect(session.powderParams.filter((p) => !p.fixed && !p.expression).map((p) => p.id)).toEqual(BASE);
   });
 
-  it("shows the recorded agreement on screen: wR 2.50 % over 2334 points in its window", () => {
+  it("shows the recorded agreement on screen: wR 2.21 % over 1785 points in its window", () => {
     const curves = powderPageCurves(session, demo.fitRange).curves;
-    // The window ends at 16905.49 µs (d 1.873 Å), below two peaks no phase explains; below d 0.209 Å the file's profile gives no peak, and those 545 points are left out (THY-90).
-    expect(demo.fitRange.max).toBe(16905.488658956);
-    expect(demo.fitRange.min).toBe(demo.pattern.points[0]!.x);
-    expect(observationsIn(curves, demo.fitRange, session)).toBe(2334);
-    expect((100 * weightedR(session, curves, demo.fitRange)).toFixed(2)).toBe("2.50");
-    // GoF over the nine rows the example opens with free (the refinement's own, with sixteen free, is 5.90: below).
-    expect(curvesGoodnessOfFit(session, curves, demo.fitRange).toFixed(2)).toBe("5.89");
+    // The owner's window, 3000–16000 µs (d 0.331–1.773 Å): above d 0.209 Å, where the file's profile stops giving a peak (THY-90), and below the two long-TOF peaks no phase explains.
+    expect(demo.fitRange).toEqual({ min: 3000, max: 16000 });
+    expect(observationsIn(curves, demo.fitRange, session)).toBe(1785);
+    expect((100 * weightedR(session, curves, demo.fitRange)).toFixed(2)).toBe("2.21");
+    // GoF over the nine rows the example opens with free (the refinement's own, with sixteen free, is 5.72: below).
+    expect(curvesGoodnessOfFit(session, curves, demo.fitRange).toFixed(2)).toBe("5.71");
   });
 
   it("refined from where it opens, with the structure rows free, converges in place with no near-null direction", async () => {
@@ -83,15 +82,15 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     const r = sp.port.state().result!;
     expect(r.status).toBe("converged");
     expect(r.diagnostics?.svdZeroCount ?? 0).toBe(0);
-    expect((100 * r.agreement.rWeighted!).toFixed(2)).toBe("2.50");
-    expect(r.agreement.goodnessOfFit!.toFixed(2)).toBe("5.90");
+    expect((100 * r.agreement.rWeighted!).toFixed(2)).toBe("2.21");
+    expect(r.agreement.goodnessOfFit!.toFixed(2)).toBe("5.72");
     // Nothing moves by more than a tenth of its esd.
     for (const id of [...BASE, ...STRUCTURE]) {
       const esd = r.esd[id]!;
       expect(Math.abs(r.parameters[id]! - demo.refinedParams[id]!), id).toBeLessThan(0.1 * esd);
     }
-    // a = 10.3757(1) Å; B = 8π²U for U Ga 0.0044(6), Ta 0.0044(2), Se1 0.0058(4), Se2 0.0053(4) Å².
-    expect(r.parameters.cell_a!.toFixed(4)).toBe("10.3757");
+    // a = 10.3760(1) Å; B = 8π²U for U Ga 0.0039(6), Ta 0.0043(2), Se1 0.0056(4), Se2 0.0050(4) Å².
+    expect(r.parameters.cell_a!.toFixed(4)).toBe("10.3760");
     expect(r.esd.cell_a!).toBeLessThan(0.00015);
   }, 120_000);
 });

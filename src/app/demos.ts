@@ -28,7 +28,7 @@ export const DEMOS: readonly DemoEntry[] = [
     id: "nomad",
     kicker: "Rietveld · NOMAD TOF, bank 4",
     title: "GaTa₄Se₈ neutron TOF",
-    blurb: "NOMAD bank 4 at 300 K, converged fit · wR 2.5%",
+    blurb: "NOMAD bank 4 at 300 K, converged fit · wR 2.2%",
   },
   {
     id: "magnetic",
