@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { LinearRestraint, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { StructureModel } from "@/core/crystal/types";
 import { exampleStructure } from "@/examples/mn3ga";
-import { reportHtml, formatParameterValue, qualityItems, type ReportInput } from "@/core/export/report";
+import { reportHtml, formatParameterValue, parameterUnit, qualityItems, type ReportInput } from "@/core/export/report";
 import { reportMarkdown } from "@/core/export/reportMarkdown";
 import { frozenReportMarkdown } from "@/core/export/reportMarkdownFrozen";
 import { formatWithEsd } from "@/core/export/cif";
@@ -457,6 +457,31 @@ describe("report helpers", () => {
     for (const cells of ["strain S4002.5000e-7Å⁻⁴", "mustrain Y⊥12.300centidegrees 2θ", "mustrain Y∥23.400centidegrees 2θ", "sample displ. (°·cosθ)0.045600° 2θ"]) expect(shown, cells).toContain(cells);
     // None of the four is a microstrain in 10⁻⁶ or a height in µm.
     for (const wrong of ["| strain S400 | 2.5000e-7 | ×10⁻⁶", "| mustrain Y⊥ | 12.300 | ×10⁻⁶", "| mustrain Y∥ | 23.400 | ×10⁻⁶", "| µm |"]) expect(md, wrong).not.toContain(wrong);
+  });
+
+  it("on time of flight the zero is in µs and each calibration term has its own unit", () => {
+    // T = zero + difC·d + difA·d² + difB/d, T in µs and d in Å (core/diffraction/instrument.ts).
+    const row = (id: string, label: string, kind: RefinementParameter["kind"], value: number, fixed: boolean): RefinementParameter =>
+      ({ id, label, kind, value, initialValue: value, fixed });
+    const zero = row("zero", "zero shift", "zeroShift", -3.21, false);
+    const tof = [row("tof_difC", "TOF difC", "tofCalibration", 5262.31, true), row("tof_difA", "TOF difA", "tofCalibration", -1.23, true), row("tof_difB", "TOF difB", "tofCalibration", 0.45, true), zero];
+    expect(tof.map((p) => parameterUnit(p, tof))).toEqual(["µs/Å", "µs/Å²", "µs·Å", "µs"]);
+    // Constant wavelength: no calibration rows, the zero in degrees of 2θ, as before.
+    expect(parameterUnit(zero, [zero])).toBe("° 2θ");
+    // A calibration row that is none of the three gets no unit, never a wrong one.
+    expect(parameterUnit(row("tof_other", "TOF other", "tofCalibration", 1, true), tof)).toBe("");
+    // Every other kind keeps its unit by kind.
+    expect(parameterUnit(row("a", "a", "cellLength", 5, false), tof)).toBe("Å");
+    expect(parameterUnit(row("scale", "scale", "scale", 1, false), tof)).toBe("");
+
+    const input: ReportInput = { ...powderInput(), parameters: [...powderInput().parameters, ...tof] };
+    const md = reportMarkdown(input);
+    for (const line of ["| zero shift | −3.2100 | µs |", "| zero shift | −3.2100 | µs | refined |", "| TOF difC | 5262.310 | µs/Å | fixed |", "| TOF difA | −1.230 | µs/Å² | fixed |", "| TOF difB | 0.450 | µs·Å | fixed |"]) expect(md, line).toContain(line);
+    expect(md).not.toContain("| zero shift | −3.2100 | ° 2θ");
+    const shown = text(reportHtml(input));
+    for (const cells of ["zero shift−3.2100µs", "TOF difC5262.310µs/Åfixed", "TOF difA−1.230µs/Å²fixed", "TOF difB0.450µs·Åfixed"]) expect(shown, cells).toContain(cells);
+    const cw: ReportInput = { ...powderInput(), parameters: [...powderInput().parameters, { ...zero, value: 0.0123, initialValue: 0.0123 }] };
+    expect(reportMarkdown(cw)).toContain("| zero shift | 0.0123 | ° 2θ | refined |");
   });
 
   it("the frozen layout keeps the unit labels it had, while the validation freeze lasts", () => {

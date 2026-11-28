@@ -391,9 +391,29 @@ export const KIND_UNIT: Partial<Record<ParameterKind, string>> = {
   momentX: "µB", momentY: "µB", momentZ: "µB", momentMode: "µB", propagationK: "(r.l.u.)",
   zeroShift: "° 2θ", sampleDisplacement: "° 2θ",
   qdamp: "Å⁻¹", qbroad: "Å⁻¹", delta1: "Å", delta2: "Å²", rcut: "Å", spdiameter: "Å", corrLength: "Å", mpdfPsigma: "Å",
-  tofCalibration: "µs", stephensStrain: "Å⁻⁴", mustrainIso: "×10⁻⁶", mustrainPar: "centidegrees 2θ", mustrainPerp: "centidegrees 2θ",
+  stephensStrain: "Å⁻⁴", mustrainIso: "×10⁻⁶", mustrainPar: "centidegrees 2θ", mustrainPerp: "centidegrees 2θ",
   tofSampleGauss: "×10⁻⁶", tofSampleLorentz: "×10⁻⁶", tofSampleSize: "µm",
 };
+
+/** The time-of-flight calibration T = Zero + difC·d + difA·d² + difB/d, T in µs and d in Å: each term's unit. */
+const TOF_CALIBRATION_UNIT: Readonly<Record<string, string>> = { difC: "µs/Å", difA: "µs/Å²", difB: "µs·Å" };
+
+/**
+ * The unit the report prints beside a row's value: {@link KIND_UNIT} by kind,
+ * except for the two kinds whose rows do not share one unit.
+ * - `tofCalibration`: the rows are difC, difA and difB (ids `tof_difC`, …,
+ *   core/workflow/structureRefinement.ts), in µs/Å, µs/Å² and µs·Å
+ *   (core/diffraction/instrument.ts). A row that is none of them gets no unit.
+ * - `zeroShift`: the zero is added to the peak position in the data's unit.
+ *   On a time-of-flight pattern that is µs (workflow/powder.ts: T = difC·d +
+ *   difA·d² + difB/d + zero); such a fit always carries the calibration rows,
+ *   so `all`, the report's whole parameter list, tells. Otherwise degrees of 2θ.
+ */
+export function parameterUnit(p: RefinementParameter, all: readonly RefinementParameter[]): string {
+  if (p.kind === "tofCalibration") return TOF_CALIBRATION_UNIT[/(dif[CAB])$/.exec(p.id)?.[1] ?? ""] ?? "";
+  if (p.kind === "zeroShift" && all.some((q) => q.kind === "tofCalibration")) return "µs";
+  return KIND_UNIT[p.kind] ?? "";
+}
 
 /** value(su) when the fit gave an esd; otherwise a kind-appropriate precision. */
 export function formatParameterValue(p: RefinementParameter, decimals?: number): string {
@@ -842,7 +862,7 @@ function indicesHtml(indices: readonly ReportIndex[]): string {
 }
 
 function otherValuesHtml(params: readonly RefinementParameter[], technique: ReportTechnique): string {
-  const rows = summaryParameters(params, technique).map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [esc(p.label), value, `<span class="muted">${esc(KIND_UNIT[p.kind] ?? "")}</span>`]);
+  const rows = summaryParameters(params, technique).map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [esc(p.label), value, `<span class="muted">${esc(parameterUnit(p, params))}</span>`]);
   if (rows.length === 0) return "";
   const per = rows.length > 10 ? Math.ceil(rows.length / 2) : rows.length;
   const chunks: (typeof rows)[] = [];
@@ -994,7 +1014,7 @@ function parametersHtml(params: readonly RefinementParameter[], technique: Repor
     return `<h4>${esc(title)} <span class="meta">${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined</span></h4>
 <div class="scroll">${table(
       [{ head: "Parameter", cls: "lbl" }, { head: "Value", num: true }, { head: "Unit" }, { head: "Status" }],
-      rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [esc(p.label), value, `<span class="muted">${esc(KIND_UNIT[p.kind] ?? "")}</span>`, `<span class="muted">${esc(parameterStatus(p))}</span>`]),
+      rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [esc(p.label), value, `<span class="muted">${esc(parameterUnit(p, params))}</span>`, `<span class="muted">${esc(parameterStatus(p))}</span>`]),
     )}</div>`;
   };
   const blocks: string[] = [];
