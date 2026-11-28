@@ -26,7 +26,17 @@ const elementOf = (symbol: string): string => {
   return m ? m[0] : symbol;
 };
 
-/** f′ and f″ (electrons) of an element at a tabulated line; 0 for hydrogen, helium and an element not in the table. */
+/**
+ * f′ and f″ (electrons) of an element at a tabulated line; 0 for hydrogen, helium and an element not in the table.
+ *
+ *   f = f0(s) + f′ + i·f″
+ *
+ * Symbols → code: f′ `fp`, f″ `fpp` (electrons, independent of s); f0 is
+ * xray.ts `xrayFormFactor`. The sum is formed in diffraction/scKernel.ts
+ * `scPlan` (`a.re + extra.fp`, `a.im + extra.fpp`).
+ * Reference: values by Cromer & Liberman's method, Acta Cryst. A37 (1981) 267
+ * (see dispersionData.ts).
+ */
 export function anomalousScattering(element: string, line: { readonly index: number }): { readonly fp: number; readonly fpp: number } {
   const pair = DISPERSION[elementOf(element)]?.[line.index];
   return pair ? { fp: pair[0], fpp: pair[1] } : { fp: 0, fpp: 0 };

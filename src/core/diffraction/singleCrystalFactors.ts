@@ -16,7 +16,7 @@
  *   wR2    = √[ Σ w(Fo²−Fc²)² / Σ w(Fo²)² ]
  *   R1     = Σ ||Fo|−|Fc|| / Σ |Fo|          (on F, over a chosen Fo² cutoff)
  *   GooF S = √[ Σ w(Fo²−Fc²)² / (N−P_params) ]
- * References: Sheldrick, Acta Cryst. A64 (2008) 112; C64 (2015) 3; SHELXL manual
+ * References: Sheldrick, Acta Cryst. A64 (2008) 112; C71 (2015) 3; SHELXL manual
  * (WGHT, EXTI, and the F² least-squares definitions).
  */
 
@@ -67,6 +67,10 @@ export const EXTINCTION_PARAMETER_LABELS: Readonly<Record<ExtinctionModel, strin
  * the extinction). SHELXL's HKLF 2 carries a wavelength per reflection for
  * the same reason. With neither a wavelength nor a 2θ for a TOF reflection,
  * y = 1.
+ * Symbols → code: x `x` (SHELXL's EXTI; its value depends on the unit of
+ * F²); F² `fSquared` (fm² for neutrons, electrons² for X-rays); λ `wl` (Å);
+ * sin2θ `s2t`, θ `theta` (radians); the bracket `denom`. y is dimensionless.
+ * Reference: Sheldrick, Acta Cryst. C71 (2015) 3; the SHELXL manual (EXTI).
  */
 export function extinctionFactor(x: number, fSquared: number, radiation: Radiation, d: number, at: MeasuredAt = {}): number {
   if (x <= 0) return 1;
@@ -95,6 +99,11 @@ export function extinctionFactor(x: number, fSquared: number, radiation: Radiati
  * for X-rays; V in Å³, λ in Å. ψ = Eg/L for type I, with L = sin2θ/λ at one
  * wavelength and (sinθ/λ)² over a time-of-flight Laue measurement (GSAS-II's
  * forms), and ψ = Es for type II. x is Eg or Es; y = 1 at x ≤ 0.
+ * Symbols → code: p `pf`; Q `q`; T̄ `at.tbar` (cm); ψ `psi`; A `a`, B `b`;
+ * cos2θ `cos2t`, sin2θ `sin2t`; (sinθ/λ)² `sq` = 1/(4d²) (Å⁻²); L `l`; V
+ * `volume` (Å³); λ `lambda` (Å); the bracket `pf4`. y is dimensionless.
+ * Reference: Becker & Coppens, Acta Cryst. A30 (1974) 129; the coefficients
+ * and units are GSAS-II's (GSASIIstrMath.SCExtinction).
  */
 export function beckerCoppensFactor(
   model: Exclude<ExtinctionModel, "shelx">,
@@ -156,6 +165,10 @@ export function extinctionFactorFor(
  * SHELXL states a and b on the absolute scale (Fc² in electrons², Fo² divided
  * by its scale), so for data on the scale `scale` (Fc² here = scale·|F|²) the
  * b term is scale·b·P; the a term does not depend on the scale.
+ * Symbols → code: Fo² `foSq`, Fc² `fcSq`, σ(Fo²) `sigma` (one unit, the
+ * data's); a `a`, b `b` (SHELXL's WGHT); P `P`; the bracket `denom`; w in
+ * 1/(that unit)². Falls back to 1/σ², then 1, where the bracket is not positive.
+ * Reference: Sheldrick, Acta Cryst. C71 (2015) 3; the SHELXL manual (WGHT).
  */
 export function shelxWeights(
   foSq: readonly number[],
@@ -297,6 +310,14 @@ export interface SingleCrystalAgreement {
 /**
  * SHELX-style F² agreement factors. `sigmaCutoff` (default 2) selects the
  * "observed" reflections for R1 (Fo² > cutoff·σ(Fo²)); wR2 and GooF use all.
+ *
+ *   wR2 = √[Σ w(Fo² − Fc²)² / Σ w(Fo²)²]      R1 = Σ||Fo| − |Fc|| / Σ|Fo|
+ *   GooF S = √[Σ w(Fo² − Fc²)² / (N − P)]
+ *
+ * Symbols → code: Fo², Fc² `fo2`, `fc2`; |Fo|, |Fc| `fo`, `fc` (√ of the F²
+ * floored at 0); w `weights`; N `n`; P `nParams`; N − P `dof` (at least 1);
+ * the sums `wNum`, `wDen`, `r1Num`, `r1Den`. Fractions (× 100 for %).
+ * Reference: Sheldrick, Acta Cryst. C71 (2015) 3 (the module header).
  */
 export function singleCrystalAgreement(
   foSq: readonly number[],

@@ -249,6 +249,11 @@ function powderExtras(
   // An isotropic TOF Mustrain is the ∝d² Gaussian strain term: fold its
   // σ_T² ≈ (difC·ε)²·d² into Sig-1, since neither file carries it separately
   // here (ε is already dimensionless on the applied model).
+  // Units: `a.mustrainIso` is ε (a pure number), so (difC·ε)² is in µs²/Å², the
+  // unit of σ₁². The same fold from the ROW value (10⁶·ε) is in
+  // `tofShapeFromParams` below, hence its extra 10⁻⁶. The fold takes difC for
+  // dT/dd; the fit uses |dT/dd| (diffraction/anisoStrain.ts): equal when
+  // difA = difB = 0.
   // An instrument file's profile goes back as it is used: its σ₁² untouched, its
   // Lorentzian X, Y, Z, and the sample's rows apart (tofSample).
   const tofProfile = a.tofProfile && a.tofFile
@@ -275,6 +280,8 @@ function powderExtras(
   const coeffs = a.background;
   const backgroundCurve = (x: number): number => evaluateBackground(x, coeffs, bgType, xMin, xMax);
   // An interpolating background is exact at its own anchors (GSAS-II style).
+  // The anchors X_j are typed again here: a copy of diffraction/background.ts
+  // `interpAnchors` (linear, or evenly spaced in ln x), on the same domain.
   if ((bgType === "linInterpolate" || bgType === "logInterpolate") && coeffs.length >= 2) {
     const n = coeffs.length;
     const log = bgType === "logInterpolate" && xMin > 0;
@@ -299,6 +306,7 @@ function tofShapeFromParams(
     const v = val(`tof_${key}`);
     if (v !== undefined) shape[key] = v;
   }
+  // `mustrain` is the ROW's value, 10⁶·ε (×10⁻⁶): × 10⁻⁶ gives ε, then the fold of `powderExtras`.
   const mustrain = val("mustrainIso");
   if (mustrain !== undefined && mustrain > 0 && instrument?.kind === "tof") {
     shape.sig1 = (shape.sig1 ?? 0) + (instrument.difC * mustrain * 1e-6) ** 2;
@@ -335,6 +343,12 @@ function powderSpan(pattern: PowderPattern, fitRange: BundleOptions["fitRange"])
  * sample's rows added where they act. The Gaussian microstrain ε widens as
  * (difC·ε)²·d², the Lorentzian microstrain M as 10⁻⁶·difC·M·d, the size S as
  * 10⁻⁴·difC/S·d².
+ *
+ * Units and the two factors: `s.gauss` and `s.lorentz` are the rows' values,
+ * microstrain × 10⁶, so 10⁻⁶ turns each into a strain Δd/d; `s.size` is in
+ * µm = 10⁴ Å, so 10⁻⁴·d²/S is d²/S with S in Å, the size broadening Δd = d²/S.
+ * difC (µs/Å) turns a width in d (Å) into µs. The same terms are in the fit:
+ * workflow/powder.ts `tofWidthsAt`. See docs/EQUATIONS.md.
  */
 function pcrTofShape(prof: RefinedInstrumentProfile | undefined, instrument: InstrumentParameters | undefined): PcrExportOptions["tofShape"] | undefined {
   const t = prof?.tofProfile;

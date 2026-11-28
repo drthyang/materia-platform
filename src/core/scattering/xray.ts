@@ -16,6 +16,18 @@ import { CROMER_MANN, type CromerMann } from "@/core/scattering/cromerMannData";
 export { CROMER_MANN };
 export type { CromerMann };
 
+/**
+ * X-ray form factor of a neutral atom (Cromer–Mann, four Gaussians):
+ *   f0(s) = Σ_{i=1..4} a_i · exp(−b_i · s²) + c
+ * Symbols → code: a_i `cm.a[i]` (electrons); b_i `cm.b[i]` (Å²); c `cm.c`
+ * (electrons); s = sinθ/λ = 1/(2d) `s` (Å⁻¹). Returns f0 in electrons;
+ * f0(0) = Z within 0.1 e.
+ * Reference: Cromer & Mann, Acta Cryst. A24 (1968) 321; coefficients from
+ * International Tables for Crystallography Vol. C, Table 6.1.1.4 (see
+ * cromerMannData.ts). The anomalous terms f′ + i·f″ are not in f0: the
+ * single-crystal kernel adds them (dispersion.ts).
+ * Also in: workers/gpuStructureFactor.ts (WGSL `scatter`, hot loop).
+ */
 export function xrayFormFactor(element: string, s: number): number {
   const cm = CROMER_MANN[element];
   if (!cm) {

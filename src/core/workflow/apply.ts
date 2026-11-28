@@ -114,6 +114,12 @@ export interface AppliedModel {
    * Isotropic microstrain ε = Δd/d (dimensionless) for TOF, GSAS-II Mustrain.
    * Adds σ_T = |dT/dd|·ε·d in quadrature to the TOF Gaussian variance. Present
    * only when bound (a `mustrainIso` parameter, stored in µstrain, ×10⁻⁶).
+   *
+   * UNIT: this field is ε itself, a pure number (0.001 = 0.1 %), the quantity
+   * the model computes with (diffraction/anisoStrain.ts
+   * `isotropicStrainSigmaTof`). The refinement row with the same name holds
+   * 10⁶·ε; `applyParameters` converts once (`mustrainIsoMu * 1e-6`). The two
+   * share a name and differ by 10⁶: see docs/EQUATIONS.md.
    */
   readonly mustrainIso?: number;
   /** Moment-magnitude scale applied to magnetic moments. */
@@ -196,7 +202,7 @@ export function applyParameters(
   let mustrainPerp: number | undefined;
   let mustrainPar: number | undefined;
   let mustrainAxis: [number, number, number] | undefined;
-  let mustrainIsoMu: number | undefined; // isotropic microstrain, µstrain (×10⁻⁶)
+  let mustrainIsoMu: number | undefined; // isotropic microstrain as the ROW holds it: 10⁶·ε (µstrain, ×10⁻⁶); ε = this × 10⁻⁶ below
   const background: number[] = [];
   const tofCal = new Map<string, number>();
   const tofProf = new Map<string, number>();

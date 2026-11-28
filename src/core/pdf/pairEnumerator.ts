@@ -71,7 +71,10 @@ export function cartesianAdpTensor(cell: UnitCell, adp: DisplacementParameters):
   return mulMat(mulMat(M, nUn), transpose(M));
 }
 
-/** Mean-square displacement along Cartesian unit vector n̂: n̂ᵀ U n̂. */
+/** Mean-square displacement along Cartesian unit vector n̂: n̂ᵀ U n̂ (Å²; U `uCart`
+ *  the Cartesian tensor, n̂ `nHat` along the pair). A pair's peak variance is the
+ *  sum over its two atoms, σ′_ij² = n̂ᵀ(U_i + U_j)n̂ (`msd`): uncorrelated motion.
+ *  Also in: `msdAlongFlat` below (the same product on a flat array, hot loop). */
 function msdAlong(uCart: Mat3, nHat: Vec3): number {
   return dotv(nHat, mulVec(uCart, nHat));
 }

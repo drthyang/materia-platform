@@ -167,7 +167,13 @@ export function quarticStrainInvariants(operations: readonly SymmetryOperation[]
   return basis;
 }
 
-/** σ²(M) = Σ Sᵢ·invariantᵢ(h,k,l). Pure polynomial — no cell needed. */
+/**
+ * σ²(M) = Σ Sᵢ·invariantᵢ(h,k,l). Pure polynomial — no cell needed.
+ * Symbols → code: Sᵢ `s[i]` (Å⁻⁴: the variance of M = 1/d², as the rows hold
+ * them, with no 10⁻⁶ factor); invariantᵢ `invariants[i].coeffs` over the 15
+ * quartic monomials `mono`; the result `w` in Å⁻⁴.
+ * Reference: Stephens, J. Appl. Cryst. 32 (1999) 281.
+ */
 export function strainVarianceM(
   h: number,
   k: number,
@@ -188,6 +194,14 @@ const SQRT_8LN2 = Math.sqrt(8 * Math.log(2)); // 2√(2 ln2), FWHM = this·σ
  * pattern of wavelength λ. Returns 0 for a non-positive variance (over-fit) or
  * outside the diffractable range. Add in quadrature to the Caglioti Gaussian
  * width: Γ_G,total² = Γ_G,caglioti² + Γ_G,strain².
+ *
+ *   Γ_G(2θ) = 2√(2 ln2) · d² · √(σ²(M)) · tanθ · (180/π)        [degrees of 2θ]
+ *
+ * Symbols → code: σ²(M) `w` (Å⁻⁴, {@link strainVarianceM}); d `d` (Å); θ
+ * `theta` (radians, Bragg's law with `wavelength` in Å); 2√(2 ln2)
+ * `SQRT_8LN2`; Γ in radians `gammaRad`. Returns DEGREES of 2θ (not the
+ * centidegrees of `cagliotiFwhm`).
+ * Reference: Stephens, J. Appl. Cryst. 32 (1999) 281.
  */
 export function stephensStrainFwhmDeg(
   h: number,
@@ -215,6 +229,17 @@ export function stephensStrainFwhmDeg(
  * case); mapping to TOF through the calibration T(d) = difC·d + difA·d² + difB/d
  * gives σ_T = |dT/dd|·σ(d). Add its square to the TOF Gaussian variance:
  * σ²_total = σ²_instrument + σ²_strain. Returns 0 for a non-positive variance.
+ *
+ *   σ_T = |dT/dd| · ½·d³·√(σ²(M)),   dT/dd = difC + 2·difA·d − difB/d²
+ *
+ * Symbols → code: σ²(M) `w` (Å⁻⁴); σ(d) `sigmaD` (Å); dT/dd `dTdd` (µs/Å);
+ * difC, difA, difB `cal.difC`, `cal.difA`, `cal.difB`; d `d` (Å). Returns the
+ * Gaussian standard deviation σ_T in µs (not a FWHM).
+ * As the code is now, the factor is |dT/dd|, the full derivative of the
+ * calibration, not difC.
+ * To change to difC alone, as GSAS-II (owner decision 2026-11-28); the difference is 2·difA·d/difC, ≤ 1 % on NOMAD.
+ * Reference: Stephens, J. Appl. Cryst. 32 (1999) 281; the TOF mapping is
+ * this app's (GSAS-II's GetSampleSigGam uses difC).
  */
 export function stephensStrainSigmaTof(
   h: number,
@@ -250,6 +275,22 @@ export function stephensStrainSigmaTof(
  *
  * `epsilon` is the dimensionless microstrain (ε = µstrain·10⁻⁶). Returns 0 for a
  * non-positive strain or an undiffractable d.
+ *
+ * Symbols → code: ε `epsilon` (dimensionless); d `d` (Å); dT/dd `dTdd`
+ * (µs/Å); difC, difA, difB `cal.difC`, `cal.difA`, `cal.difB`. Returns the
+ * Gaussian standard deviation σ_T in µs (not a FWHM, not a variance).
+ * As the code is now, the factor is |dT/dd|, the full derivative of the
+ * calibration, not difC.
+ * To change to difC alone, as GSAS-II (owner decision 2026-11-28); the difference is 2·difA·d/difC, ≤ 1 % on NOMAD.
+ *
+ * ONE NAME, ONE UNIT. The model computes with ε = Δd/d, a pure number
+ * (0.001 = 0.1 %): `epsilon` here, `AppliedModel.mustrainIso` in
+ * workflow/apply.ts, `tofFile.sampleGauss` for an instrument file's profile.
+ * The refinement ROW of the same name (id and kind `mustrainIso`, label
+ * "mustrain (×10⁻⁶)") holds 10⁶·ε, GSAS-II's Mustrain unit (parts per million);
+ * so does the `tofSampleGauss` row. apply.ts converts once, row × 10⁻⁶ → ε,
+ * when it builds the applied model. In comments, ε always means the pure
+ * number and "×10⁻⁶" the row's value. Occurrences: docs/EQUATIONS.md.
  */
 export function isotropicStrainSigmaTof(
   d: number,
@@ -271,6 +312,9 @@ export function isotropicStrainSigmaTof(
  * cos²ψ (angle to the axis) uses the reciprocal metric, so it is correct for any
  * cell. Y_∥ = Y_⊥ recovers the isotropic Lorentzian microstrain. Each coefficient
  * converts to a microstrain through the same ε = π·Y/72000 relation GSAS-II uses.
+ * Units: Y_⊥, Y_∥ `yPerp`, `yPar` in centidegrees of 2θ (the unit of the
+ * isotropic Y, profile.ts `lorentzianFwhm`), not ×10⁻⁶; the axis `axis` in
+ * reciprocal-lattice indices.
  */
 export interface UniaxialStrain {
   readonly yPerp: number;
@@ -278,7 +322,13 @@ export interface UniaxialStrain {
   readonly axis: Vec3;
 }
 
-/** Uniaxial Lorentzian microstrain FWHM (degrees 2θ) for one reflection. */
+/**
+ * Uniaxial Lorentzian microstrain FWHM (degrees 2θ) for one reflection:
+ *   Γ_L = [Y_⊥ + (Y_∥ − Y_⊥)·cos²ψ] · tanθ / 100
+ * Symbols → code: Y_⊥ `strain.yPerp`, Y_∥ `strain.yPar` (centidegrees);
+ * cos²ψ `c2` (anisoSize.ts `cos2Psi`); θ `theta` (radians); Y(hkl) `y`.
+ * Returns DEGREES of 2θ (the /100 is centidegrees → degrees); 0 when Y ≤ 0.
+ */
 export function uniaxialStrainFwhmDeg(
   h: number,
   k: number,

@@ -98,6 +98,14 @@ export type BandLimitMethod = "exact" | "fft";
  * array of the same length. Interior points (≥ margin from either end) are
  * exact up to the kernel's 1/x tail beyond the array; the caller supplies the
  * extension (see `extendGridForTermination`) so its fitted window is interior.
+ *
+ *   G_t(r_i) = Σ_j h·K(r_i − r_j)·G(r_j) − Σ_j h·K(r_i + r_j)·G(r_j),   K(x) = sin(Qmax·x)/(π·x)
+ *
+ * (the second sum is the odd reflection, on a 0-aligned grid only).
+ * Symbols → code: G `g` (Å⁻²); r_i = r0 + i·h, r0 `r0`, h `h` (Å); Qmax
+ * `qmax` (Å⁻¹); h·K(d·h) `kernel[d]` (dimensionless), with K(0) = Qmax/π.
+ * Reference: the termination of the sine transform at Qmax (Farrow et al.,
+ * J. Phys.: Condens. Matter 19 (2007) 335219; PDFfit2's convention).
  */
 export function bandLimit(
   g: ArrayLike<number>,

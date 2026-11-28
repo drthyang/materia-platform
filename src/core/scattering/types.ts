@@ -27,7 +27,9 @@ export interface ScatteringTable {
    * Coherent scattering amplitude.
    *  - Neutron: conj(b) (fm), independent of s; imaginary for absorbers
    *    (B, Cd, In, Sm, Eu, Gd, Dy, …).
-   *  - X-ray: form factor f0(s) in electrons (real; no anomalous terms yet).
+   *  - X-ray: form factor f0(s) in electrons (real). The anomalous terms
+   *    f′ + i·f″ are not in the table: the single-crystal kernel adds them
+   *    (diffraction/scKernel.ts `scPlan`, from scattering/dispersion.ts).
    */
   amplitude(element: string, s: number, isotope?: number): Complex;
   /** True if `element` is present in this table. */

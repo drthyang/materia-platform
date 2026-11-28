@@ -398,6 +398,9 @@ function leBailCellFit(
     ];
   const bkgTerms: number = useTof ? TOF_BACKGROUND_TERMS : cwBackgroundTerms(x, pattern.xUnit === "twoTheta");
   // Chebyshev polynomials over the pattern's own x span.
+  // u = 2(x − x_lo)/(x_hi − x_lo) − 1 ∈ [−1, 1]; T₀ = 1, T₁ = u, T_j = 2u·T_{j−1} − T_{j−2}.
+  // A copy of diffraction/background.ts `chebyshevBackground` (its own recurrence;
+  // the domain is this x array's extent, as there). See docs/EQUATIONS.md.
   const xLo = Math.min(...x);
   const xHi = Math.max(...x);
   const cheb = x.map((xi) => {

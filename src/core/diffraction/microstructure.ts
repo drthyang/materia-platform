@@ -97,6 +97,18 @@ function combineEsd(a: number | undefined, b: number | undefined): number | unde
  * When an `instrument` standard is supplied, its X, Y are subtracted first
  * (Lorentzian breadths subtract). esds propagate as relative errors
  * (σ_D/D = σ_X/X, σ_ε/ε = σ_Y/Y), combined in quadrature with the standard's.
+ *
+ *   D = 18000·K·λ/(π·X_s)   [Å]        ε = π·Y_s/72000   [dimensionless]
+ *
+ * Where the constants come from: X/100 degrees = (π/18000)·X radians is the
+ * Scherrer breadth K·λ/(D·cosθ) times cosθ; (π/18000)·Y radians is the
+ * strain breadth 4·ε·tanθ over tanθ, so ε = π·Y/72000.
+ * Symbols → code: X_s `sampleX`, Y_s `sampleY` (centidegrees of 2θ); K `K`;
+ * λ `input.wavelength` (Å); D `sizeA` (Å), `sizeNm` (nm); ε `eps`
+ * (dimensionless), also given ×10⁶ (`strainPpm`) and ×100 (`strainPercent`);
+ * 18000/π `SIZE_CONST`, π/72000 `STRAIN_CONST`.
+ * References: the module header (Scherrer 1918; Williamson & Hall 1953;
+ * GSAS-II's conventions).
  */
 export function extractSizeStrain(input: SizeStrainInput): SizeStrainResult {
   const K = input.scherrerK ?? 0.9;
@@ -172,6 +184,11 @@ export interface WilliamsonHallResult {
  * size, the slope gives the strain. Angles in **radians** internally; breadths
  * converted from degrees. This is the model-independent cross-check on the
  * profile-coefficient extraction above.
+ * Symbols → code: β `p.breadthDeg` (degrees of 2θ, converted to radians); θ
+ * `p.thetaDeg` (degrees); 4·sinθ `xs`; β·cosθ `ys` (radians); K·λ/D
+ * `intercept` (radians), so D = K·λ/intercept `sizeA` (Å); ε `slope`
+ * (dimensionless: the abscissa already holds the 4).
+ * Reference: Williamson & Hall, Acta Metall. 1 (1953) 22.
  */
 export function williamsonHall(peaks: readonly PeakBreadth[], wavelength: number, scherrerK = 0.9): WilliamsonHallResult {
   const DEG = Math.PI / 180;

@@ -236,6 +236,18 @@ function convolveFull(a: ArrayLike<number>, b: ArrayLike<number>): Float64Array 
  * optionally supplies the cached geometry from {@link enumerateSpinPairs} over
  * the same cell/positions reaching `rGrid[last] + step/2`; passing the list a
  * fresh enumeration would produce is bit-identical to omitting it.
+ *
+ *   f(r) = (3/2N) Σ_{i≠j} [ A_ij·δ(r − r_ij)/r + B_ij·(r/r_ij³)·Θ(r_ij − r) ] − 4π r ρ₀ m̄_net²
+ *
+ * (the module header's equation). Symbols → code: N `N` = `spins.length`;
+ * m_i, m_j `mi`, `mj` (μ_B, Cartesian); x̂ `x` = `pair.nHat`; ŷ `yHat`
+ * (not normalized: |ŷ|² `yd`); A_ij `a`, B_ij `b` (μ_B²); r_ij `pair.rij`
+ * (Å); Σ A_ij at each bin `s1`, Σ B_ij/r_ij³ `s2` and its running sum `ss2`
+ * (so Σ_{r_ij > r} is `total2 − ss2`); 3/(2N) `norm`; ρ₀ `rho0` = N/V (Å⁻³);
+ * m̄_net `netMag` (μ_B); σ of the Gaussian `profile.psigma` (Å); ξ `xi` (Å);
+ * Qdamp `qdamp` (Å⁻¹). f(r) in μ_B²·Å⁻².
+ * Reference: Frandsen, Yang & Billinge, Acta Cryst. A70 (2014) 3; the code
+ * follows `diffpy.mpdf` `calculatemPDF`. The pair loop is a hot loop.
  */
 export function computeNormalizedMpdf(
   cell: UnitCell,
@@ -385,6 +397,17 @@ export function formFactorEnvelope(
  * with the form-factor envelope, the paramagnetic term its derivative — see the
  * module header. `mSqAvg` is ⟨m²⟩ (μ_B²) per spin. The grid step must equal the
  * envelope's step. Result in barn·μ_B² units (× {@link BARN_TO_FM2} for fm²).
+ *
+ *   d(r) = (K₁/2π)·[f ⊛ S](r) + paraScale·(−K₂/π)·S′(r)
+ *   K₁ = (2/3)·(γr₀/2)²,   K₂ = (2/3)·(γr₀/2)²·⟨m²⟩
+ *
+ * Symbols → code: (γr₀/2)² `MPDF_PREFACTOR` (barn; γ = 1.913, r₀ = 0.281794 ×
+ * 10⁻¹² cm); K₁ `K1`; K₂ `K2`; f `fr` (it already holds ordScale); S
+ * `envelope.s` on a grid of step `envelope.step` (Å), r = 0 at index
+ * `offset`; S′ `grad` (central differences); ⟨m²⟩ `mSqAvg` (μ_B²); ⊛ a
+ * discrete convolution times the step `step` (Å).
+ * Reference: Frandsen & Billinge, Acta Cryst. A71 (2015) 325; the code follows
+ * `diffpy.mpdf` `calculateDr`.
  */
 export function computeUnnormalizedMpdf(
   rGrid: ArrayLike<number>,

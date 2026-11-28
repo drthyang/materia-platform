@@ -37,7 +37,13 @@ export interface SatelliteIntensity extends SatellitePosition {
   readonly squared: number;
 }
 
-/** |F_M⊥|² summed over a family's members, from one model's prepared expansion. */
+/**
+ * |F_M⊥|² summed over a family's members, from one model's prepared expansion:
+ *   I(line) = Σ_{Q ∈ family} |F_M⊥(Q)|²
+ * Symbols → code: the family `members` (each an index h, k, l); |F_M⊥(Q)|²
+ * `evaluate(h, k, l).squared` (fm²). Returns fm²; the multiplicity is in the
+ * sum, so no factor m is applied afterwards.
+ */
 export function familySquared(
   evaluate: (h: number, k: number, l: number) => { readonly squared: number },
   members: SatellitePosition["members"],
