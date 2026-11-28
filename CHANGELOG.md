@@ -20,6 +20,13 @@ release fixes bugs.
 
 ### Fixed
 
+- **The GSAS-II bundle carries the preferred orientation.** A textured fit's
+  March–Dollase ratio and axis were written to the FullProf `.pcr` but
+  dropped from the GSAS-II bundle without a word. `build_gpx.py` now sets each
+  textured phase's GSAS-II 'MD' entry to the refined ratio on the same
+  reciprocal-lattice axis (not refined), and the README lists both. Checked
+  against GSAS-II: it reads the values back and its correction agrees with
+  MATERIA's on every reflection.
 - **A reflection list past the limit no longer replaces the page.** With the
   NOMAD 2023A default (banks 1–5), switching six-bank data from bank 4 to 6
   holds bank 4's calibration, at which bank 6's short times of flight reach

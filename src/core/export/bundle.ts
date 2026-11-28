@@ -164,8 +164,8 @@ export interface RefinementBundleOptions extends BundleOptions {
   readonly backgroundType?: BackgroundType;
 }
 
-/** Kinds the bundle carries (everything else is reported as not exported). */
-const EXPORTED_KINDS = new Set<ParameterKind>([
+/** Kinds the bundle carries (everything else is reported as not exported). Exported for the guard test that each is written by both bundles. */
+export const EXPORTED_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
   "scale", "background", "cellLength", "cellAngle", "atomX", "atomY", "atomZ", "positionShift",
   "occupancy", "bIso", "uAniso", "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY",
   "asymSL", "asymHL", "zeroShift", "tofCalibration", "tofProfile", "poRatio", "mustrainIso",
@@ -173,7 +173,7 @@ const EXPORTED_KINDS = new Set<ParameterKind>([
 ]);
 
 /** Readable names for the kinds the bundle does not carry. */
-const KIND_NAMES: Partial<Record<ParameterKind, string>> = {
+export const KIND_NAMES: Partial<Record<ParameterKind, string>> = {
   sampleDisplacement: "sample displacement",
   sampleTransparency: "sample transparency",
   absorption: "absorption (muR)",
@@ -545,6 +545,16 @@ export function gsas2Bundle(structure: StructureModel, dataset: DiffractionDatas
   }
   const hklScale = isSingleCrystal(dataset) ? hklf4ScaleFactor(dataset) : 1;
 
+  // Each phase's March–Dollase texture, set on its powder HAP entry by build_gpx.py
+  // (a single-crystal histogram has none, so there it is reported as not carried).
+  const poPhases = [
+    { phaseName: name, po: opts.primary?.po },
+    ...(opts.extraPhases ?? []).map((ph, i) => ({ phaseName: extraCifs[i]!.phaseName, po: ph.po })),
+  ];
+  const preferredOrientation = !sc && poPhases.some((p) => p.po) ? poPhases.map((p) => p.po) : undefined;
+  const textured = poPhases.filter((p): p is { phaseName: string; po: NonNullable<BundlePhase["po"]> } => p.po !== undefined);
+  const notExported = [...(opts.notExported ?? []), ...(sc && textured.length ? ["preferred orientation"] : [])];
+
   entries.push({
     name: "build_gpx.py",
     data: buildGpxScript({
@@ -559,6 +569,7 @@ export function gsas2Bundle(structure: StructureModel, dataset: DiffractionDatas
       ...(limits ? { limits } : {}),
       ...(background ? { background } : {}),
       ...(sample ? { sample } : {}),
+      ...(preferredOrientation ? { preferredOrientation } : {}),
     }),
   });
   const rawDataName = addVerbatim(entries, opts.rawData, reserved);
@@ -566,9 +577,10 @@ export function gsas2Bundle(structure: StructureModel, dataset: DiffractionDatas
     name: "README.txt",
     data: gsas2Readme({
       name, sc, dataName, instprmFile, instprmMode, rawInstrName, rawDataName, instNotes, instprmBank, sample,
+      preferredOrientation: sc ? [] : textured,
       extraCifs: extraCifs.map((c) => c.cifFile), limits, background: background !== undefined, hklScale,
       ...(opts.instrumentNote ? { instrumentNote: opts.instrumentNote } : {}),
-      notExported: opts.notExported ?? [], magnetic: opts.magneticLabel !== undefined,
+      notExported, magnetic: opts.magneticLabel !== undefined,
       refinementNote: opts.refinement?.specialDetails,
     }),
   });
@@ -695,6 +707,8 @@ function gsas2Readme(r: {
   instprmBank?: number | undefined;
   /** The sample's TOF broadening written into build_gpx.py. */
   sample?: { readonly mustrain: number; readonly mustrainMix: number; readonly size: number } | undefined;
+  /** The phases whose March–Dollase texture build_gpx.py sets. */
+  preferredOrientation: readonly { readonly phaseName: string; readonly po: NonNullable<BundlePhase["po"]> }[];
   extraCifs: readonly string[];
   limits: readonly [number, number] | undefined;
   background: boolean;
@@ -734,6 +748,15 @@ function gsas2Readme(r: {
       `Lorentzian fraction ${+r.sample.mustrainMix.toPrecision(8)}, and Size to ${+r.sample.size.toPrecision(8)} um (Lorentzian): the values MATERIA added`,
       `to the instrument's widths. An import through the GUI starts from GSAS-II's own defaults`,
       `(Mustrain 1000, Size 1 um); enter these values there.`,
+    );
+  }
+  if (r.preferredOrientation.length) {
+    lines.push(
+      ``,
+      `Preferred orientation: build_gpx.py sets GSAS-II's March-Dollase model ('MD', not refined) as MATERIA refined it:`,
+      ...r.preferredOrientation.map(({ phaseName, po }) =>
+        `  - ${phaseName}: ratio ${+po.ratio.toPrecision(8)} on the reciprocal-lattice axis [${po.axis.map((x) => +x.toPrecision(8)).join(" ")}].`),
+      `An import through the GUI starts from no preferred orientation (ratio 1); enter these values there.`,
     );
   }
   if (r.instNotes.length) lines.push(``, `Profile terms GSAS-II cannot express:`, ...r.instNotes.map((n) => `  - ${n}`));
