@@ -18,8 +18,10 @@
  *
  *   • Microstrain (Williamson–Hall, Lorentzian `Y`, broadening ∝ tanθ):
  *       ε = π·Y / 72000            (dimensionless, β = 4·ε·tanθ)
- *     Reported also as ε·100 (%) and ε·10⁶ (ppm). Matches GSAS-II's
- *     microstrain = LY·π/72000·10⁶ ppm.
+ *     Reported also as ε·100 (%) and ε·10⁶ (ppm). This ε is the
+ *     Stokes–Wilson strain, β = 4·ε·tanθ. It is NOT GSAS-II's Mustrain:
+ *     GSAS-II's Mustrain for the same Y is 10⁶·π·Y/18000, four times ε·10⁶
+ *     (its constant-wavelength width is 0.018·Mustrain·tanθ/π centidegrees).
  *
  * Instrument deconvolution: a Lorentzian ⊗ Lorentzian adds *breadths*, so the
  * sample coefficients are `X_s = X_total − X_instr`, `Y_s = Y_total − Y_instr`
@@ -32,12 +34,14 @@
  *  - P. Scherrer, Göttinger Nachrichten 2 (1918) 98 — crystallite-size broadening.
  *  - G. K. Williamson & W. H. Hall, Acta Metall. 1 (1953) 22 — size–strain
  *    separation (the "Williamson–Hall" plot).
- *  - A. R. Stokes & A. J. C. Wilson, Proc. Camb. Phil. Soc. 40 (1944) 197 —
- *    strain broadening β = 4·e·tanθ.
+ *  - A. R. Stokes & A. J. C. Wilson, Proc. Phys. Soc. 56 (1944) 174–181 —
+ *    strain broadening β = 4·e·tanθ. (Their Proc. Camb. Phil. Soc. 40 (1944)
+ *    197 is the size paper.)
  *  - D. Balzar, in *Defect and Microstructure Analysis by Diffraction* (1999) —
  *    integral-breadth methods, Voigt deconvolution.
- *  - B. H. Toby, *Powder Diffr.* 21 (2006) 67; GSAS-II documentation — the
- *    18000/π and π/72000 numeric conventions reproduced here.
+ *  - GSAS-II — the size constant 18000/π is GSAS's. π/72000 is not GSAS-II's:
+ *    ε = π·Y/72000 is the Stokes–Wilson strain, β = 4·ε·tanθ; GSAS-II's
+ *    Mustrain for the same Y is 10⁶·π·Y/18000, four times ε·10⁶.
  */
 
 /** A value with an optional standard uncertainty (esd). */
@@ -70,7 +74,8 @@ export interface SizeStrainResult {
   readonly sizeAngstrom: Uncertain;
   /** Microstrain ε (dimensionless), from the Lorentzian strain term. */
   readonly strain: Uncertain;
-  /** Microstrain in ppm (ε·10⁶) — GSAS-II's reporting unit. */
+  /** Microstrain in ppm (ε·10⁶): GSAS-II's unit, but a quarter of GSAS-II's
+   *  Mustrain for the same Y (see the module header). */
   readonly strainPpm: Uncertain;
   /** Microstrain as a percentage (ε·100). */
   readonly strainPercent: Uncertain;
@@ -107,8 +112,10 @@ function combineEsd(a: number | undefined, b: number | undefined): number | unde
  * λ `input.wavelength` (Å); D `sizeA` (Å), `sizeNm` (nm); ε `eps`
  * (dimensionless), also given ×10⁶ (`strainPpm`) and ×100 (`strainPercent`);
  * 18000/π `SIZE_CONST`, π/72000 `STRAIN_CONST`.
- * References: the module header (Scherrer 1918; Williamson & Hall 1953;
- * GSAS-II's conventions).
+ * References: the module header (Scherrer 1918; Stokes & Wilson 1944;
+ * Williamson & Hall 1953). The size constant 18000/π is GSAS's; ε = π·Y/72000
+ * is the Stokes–Wilson strain, β = 4·ε·tanθ; GSAS-II's Mustrain for the same
+ * Y is 10⁶·π·Y/18000, four times ε·10⁶.
  */
 export function extractSizeStrain(input: SizeStrainInput): SizeStrainResult {
   const K = input.scherrerK ?? 0.9;

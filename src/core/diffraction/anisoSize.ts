@@ -70,10 +70,12 @@ export function cos2Psi(cell: UnitCell, h: number, k: number, l: number, axis: V
 }
 
 /**
- * Anisotropic Lorentzian size FWHM (degrees 2θ) for one reflection. The
- * direction-dependent coefficient X(hkl) = X_⊥ + (X_∥−X_⊥)·cos²ψ replaces the
- * isotropic X; the 1/cosθ angular shape is unchanged. Use this in place of the
- * isotropic Lorentzian size term when a uniaxial model is active.
+ * Anisotropic Lorentzian size FWHM (degrees 2θ) for one reflection, from the
+ * direction-dependent coefficient X(hkl) = X_⊥ + (X_∥−X_⊥)·cos²ψ with the
+ * 1/cosθ angular shape of the isotropic term. In the fit it is ADDED to the
+ * isotropic Lorentzian width X/cosθ + Y·tanθ (workflow/powder.ts
+ * `placePeaks`); it does not take the place of X/cosθ. (The uniaxial strain,
+ * anisoStrain.ts, does replace Y·tanθ.)
  *
  *   Γ_L = [X_⊥ + (X_∥ − X_⊥)·cos²ψ] / (100·cosθ)
  *

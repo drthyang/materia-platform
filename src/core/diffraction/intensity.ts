@@ -33,8 +33,9 @@ import { nuclearStructureFactorSquared } from "@/core/diffraction/structureFacto
  *   P(α) = (r²·cos²α + sin²α / r)^(−3/2),
  * where α is the angle between the reflection's reciprocal vector and the PO
  * axis. Reference: Dollase, W. A. (1986), *J. Appl. Cryst.* 19, 267.
- * Symbols → code: r `ratio` (dimensionless; r < 1 platelets, r > 1 needles,
- * for the axis normal to the plate or along the needle); cos²α `cos2`, sin²α
+ * Symbols → code: r `ratio` (dimensionless; in Bragg–Brentano geometry r < 1
+ * is platelets and r > 1 needles, for the axis normal to the plate or along
+ * the needle); cos²α `cos2`, sin²α
  * `sin2`, with cosα = (h·G*·p)/(|h|·|p|) `cosA` in the reciprocal metric G*
  * `g`; the axis p `poAxis` (reciprocal-lattice indices). P is a dimensionless
  * factor on the intensity; its average over all directions is 1.
@@ -121,8 +122,8 @@ export interface PreferredOrientation {
  * exponent or the percentage `trns`. A is dimensionless, ≤ 1, floored at 10⁻⁶
  * on the second branch.
  * Source: a port of GSAS-II's `Absorb`, cylinder branch (GSASIIpwd.py); the
- * constants are GSAS-II's. The fit behind them is attributed to Lobanov &
- * Alte da Veiga; that attribution was not checked against the original here.
+ * constants are GSAS-II's. The fit is credited to Lobanov & Alte da Veiga in
+ * GSAS-II's source (GSASIIpwd.py).
  */
 export function cylinderAbsorption(muR: number, twoThetaDeg: number): number {
   if (muR <= 0) return 1;

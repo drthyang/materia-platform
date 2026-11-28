@@ -5,7 +5,8 @@ the function that implements it, its units, and its reference. Open this page
 when you want to check one.
 
 - Paths are relative to `src/`. A function is named `file.ts` `function`.
-- "Copies" lists every other place the same formula is typed. The copies are
+- "Copies" lists the other places where the same formula is typed, as far as
+  a search of the code found them; it may not be complete. The copies are
   listed, not merged.
 - "Test" names the test file that checks the function. "Independent" means the
   expected numbers come from another program or a closed form, not from this
@@ -67,7 +68,7 @@ equations are indexed here from a reading of the code; see
 | U, V, W | Caglioti coefficients (FWHM²) | centidegree² of 2θ | `caglioti.u/v/w` |
 | X, Y | Lorentzian size and strain coefficients | centidegrees of 2θ | `lorentzian.x/y` |
 | α, β | TOF rise and decay rates | µs⁻¹ | `alpha`, `beta` |
-| σ, σ² | TOF Gaussian standard deviation, variance | µs, µs² | `sigma`, `sig2` |
+| σ, σ² | TOF Gaussian standard deviation, total variance at d | µs, µs² | `sigma`; `sig2` as a local variable. The field `tofProfile.sig2` is something else: σ₂², the coefficient of d⁴ ([§9](#9-time-of-flight-peak-profile)) |
 | γ | TOF Lorentzian FWHM | µs | `gamma` |
 | ε | microstrain Δd/d, a pure number | none | `epsilon`; see [§17](#17-one-name-two-units-mustrainiso) |
 | G(r) | reduced pair distribution function | Å⁻² | `g` |
@@ -99,8 +100,8 @@ V = a·b·c·√(1 − cos²α − cos²β − cos²γ + 2·cosα·cosβ·cosγ)
 - Units: a, b, c in Å; α, β, γ in degrees; G in Å², G* in Å⁻², V in Å³.
   A12 = 2·G*12 (the factor 2 is folded in).
 - Reference: International Tables for Crystallography Vol. B, ch. 1.1.
-- Copies: 1/d² is typed again inside `core/magnetic/structureFactor.ts`
-  `magneticStructureFactorEvaluator` (per-reflection closure).
+- Copies: 1/d² is typed again in three places, see
+  [§16](#16-equations-written-more-than-once).
 - Test: `core/crystal/unitCell.test.ts` (independent: values from a GSAS-II
   `.lst`).
 
@@ -319,8 +320,8 @@ P(α) = (r²·cos²α + sin²α/r)^(−3/2)        P_MD(hkl) = mean of P(α) ove
 - T₁ … T₄ are fitted functions of sin²θ (constants in the code).
 - Code: `core/diffraction/intensity.ts` `cylinderAbsorption`.
 - Units: μR dimensionless; A ≤ 1.
-- Source: a port of GSAS-II's `Absorb`, cylinder branch. The fit is attributed
-  to Lobanov & Alte da Veiga (not re-checked).
+- Source: a port of GSAS-II's `Absorb`, cylinder branch. The fit is credited
+  to Lobanov & Alte da Veiga in GSAS-II's source (GSASIIpwd.py).
 - Test: `core/diffraction/intensity.test.ts`.
 
 ### Surface roughness
@@ -442,7 +443,9 @@ GSAS, GSAS-II:  p = −αΔ + iαΓ/2        FullProf:  p = +αΔ + iαΓ/2     
 - Units: α₀ in µs⁻¹; α₁ in Å/µs; β₀ in µs⁻¹; β₁ in Å⁴/µs; β_q in Å²/µs; the
   σ² coefficients in µs² per their power of d (`sig0`, `sig1`, `sig2`, `sigQ`
   are variances, not standard deviations); X in µs/Å, Y in µs/Å², Z in µs.
-- **The 10⁻⁶ and 10⁻⁴ factors** (not explained in the code yet):
+- **The 10⁻⁶ and 10⁻⁴ factors.** They are explained in the code at
+  `core/export/bundle.ts` `pcrTofShape`, where the same terms are exported,
+  and not yet at `tofWidthsAt` itself:
   - M is the sample's Lorentzian microstrain as the row holds it, GSAS-II's
     Mustrain, in units of 10⁻⁶. So 10⁻⁶·M is a strain Δd/d, 10⁻⁶·M·d is the
     width in d (Å), and difC (µs/Å) turns it into µs.
@@ -456,8 +459,10 @@ GSAS, GSAS-II:  p = −αΔ + iαΓ/2        FullProf:  p = +αΔ + iαΓ/2     
   |dT/dd| = |difC + 2·difA·d − difB/d²| (`core/diffraction/anisoStrain.ts`
   `isotropicStrainSigmaTof`, `stephensStrainSigmaTof`). The Lorentzian strain
   and size terms use difC, as GSAS-II's GetSampleSigGam does for all three.
-  To change to difC alone, as GSAS-II (owner decision 2026-11-28); the
-  difference is 2·difA·d/difC, ≤ 1 % on NOMAD. The code is unchanged here.
+  Between |dT/dd| and difC, the relative difference is (2·difA·d − difB/d²)/difC: about 1 % on NOMAD
+  (difB = 0 in the 2023A file; 1 % at 2 Å in bank 4, up to 2 % at the longest
+  d of banks 1 and 2). The
+  planned change is under [Deferred](#deferred).
 - Reference: GSAS-II `getTOFalpha`, `getTOFbeta`, `getTOFsig`, `getTOFgamma`,
   `GetSampleSigGam`; the FullProf manual.
 - Copies: `core/workflow/leBail.ts` `tofShapeAt` (α, β, σ² for the Le Bail
@@ -485,8 +490,11 @@ D = 18000·K·λ/(π·X)   [Å]        ε = π·Y/72000   [pure number]
 - Code: `core/diffraction/microstructure.ts` `extractSizeStrain`.
 - Units: X, Y in centidegrees; λ in Å; K the Scherrer constant (0.9 by
   default). (π/18000)·X radians is K·λ/D; (π/18000)·Y radians is 4·ε.
-- Reference: Scherrer (1918); Williamson & Hall, Acta Metall. 1 (1953) 22;
-  GSAS-II's conventions.
+- The two constants: the size constant 18000/π is GSAS's; ε = π·Y/72000 is the
+  Stokes–Wilson strain, β = 4·ε·tanθ; GSAS-II's Mustrain for the same Y is
+  10⁶·π·Y/18000, four times ε·10⁶.
+- Reference: Scherrer (1918); Stokes & Wilson, Proc. Phys. Soc. 56 (1944)
+  174–181; Williamson & Hall, Acta Metall. 1 (1953) 22.
 - Test: `core/diffraction/microstructure.test.ts`.
 
 ### Williamson–Hall
@@ -510,6 +518,10 @@ cos²ψ = (h·G*·t)² / [(h·G*·h)·(t·G*·t)]
   `uniaxialSizeDimensions`; `core/diffraction/anisoStrain.ts`
   `uniaxialStrainFwhmDeg`.
 - Units: X, Y in centidegrees; both functions return **degrees** of 2θ.
+- How each enters the fit (`core/workflow/powder.ts` `placePeaks`): the
+  uniaxial size is ADDED to the isotropic Lorentzian width X/cosθ + Y·tanθ;
+  the uniaxial strain REPLACES the isotropic Y·tanθ (it is added and Y·tanθ
+  subtracted).
 - Reference: Langford & Louër, Rep. Prog. Phys. 59 (1996) 131; GSAS-II's
   uniaxial models.
 - Test: `core/diffraction/anisoSize.test.ts`,
@@ -529,8 +541,9 @@ TOF:  σ_T = |dT/dd|·½·d³·√(σ²(M))                   [µs, a standard d
 - Units: S_HKL in Å⁻⁴ as the rows hold them (no 10⁻⁶ factor in the code).
 - Reference: Stephens, J. Appl. Cryst. 32 (1999) 281; Popa, J. Appl. Cryst.
   31 (1998) 176.
-- |dT/dd|: as the code is now. To change to difC alone, as GSAS-II (owner
-  decision 2026-11-28); the difference is 2·difA·d/difC, ≤ 1 % on NOMAD.
+- The code uses |dT/dd| where GSAS-II uses difC; the relative difference is (2·difA·d − difB/d²)/difC: about 1 % on NOMAD
+  (difB = 0 in the 2023A file; 1 % at 2 Å in bank 4, up to 2 % at the longest
+  d of banks 1 and 2).
 - Test: `core/diffraction/anisoStrain.test.ts`,
   `core/workflow/tofMicrostrain.test.ts`.
 
@@ -541,9 +554,11 @@ TOF:  σ_T = |dT/dd|·½·d³·√(σ²(M))                   [µs, a standard d
 ```
 
 - Code: `core/diffraction/anisoStrain.ts` `isotropicStrainSigmaTof`.
-- Units: ε a pure number; see [§17](#17-one-name-two-units-mustrainiso).
-- |dT/dd|: as the code is now. To change to difC alone, as GSAS-II (owner
-  decision 2026-11-28); the difference is 2·difA·d/difC, ≤ 1 % on NOMAD.
+- Units: ε a pure number, the standard deviation of Δd/d; see
+  [§17](#17-one-name-two-units-mustrainiso).
+- The code uses |dT/dd| where GSAS-II uses difC; the relative difference is (2·difA·d − difB/d²)/difC: about 1 % on NOMAD
+  (difB = 0 in the 2023A file; 1 % at 2 Å in bank 4, up to 2 % at the longest
+  d of banks 1 and 2).
 - Test: `core/workflow/tofMicrostrain.test.ts`.
 
 ## 11. Background
@@ -660,7 +675,7 @@ K₁ = (2/3)·(γr₀/2)²        K₂ = (2/3)·(γr₀/2)²·⟨m²⟩
 - Code: `core/magnetic/mpdf.ts` `computeNormalizedMpdf`,
   `computeUnnormalizedMpdf`, `formFactorEnvelope`, `enumerateSpinPairs`.
 - Units: moments in μ_B; r in Å; f in μ_B²·Å⁻²; (γr₀/2)² in barn, so d(r) is
-  in barn·μ_B² (× 100 for fm²).
+  in barn·μ_B²·Å⁻² (× 100 for fm²·μ_B²·Å⁻²).
 - Reference: Frandsen, Yang & Billinge, Acta Cryst. A70 (2014) 3; Frandsen &
   Billinge, Acta Cryst. A71 (2015) 325; the code follows `diffpy.mpdf`.
 - Test: `core/magnetic/mpdfGolden.test.ts` and `mnoGolden.test.ts`
@@ -679,7 +694,9 @@ R_exp = √[(N − P) / Σ w·y_o²]    GoF = R_wp/R_exp        χ²_red = GoF²
 - N counts the points with a positive weight.
 - Reference: Toby, Powder Diffr. 21 (2006) 67.
 - Copies: `app/powderPage.ts` `weightedR` and `curvesGoodnessOfFit` (the page,
-  over its own window).
+  over its own window); `core/diagnostics/powderValidation.ts`;
+  `core/workflow/nextParameters.ts`. See
+  [§16](#16-equations-written-more-than-once).
 - Test: `core/refinement/factors.test.ts`.
 
 ```
@@ -727,14 +744,15 @@ arithmetic order differs would change the last bit of a result.
 | ⟨j0⟩ (2 places) | `core/scattering/magnetic.ts` `magneticFormFactorJ0` | `workers/gpuMagneticStructureFactor.ts` (hot) |
 | Magnetic structure-factor sum (3 places) | `core/magnetic/structureFactor.ts` `magneticStructureFactorEvaluator` (hot) | `core/magnetic/fourierMoment.ts` `fourierMagneticStructureFactor`; `workers/gpuMagneticStructureFactor.ts` (hot) |
 | M⊥ = M − q̂(M·q̂) (3 places) | `core/magnetic/moment.ts` `perpendicularMoment` | the evaluator's `perp` (hot); WGSL `mperp` (hot) |
-| 1/d² (2 places) | `core/crystal/unitCell.ts` `inverseDSquared` | `magneticStructureFactorEvaluator` (hot) |
+| 1/d² (4 places) | `core/crystal/unitCell.ts` `inverseDSquared` | `core/magnetic/structureFactor.ts` `magneticStructureFactorEvaluator` (hot); `core/diffraction/reflections.ts` `generateReflections` (hot); `core/magnetic/kSearch.ts` `reflectionTable` (with its gradient) |
+| Bragg's law, 2θ → d (2 places) | `core/diffraction/instrument.ts` `dFromTwoTheta` | `core/workflow/powder.ts` `dAtX` |
 | TOF widths α, β, σ² (4 places) | `core/workflow/powder.ts` `tofWidthsAt` | same file `buildTofPeaks` (hot), `tofWidthInvalidAt`; `core/workflow/leBail.ts` `tofShapeAt` |
 | TOF sample terms 10⁻⁶·difC·d·M, 10⁻⁴·difC·d²/S, (difC·ε)²·d² (2 to 4 places) | `core/workflow/powder.ts` `tofWidthsAt` | `core/export/bundle.ts` `pcrTofShape`, `powderExtras`, `tofShapeFromParams`; `core/export/gsas2.ts` (the same widths as GSAS-II's one Mustrain) |
 | Chebyshev map and recurrence (2 places) | `core/diffraction/background.ts` `chebyshevBackground` | `core/workflow/leBailPrefit.ts` (`cheb`) |
-| Interpolation points X_j (2 places) | `core/diffraction/background.ts` `interpAnchors` | `core/export/bundle.ts` `powderExtras` |
+| Interpolation points X_j (2 places) | `core/diffraction/background.ts` `interpAnchors` | `core/export/bundle.ts` `powderExtras` (in log mode not an exact copy: the end points are computed, not set to x_min and x_max) |
 | Caglioti curve (2 places) | `core/diffraction/profile.ts` `cagliotiFwhm` | `core/workflow/leBail.ts` `cwWidth` |
 | PDF pair term (3 places) | `core/pdf/forwardModel.ts` `computeGofR` (hot) | `core/pdf/partials.ts` `computePartialsGofR`; `core/pdf/gradients.ts` |
-| R_wp, GoF (2 places) | `core/refinement/factors.ts` `computeAgreementFactors` | `app/powderPage.ts` `weightedR`, `curvesGoodnessOfFit` |
+| R_wp, R_exp, GoF (4 places) | `core/refinement/factors.ts` `computeAgreementFactors` | `app/powderPage.ts` `weightedR`, `curvesGoodnessOfFit`; `core/diagnostics/powderValidation.ts` `powderValidation` (R, R_wp, R_exp again, and their background-subtracted forms); `core/workflow/nextParameters.ts` `rankNextParameterGroups` (R_wp from χ²) |
 | D = 18000·K·λ/(π·X) (2 places) | `core/diffraction/microstructure.ts` `extractSizeStrain` | `core/diffraction/anisoSize.ts` `uniaxialSizeDimensions` |
 | 2√(2 ln 2) (several) | `core/diffraction/profile.ts` `FWHM_PER_SIGMA` | `core/diffraction/anisoStrain.ts` `SQRT_8LN2`; the rounded 2.3548 in `core/workflow/powder.ts` (support widths only) and `core/export/gsas2.ts` |
 
@@ -762,6 +780,12 @@ The refinement row of the same name holds **10⁶·ε** (GSAS-II's Mustrain unit
 | `core/diagnostics/interpret.ts`, `app/PowderWorkbench.tsx` (the readout) | row value | ×10⁻⁶ |
 | `core/export/report.ts` `KIND_UNIT.mustrainIso` | row value | ×10⁻⁶ |
 
+The row has GSAS-II's Mustrain unit but is not GSAS-II's Mustrain number.
+This ε is the standard deviation of Δd/d (it gives the Gaussian σ_T), and
+GSAS-II's Mustrain is a FWHM: for a Gaussian strain GSAS-II's value is
+2√(2 ln 2) ≈ 2.3548 times the row (`core/export/gsas2.ts` `gsas2SampleTerms`:
+Mustrain = M_L + 2.3548·m_G).
+
 Making the name say its unit (for example `strainEpsilon` on the applied model
 and `mustrainPpm` for the row) is a rename in `apply.ts`, `powder.ts` and
 `bundle.ts`. It was not done here: this change is comments only.
@@ -774,6 +798,10 @@ Related, found while reading (not changed; they are user-visible text):
   (ε = π·Y/72000).
 - The same table gives "µm" for `sampleDisplacement`. In the code the row is
   in degrees of 2θ (the shift is s·cosθ).
+- The microstrain tooltip in `app/PowderWorkbench.tsx` ("GSAS-II microstrain =
+  LY·π/72000·10⁶ ppm") and `docs/MICROSTRUCTURE.md` ("ε·10⁶ is GSAS-II's
+  microstrain") attribute π/72000 to GSAS-II. GSAS-II's Mustrain for the same
+  Y is 10⁶·π·Y/18000, four times the number shown.
 
 ## Deferred
 
@@ -784,9 +812,11 @@ Held until the TOF reflection-margin rule merges, because
   `tofAt`, `tofWidthInvalidAt` and `placePeaks`, with the explanation of the
   10⁻⁶ and 10⁻⁴ factors given in [§9](#9-time-of-flight-peak-profile);
 - the note on `mustrainIso` at its uses in `powder.ts`;
-- the change of the Gaussian TOF strain from |dT/dd| to difC (owner decision
-  2026-11-28), a code change in `core/diffraction/anisoStrain.ts`, in a
-  separate pull request.
+- the Gaussian TOF strain. The owner decided on 2026-11-28 that
+  `isotropicStrainSigmaTof` and `stephensStrainSigmaTof` will use difC alone,
+  as GSAS-II does, in place of |dT/dd|. It is a code change in
+  `core/diffraction/anisoStrain.ts`, in a separate pull request; the size of
+  the change is given in [§9](#9-time-of-flight-peak-profile).
 
 ## References not re-checked
 
@@ -795,12 +825,6 @@ were not checked against the source in this pass.
 
 - Lovesey (1984), Vol. 2, "eq. 11.110" for the dipole form factor
   (`core/scattering/magnetic.ts`): the equation number.
-- Lobanov & Alte da Veiga as the origin of the cylinder-absorption fit
-  (`core/diffraction/intensity.ts` `cylinderAbsorption`): the code is a port
-  of GSAS-II's `Absorb`; the original abstract was not seen.
-- Stokes & Wilson, "Proc. Camb. Phil. Soc. 40 (1944) 197" for β = 4·e·tanθ
-  (`core/diffraction/microstructure.ts`): the strain-broadening paper may be
-  Proc. Phys. Soc. 56 (1944) 174 instead.
 - Buras & Gerward, Acta Cryst. A31 (1975) 372, for the TOF Lorentz factor:
   the volume and page are from memory.
 - Abramowitz & Stegun item numbers 5.1.11, 5.1.22, 5.1.51 and Numerical

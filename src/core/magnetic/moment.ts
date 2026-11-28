@@ -30,13 +30,6 @@ export function qCartesianFor(cell: UnitCell): (h: number, k: number, l: number)
 }
 
 /**
- * Moment vector in the Cartesian frame (μ_B).
- *  - "cartesian": components are already Cartesian.
- *  - "crystallographic": components are along the normalized direct lattice
- *    directions (â, b̂, ĉ). For orthogonal cells this is the identity; for
- *    oblique cells it is a documented simplification (see LIMITATIONS.md).
- */
-/**
  * Convert crystal-axis moment components (μ_B along â, b̂, ĉ) to Cartesian:
  *   m = m_a·â + m_b·b̂ + m_c·ĉ,   â = a/|a| etc.
  * Symbols → code: (m_a, m_b, m_c) `comps` (μ_B); â, b̂, ĉ `ahat`, `bhat`,
@@ -57,6 +50,13 @@ export function crystalComponentsToCartesian(cell: UnitCell, comps: Vec3): Vec3 
   ];
 }
 
+/**
+ * Moment vector in the Cartesian frame (μ_B).
+ *  - "cartesian": components are already Cartesian.
+ *  - "crystallographic": components are along the normalized direct lattice
+ *    directions (â, b̂, ĉ). For orthogonal cells this is the identity; for
+ *    oblique cells it is a documented simplification (see LIMITATIONS.md).
+ */
 export function momentCartesian(cell: UnitCell, moment: MagneticMoment): Vec3 {
   if (moment.frame === "cartesian") {
     return moment.components;

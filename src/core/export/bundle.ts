@@ -280,8 +280,11 @@ function powderExtras(
   const coeffs = a.background;
   const backgroundCurve = (x: number): number => evaluateBackground(x, coeffs, bgType, xMin, xMax);
   // An interpolating background is exact at its own anchors (GSAS-II style).
-  // The anchors X_j are typed again here: a copy of diffraction/background.ts
-  // `interpAnchors` (linear, or evenly spaced in ln x), on the same domain.
+  // The anchors X_j are typed again here, after diffraction/background.ts
+  // `interpAnchors` (linear, or evenly spaced in ln x), on the same domain. Not
+  // an exact copy in log mode: `interpAnchors` sets the two end points to
+  // x_min and x_max themselves and needs x_max > x_min for the log spacing;
+  // here every point, the ends included, is exp(…), and the test is x_min > 0.
   if ((bgType === "linInterpolate" || bgType === "logInterpolate") && coeffs.length >= 2) {
     const n = coeffs.length;
     const log = bgType === "logInterpolate" && xMin > 0;

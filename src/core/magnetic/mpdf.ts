@@ -22,11 +22,12 @@
  * Unnormalized mPDF (Frandsen & Billinge 2015, Acta Cryst A71 325; the quantity
  * actually present in a G(r) reduced with the magnetic form factor left in):
  *
- *   d(r) = ordScale · (γr₀/2)²/(2π) · [f ⊛ S](r)  +  paraScale · (−K₂/π)·S′(r)
+ *   d(r) = ordScale · K₁/(2π) · [f ⊛ S](r)  +  paraScale · (−K₂/π)·S′(r)
  *
  * where S(r) is the real-space shape of the squared ⟨j0⟩ form factor (the
  * self-convolution of its cosine transform) and the S′ term is the broad
- * paramagnetic self-scattering hump near r = 0, K₂ = (2/3)(γr₀/2)²⟨m²⟩.
+ * paramagnetic self-scattering hump near r = 0, K₁ = (2/3)(γr₀/2)²,
+ * K₂ = (2/3)(γr₀/2)²⟨m²⟩. d(r) is in barn·μ_B²·Å⁻².
  * Units: (γr₀/2)² is kept in the literature's 10⁻²⁴ cm² (barn), so d(r) matches
  * `diffpy.mpdf.calculateDr` 1:1; multiply by {@link BARN_TO_FM2} to combine
  * with fm-based nuclear scattering lengths.
@@ -396,7 +397,7 @@ export function formFactorEnvelope(
  * (which already carries ordScale/Qdamp/ξ): the ordered term is the convolution
  * with the form-factor envelope, the paramagnetic term its derivative — see the
  * module header. `mSqAvg` is ⟨m²⟩ (μ_B²) per spin. The grid step must equal the
- * envelope's step. Result in barn·μ_B² units (× {@link BARN_TO_FM2} for fm²).
+ * envelope's step. Result in barn·μ_B²·Å⁻² (× {@link BARN_TO_FM2} for fm²·μ_B²·Å⁻²).
  *
  *   d(r) = (K₁/2π)·[f ⊛ S](r) + paraScale·(−K₂/π)·S′(r)
  *   K₁ = (2/3)·(γr₀/2)²,   K₂ = (2/3)·(γr₀/2)²·⟨m²⟩

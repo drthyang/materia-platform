@@ -86,12 +86,12 @@ export function armMultiplicity(k: Vec3, centrings: readonly Vec3[] = []): 1 | 2
  * Real-space moment of a magnetic atom in the cell with integer lattice
  * coordinates `n`, reconstructed from its Fourier coefficient S = (sReal, sImag):
  *   m(n) = Σ_arms S e^{−2πi k·n} = A·(sReal·cos φ + sImag·sin φ),   φ = 2π k·n,
- * (symbols → code: S `sReal` + i·`sImag`, μ_B along the crystal axes; k `k`
- * and n `n` in lattice units; φ `phi` in radians; the result in μ_B)
  * where A = `armMultiplicity(k)` folds in the −k partner arm **only when that
  * arm is distinct**. Getting this wrong is a factor-2 error in every quoted
  * moment at k = ½ (see docs/INCOMMENSURATE_PLAN.md §2): a self-conjugate k has
  * one arm, so m(n) = S·cos φ with S real.
+ * Symbols → code: S `sReal` + i·`sImag` (μ_B along the crystal axes); k `k`
+ * and n `n` in lattice units; φ `phi` (radians). The result is in μ_B.
  */
 export function momentInCell(sReal: Vec3, sImag: Vec3, k: Vec3, n: Vec3, centrings: readonly Vec3[] = []): Vec3 {
   const phi = TWO_PI * (k[0] * n[0] + k[1] * n[1] + k[2] * n[2]);
