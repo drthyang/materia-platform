@@ -24,7 +24,7 @@ import { evaluateBackground } from "@/core/diffraction/background";
 import { structureToCif, type CifRefinementMeta } from "@/core/export/cif";
 import { structureToPcr, type PcrExportOptions, type PcrPhase } from "@/core/export/fullprof";
 import {
-  instrumentToInstprm, buildGpxScript, gsas2InstrumentValues, gsas2SampleTerms, patchInstprm,
+  instrumentToInstprm, buildGpxScript, gsas2InstrumentValues, gsas2SampleTerms, patchInstprm, GSAS2_CW_NO_SAMPLE_TERMS,
   type RefinedInstrumentProfile,
 } from "@/core/export/gsas2";
 import {
@@ -512,9 +512,14 @@ export function gsas2Bundle(structure: StructureModel, dataset: DiffractionDatas
   let instNotes: string[] = [];
   let rawInstrName: string | undefined;
   let instprmBank: number | undefined;
-  const sample = !sc && opts.profile?.tofSample ? gsas2SampleTerms(opts.profile.tofSample) : undefined;
-  if (!sc) {
-    const inst = opts.instrument ?? deriveInstrument(dataset.radiation);
+  // GSAS-II adds each phase's Size and Mustrain to the instrument's widths. TOF: the sample's rows, where the
+  // fit has them. CW: none, written explicitly for every bundle, because X and Y already hold the fit's whole
+  // Lorentzian width and GSAS-II's defaults for a new phase (Size 1 µm, Mustrain 1000) would widen every peak.
+  const powderInst = sc ? undefined : opts.instrument ?? deriveInstrument(dataset.radiation);
+  const cwInst = powderInst && powderInst.kind !== "tof" ? powderInst : undefined;
+  const sample = cwInst ? GSAS2_CW_NO_SAMPLE_TERMS : powderInst && opts.profile?.tofSample ? gsas2SampleTerms(opts.profile.tofSample) : undefined;
+  if (powderInst) {
+    const inst = powderInst;
     const mapped = opts.profile
       ? gsas2InstrumentValues(inst.kind === "tof" ? "tof" : "cw", opts.profile)
       : { values: {}, notes: [] as string[] };
@@ -586,6 +591,7 @@ export function gsas2Bundle(structure: StructureModel, dataset: DiffractionDatas
       ...(limits ? { limits } : {}),
       ...(background ? { background } : {}),
       ...(sample ? { sample } : {}),
+      ...(cwInst ? { sampleOff: true } : {}),
       ...(preferredOrientation ? { preferredOrientation } : {}),
     }),
   });
@@ -594,6 +600,7 @@ export function gsas2Bundle(structure: StructureModel, dataset: DiffractionDatas
     name: "README.txt",
     data: gsas2Readme({
       name, sc, dataName, instprmFile, instprmMode, rawInstrName, rawDataName, instNotes, instprmBank, sample,
+      ...(cwInst ? { cwWavelength: cwInst.wavelength } : {}),
       preferredOrientation: sc ? [] : textured,
       extraCifs: extraCifs.map((c) => c.cifFile), limits, background: background !== undefined, hklScale,
       ...(opts.instrumentNote ? { instrumentNote: opts.instrumentNote } : {}),
@@ -722,8 +729,10 @@ function gsas2Readme(r: {
   instNotes: readonly string[];
   /** The bank of a multi-bank `.instprm` the bundle's instrument is. */
   instprmBank?: number | undefined;
-  /** The sample's TOF broadening written into build_gpx.py. */
+  /** GSAS-II's sample terms written into build_gpx.py: the sample's TOF broadening, or none on constant wavelength. */
   sample?: { readonly mustrain: number; readonly mustrainMix: number; readonly size: number } | undefined;
+  /** The wavelength (Å) of a constant-wavelength bundle, whose sample terms are written as none. */
+  cwWavelength?: number;
   /** The phases whose March–Dollase texture build_gpx.py sets. */
   preferredOrientation: readonly { readonly phaseName: string; readonly po: NonNullable<BundlePhase["po"]> }[];
   extraCifs: readonly string[];
@@ -758,7 +767,27 @@ function gsas2Readme(r: {
     lines.push(``, `Instrument: ${r.instprmFile} was generated from the refined instrument model.`);
     if (r.rawInstrName) lines.push(`Your original instrument file is included verbatim as ${r.rawInstrName}.`);
   }
-  if (r.sample) {
+  if (r.sample && r.cwWavelength !== undefined) {
+    // GSAS-II's window takes a typed Size from 0 to 10 µm only (GSASIIddataGUI IsoSizer, checked by running its
+    // NumberValidator: 1e6 is refused, 0 is accepted and is a division by zero). At 10 µm the size term is
+    // 1.8·λ/(π·10·cosθ) centidegrees.
+    const atTen = (1.8 * r.cwWavelength) / (Math.PI * 10);
+    const none = +r.sample.size.toPrecision(8);
+    // A uniaxial size or microstrain model is the one Lorentzian width the fit has apart from X and Y.
+    const apart = [KIND_NAMES.anisoSizePerp!, KIND_NAMES.mustrainPerp!].filter((n) => r.notExported.includes(n));
+    lines.push(
+      ``,
+      `Sample broadening: in this constant-wavelength fit, X and Y of ${r.instprmFile} hold the whole Lorentzian`,
+      `width, instrument and sample together${apart.length ? ` (but for the fit's ${apart.join(" and ")}, not carried: see below)` : ""}. GSAS-II adds each phase's Size and Mustrain to X and Y, and a new`,
+      `phase starts at Size 1 um and Mustrain 1000, which widen every peak. So build_gpx.py sets every phase's`,
+      `Mustrain to ${+r.sample.mustrain.toPrecision(8)} (LGmix ${+r.sample.mustrainMix.toPrecision(8)}) and its Size to ${none} um, which is no size broadening: GSAS-II then`,
+      `calculates the widths of the fit.`,
+      `An import through the GUI (Option B) starts from GSAS-II's defaults instead: set Mustrain to 0 there. For`,
+      `Size the window takes 10 um at most (never enter 0), which still adds ${+atTen.toPrecision(3)}/cos(theta) centidegrees`,
+      `at this wavelength; the script is exact.`,
+      `Before refining Size in GSAS-II, enter a finite value (at ${none} um its derivative is zero).`,
+    );
+  } else if (r.sample) {
     lines.push(
       ``,
       `Sample broadening: build_gpx.py sets every phase's Mustrain to ${+r.sample.mustrain.toPrecision(8)} (x 1e-6) with`,

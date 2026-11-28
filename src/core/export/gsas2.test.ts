@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import { instrumentToInstprm, buildGpxScript } from "@/core/export/gsas2";
+import { instrumentToInstprm, buildGpxScript, gsas2SampleTerms, GSAS2_NO_SIZE, GSAS2_CW_NO_SAMPLE_TERMS, type Gsas2SampleTerms } from "@/core/export/gsas2";
 
 describe("instrumentToInstprm", () => {
   it("writes a TOF (PNT) file with the expected key set", () => {
@@ -91,5 +91,95 @@ describe("buildGpxScript", () => {
     });
     expect(py).toContain("gpx.add_single_histogram('Eu324.hkl', phase=phase, fmthint='HKLF')");
     expect(py).not.toContain("add_powder_histogram");
+  });
+});
+
+describe("GSAS-II sample terms in build_gpx.py", () => {
+  const base = {
+    gpxName: "CeO2.gpx", cifFile: "CeO2.cif", phaseName: "CeO2",
+    dataFile: "CeO2.xye", instprmFile: "CeO2.instprm", histogramKind: "powder",
+  } as const;
+  const twoMore = [{ cifFile: "a.cif", phaseName: "a" }, { cifFile: "b.cif", phaseName: "b" }];
+
+  it("constant wavelength: Mustrain 0, LGmix 1 and Size GSAS2_NO_SIZE, written explicitly for every phase", () => {
+    expect(GSAS2_CW_NO_SAMPLE_TERMS).toEqual({ mustrain: 0, mustrainMix: 1, size: GSAS2_NO_SIZE });
+    const py = buildGpxScript({ ...base, extraPhases: twoMore, sample: GSAS2_CW_NO_SAMPLE_TERMS, sampleOff: true });
+    // One loop over all three phases, after the histogram exists and before the save.
+    expect(py).toContain([
+      "for _phase in (phase, phase2, phase3,):",
+      "    _hap = _phase.data['Histograms'][hist.name]",
+      "    _hap['Mustrain'][0] = 'isotropic'",
+      "    _hap['Mustrain'][1][0] = _hap['Mustrain'][1][1] = 0",
+      "    _hap['Mustrain'][1][2] = 1",
+      "    _hap['Size'][0] = 'isotropic'",
+      `    _hap['Size'][1][0] = _hap['Size'][1][1] = ${GSAS2_NO_SIZE}`,
+      "    _hap['Size'][1][2] = 1.0",
+      "",
+      "gpx.save()",
+    ].join("\n"));
+    expect(py.indexOf("add_powder_histogram")).toBeLessThan(py.indexOf("_hap['Size']"));
+    expect(py).toContain("# In MATERIA's constant-wavelength fit the Lorentzian X and Y hold the instrument's width and the sample's");
+    expect(py).not.toContain("The sample's broadening as MATERIA used it");
+  });
+
+  it("time of flight: the block is the one written before, byte for byte", () => {
+    const py = buildGpxScript({ ...base, sample: { mustrain: 1477.41003, mustrainMix: 0.2030580502, size: 0.4 } });
+    expect(py).toContain([
+      "",
+      "# The sample's broadening as MATERIA used it, in GSAS-II's own parameters: Mustrain (x 1e-6) with its",
+      "# Lorentzian fraction, and Size (um, Lorentzian). GSAS-II adds these to the instrument's widths.",
+      "for _phase in (phase,):",
+      "    _hap = _phase.data['Histograms'][hist.name]",
+      "    _hap['Mustrain'][0] = 'isotropic'",
+      "    _hap['Mustrain'][1][0] = _hap['Mustrain'][1][1] = 1477.41003",
+      "    _hap['Mustrain'][1][2] = 0.2030580502",
+      "    _hap['Size'][0] = 'isotropic'",
+      "    _hap['Size'][1][0] = _hap['Size'][1][1] = 0.4",
+      "    _hap['Size'][1][2] = 1.0",
+      "",
+      "gpx.save()",
+    ].join("\n"));
+    expect(py).not.toContain("constant-wavelength");
+  });
+
+  it("without sample terms, and on a single crystal, the script sets none", () => {
+    expect(buildGpxScript(base)).not.toMatch(/Mustrain|Size/);
+    const sc = buildGpxScript({ ...base, histogramKind: "single", sample: GSAS2_CW_NO_SAMPLE_TERMS, sampleOff: true });
+    expect(sc).not.toMatch(/Mustrain|Size/);
+  });
+
+  it("GSAS2_NO_SIZE is finite, and its constant-wavelength width is far below GSAS-II's own floor", () => {
+    expect(Number.isFinite(GSAS2_NO_SIZE)).toBe(true);
+    expect(GSAS2_NO_SIZE).toBe(1e6);
+    // GSAS-II (GetSampleSigGam): 1.8·λ/(π·Size·cosθ) centidegrees. Its floor on a peak's γ is 0.001 centidegree.
+    const width = (lam: number, twoTheta: number): number => (1.8 * lam) / (Math.PI * GSAS2_NO_SIZE * Math.cos((twoTheta / 2) * (Math.PI / 180)));
+    expect(width(1.5406, 90)).toBeCloseTo(1.248e-6, 9); // centidegrees: 1.2·10⁻⁸°
+    expect(width(2.5, 160)).toBeLessThan(0.001 / 100); // below 10⁻⁷°, a hundredth of the floor
+    // Against GSAS-II's default for a new phase (1 µm): a million times smaller.
+    expect(width(1.5406, 90) * GSAS2_NO_SIZE).toBeCloseTo((1.8 * 1.5406) / (Math.PI * Math.SQRT1_2), 12);
+  });
+
+  it("never writes a Size of 0: a size that is not finite, absent or not positive goes out as GSAS2_NO_SIZE", () => {
+    // py() prints a number that is not finite as 0.0, and GSAS-II divides by Size.
+    for (const size of [Infinity, -Infinity, NaN, 0, -2]) {
+      expect(gsas2SampleTerms({ gauss: 0, lorentz: 300, size }).size, String(size)).toBe(GSAS2_NO_SIZE);
+    }
+    expect(gsas2SampleTerms({ gauss: 0, lorentz: 300 }).size).toBe(GSAS2_NO_SIZE);
+    expect(gsas2SampleTerms({ gauss: 0, lorentz: 300, size: 0.4 }).size).toBe(0.4);
+    const py = buildGpxScript({ ...base, sample: gsas2SampleTerms({ gauss: 0, lorentz: 300, size: Infinity }) });
+    expect(py).toContain(`_hap['Size'][1][0] = _hap['Size'][1][1] = ${GSAS2_NO_SIZE}`);
+    expect(py).not.toMatch(/_hap\['Size'\]\[1\]\[0\] = _hap\['Size'\]\[1\]\[1\] = 0(\.0)?\n/);
+  });
+
+  it("refuses to write sample terms GSAS-II cannot hold, instead of printing them as 0.0", () => {
+    const ok: Gsas2SampleTerms = { mustrain: 300, mustrainMix: 1, size: 0.4 };
+    const script = (s: Gsas2SampleTerms, sampleOff = false): string => buildGpxScript({ ...base, sample: s, ...(sampleOff ? { sampleOff } : {}) });
+    expect(() => script(ok)).not.toThrow();
+    for (const size of [Infinity, -Infinity, NaN, 0, -1]) {
+      expect(() => script({ ...ok, size }), `Size ${size}`).toThrow(/Size/);
+      expect(() => script({ ...GSAS2_CW_NO_SAMPLE_TERMS, size }, true), `CW Size ${size}`).toThrow(/Size/);
+    }
+    for (const mustrain of [Infinity, NaN, -1]) expect(() => script({ ...ok, mustrain }), `Mustrain ${mustrain}`).toThrow(/Mustrain/);
+    for (const mustrainMix of [Infinity, NaN, -0.1, 1.1]) expect(() => script({ ...ok, mustrainMix }), `mix ${mustrainMix}`).toThrow(/Lorentzian fraction/);
   });
 });

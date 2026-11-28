@@ -135,17 +135,64 @@ export interface RefinedInstrumentProfile {
   readonly tofLorentzForm?: "gsas" | "fullprof";
 }
 
-/** GSAS-II's sample parameters for a phase on a TOF histogram (GSASIIstrMath.GetSampleSigGam). */
+/**
+ * GSAS-II's sample parameters for a phase on a powder histogram
+ * (GSASIIstrMath.GetSampleSigGam), which it adds to the instrument's widths.
+ */
 export interface Gsas2SampleTerms {
-  /** Mustrain (×10⁻⁶): FWHM 10⁻⁶·difC·d·Mustrain, its fraction `mustrainMix` Lorentzian and the rest Gaussian. */
+  /**
+   * Mustrain (×10⁻⁶), its fraction `mustrainMix` Lorentzian and the rest
+   * Gaussian. FWHM: TOF 10⁻⁶·difC·d·Mustrain (µs); CW 0.018·Mustrain·tanθ/π
+   * (centidegrees).
+   */
   readonly mustrain: number;
   readonly mustrainMix: number;
-  /** Size (µm), Lorentzian: FWHM 10⁻⁴·difC·d²/Size. */
+  /**
+   * Size (µm), Lorentzian. FWHM: TOF 10⁻⁴·difC·d²/Size (µs); CW
+   * 1.8·λ/(π·Size·cosθ) (centidegrees, λ in Å).
+   */
   readonly size: number;
 }
 
-/** A size GSAS-II takes as none: its width 10⁻⁴·difC·d²/Size is below 10⁻⁶ of any peak's. */
-const GSAS2_NO_SIZE = 1e6;
+/**
+ * The Size (µm) written for "no size broadening". GSAS-II has no switch for
+ * the term and divides by Size, so none is a large finite number, written
+ * explicitly (GSAS-II's own default for a new phase is 1 µm).
+ *
+ * Why 10⁶ µm (one metre):
+ *  - TOF: the width 10⁻⁴·difC·d²/Size is below 10⁻⁶ of any peak's.
+ *  - CW: the width is 1.8·λ/(π·10⁶·cosθ) = 5.73·10⁻⁷·λ/cosθ centidegrees:
+ *    1.3·10⁻⁸° at λ = 1.54 Å and 2θ = 90°, and below 10⁻⁷° for every λ ≤ 2.5 Å
+ *    and 2θ ≤ 160°. GSAS-II itself floors a CW peak's Lorentzian width at
+ *    0.001 centidegree = 10⁻⁵° (GetReflSigGamCW), a hundred times more.
+ *    Against the peak's own Lorentzian width Γ_L (centidegrees) it is
+ *    5.73·10⁻⁷·λ/(cosθ·Γ_L): below 10⁻⁶ wherever Γ_L > 0.57·λ/cosθ.
+ *  - GSAS-II's calculation takes the number as it is. Checked with a
+ *    zero-cycle GSAS-II run of two exported bundles (CeO₂ at 1.5406 Å, X, Y =
+ *    3.5, 7.25; CeO₂ + LaB₆ at 2.41 Å, X, Y = 2.2, 5.1): every reflection's
+ *    Lorentzian and total FWHM equal MATERIA's within 4·10⁻⁷ relative, and the
+ *    whole of that difference is this term.
+ *  - GSAS-II's window limits a typed Size to 0–10 µm (GSASIIddataGUI). Its
+ *    validator, run on its own, refuses a typed 10⁶ and keeps the stored
+ *    value; by its code the window shows a stored 10⁶ as out of range and
+ *    leaves it. The window itself was not opened.
+ *  - The term's derivative is zero in practice, so GSAS-II cannot refine Size
+ *    from here: the README says to enter a finite size first.
+ */
+export const GSAS2_NO_SIZE = 1e6;
+
+/**
+ * GSAS-II's sample terms for a constant-wavelength bundle: none. MATERIA's CW
+ * isotropic Lorentzian width is X/cosθ + Y·tanθ, so the refined X and Y hold
+ * the whole of it, instrument and sample together, and they go into the
+ * `.instprm` (a uniaxial size or microstrain model is apart from them, and
+ * the bundle names it as not carried). GSAS-II would add a new phase's
+ * defaults on top (Size 1 µm,
+ * Mustrain 1000, both Lorentzian: 1.8·λ/(π·cosθ) + (18/π)·tanθ centidegrees),
+ * so the bundle writes them off for every phase: Mustrain 0, Lorentzian
+ * fraction 1, Size {@link GSAS2_NO_SIZE}.
+ */
+export const GSAS2_CW_NO_SAMPLE_TERMS: Gsas2SampleTerms = { mustrain: 0, mustrainMix: 1, size: GSAS2_NO_SIZE };
 
 /**
  * The sample rows as GSAS-II's one Mustrain with a mixing coefficient and its
@@ -161,7 +208,8 @@ export function gsas2SampleTerms(sample: NonNullable<RefinedInstrumentProfile["t
   return {
     mustrain,
     mustrainMix: mustrain > 0 ? Math.max(sample.lorentz, 0) / mustrain : 1,
-    size: sample.size !== undefined && sample.size > 0 ? sample.size : GSAS2_NO_SIZE,
+    // No row, a row at 0 and an unbounded size all mean no size term; a number that is not finite never goes out.
+    size: sample.size !== undefined && Number.isFinite(sample.size) && sample.size > 0 ? sample.size : GSAS2_NO_SIZE,
   };
 }
 
@@ -262,8 +310,14 @@ export interface GpxScriptOptions {
   /** Powder background as GSAS-II "lin interpolate" values (evenly spaced
    *  across the fitted data, first to last point). */
   readonly background?: readonly number[];
-  /** The sample's TOF broadening, set on every phase for this histogram. */
+  /**
+   * GSAS-II's sample terms, set on every phase for this histogram: the sample's
+   * TOF broadening as the fit used it, or {@link GSAS2_CW_NO_SAMPLE_TERMS} on a
+   * constant-wavelength histogram.
+   */
   readonly sample?: Gsas2SampleTerms;
+  /** True on a constant-wavelength histogram, where `sample` switches GSAS-II's terms off (the script's comment says why). */
+  readonly sampleOff?: boolean;
   /** March–Dollase preferred orientation per phase, in phase order (main phase
    *  first, then `extraPhases`); an absent entry leaves GSAS-II's default (none). */
   readonly preferredOrientation?: readonly (Gsas2MarchDollase | undefined)[];
@@ -286,6 +340,23 @@ export interface Gsas2MarchDollase {
 /** Python float literal (finite, compact). */
 function py(x: number): string {
   return Number.isFinite(x) ? String(Number(x.toPrecision(10))) : "0.0";
+}
+
+/**
+ * The sample terms, checked before they are written. {@link py} prints a
+ * number that is not finite as 0.0, and GSAS-II divides by Size: a Size of 0
+ * is an infinite width (a division by zero), and a Mustrain of 0 in place of a
+ * lost value is a silently narrower peak. So a value GSAS-II cannot hold stops
+ * the export with a message instead.
+ */
+function checkedSampleTerms(s: Gsas2SampleTerms): Gsas2SampleTerms {
+  const bad = (what: string, value: number): never => {
+    throw new Error(`GSAS-II bundle: the sample's ${what} is ${value}, which GSAS-II cannot hold; the script is not written.`);
+  };
+  if (!Number.isFinite(s.size) || s.size <= 0) bad("Size (um, finite and above 0)", s.size);
+  if (!Number.isFinite(s.mustrain) || s.mustrain < 0) bad("Mustrain (finite, 0 or more)", s.mustrain);
+  if (!Number.isFinite(s.mustrainMix) || s.mustrainMix < 0 || s.mustrainMix > 1) bad("Mustrain Lorentzian fraction (0 to 1)", s.mustrainMix);
+  return s;
 }
 
 /**
@@ -366,11 +437,21 @@ export function buildGpxScript(opts: GpxScriptOptions): string {
     }
   }
   if (opts.histogramKind !== "single" && opts.sample) {
-    const s = opts.sample;
+    const s = checkedSampleTerms(opts.sample);
     lines.push(
       "",
-      "# The sample's broadening as MATERIA used it, in GSAS-II's own parameters: Mustrain (x 1e-6) with its",
-      "# Lorentzian fraction, and Size (um, Lorentzian). GSAS-II adds these to the instrument's widths.",
+      ...(opts.sampleOff
+        ? [
+            "# In MATERIA's constant-wavelength fit the Lorentzian X and Y hold the instrument's width and the sample's",
+            "# isotropic size and microstrain together, and they are in the .instprm. GSAS-II adds each phase's Size",
+            "# and Mustrain to X and Y (a new phase starts at Size 1 um and Mustrain 1000), so both are set to none",
+            "# here: Mustrain 0, and a Size of 1e6 um, whose width 1.8*lambda/(pi*Size*cos(theta)) is",
+            "# 5.7e-9*lambda/cos(theta) degrees (lambda in A).",
+          ]
+        : [
+            "# The sample's broadening as MATERIA used it, in GSAS-II's own parameters: Mustrain (x 1e-6) with its",
+            "# Lorentzian fraction, and Size (um, Lorentzian). GSAS-II adds these to the instrument's widths.",
+          ]),
       `for _phase in (${phaseVars},):`,
       "    _hap = _phase.data['Histograms'][hist.name]",
       `    _hap['Mustrain'][0] = 'isotropic'`,
