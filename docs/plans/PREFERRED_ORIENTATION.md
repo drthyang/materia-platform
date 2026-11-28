@@ -2,7 +2,8 @@
 
 > **Status: decided by the owner on 2026-11-28 (section 0). Nothing here is
 > built yet.** Step 0 (the GSAS-II bundle fix) is being built first; every
-> later step waits for its own go. Each numbered QUESTION below keeps its
+> later step waits for its own go. Linear: THY-98, with one issue per step
+> (step 0 = THY-99 … step 11 = THY-110). Each numbered QUESTION below keeps its
 > options and recommendation for the record; section 0 gives the answers.
 >
 > Every number in this document comes from the formulas (a short script, kept
