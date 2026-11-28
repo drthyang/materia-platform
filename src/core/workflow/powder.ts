@@ -512,7 +512,8 @@ const SUPPORT_REACH_LIMIT = 0.5;
  * and out of the model as the cell moved: a step in χ²). A reflection 20
  * widths below the window puts under 1 % of its area into it (the Lorentzian
  * share beyond X is ηΓ/2πX, and Γ is no more than one width), thinly spread.
- * Null where no peak is defined.
+ * A peak without a Lorentzian width has the reach it had. Null where no peak
+ * is defined.
  */
 function tofListReach(pattern: PowderPattern, applied: AppliedModel, d: number): number | null {
   let hi = -Infinity;
@@ -549,7 +550,9 @@ function tofReflectionRange(pattern: PowderPattern, applied: AppliedModel, windo
     const reach = tofListReach(pattern, applied, d);
     if (reach === null) break;
     const next = dAtTof(applied, xEdge - reach);
-    // A support longer than the edge's time of flight: no d ends it, and SUPPORT_REACH_LIMIT does.
+    // A support longer than the edge's time of flight: no d ends it, and SUPPORT_REACH_LIMIT does. This holds for
+    // every TOF profile, with a Lorentzian width or without (20 widths above 5 % of the flight time, e.g. a very
+    // large σ²): such a list used to start at the edge itself, with no margin, and now reaches 0.5 × the edge's d.
     if (!(next > 0) || !Number.isFinite(next)) {
       lowest = 0;
       break;

@@ -73,6 +73,23 @@ describe("a TOF reflection list follows the fit window", () => {
     expect(reflectionRange(pattern, applied).dMin).toBeLessThan(0.25);
   });
 
+  it("falls to half the edge's d when 20 widths are longer than the edge's time of flight, with or without a Lorentzian width", () => {
+    // σ₀² = 4·10⁴ µs²: one width is 470 µs at every d, so at the data's end (d 0.25 Å, 2250 µs) 20 widths pass TOF 0 and no d ends the support.
+    // The list used to start at the edge itself there (no margin); it reaches SUPPORT_REACH_LIMIT × the edge's d.
+    const { pattern, applied } = tofSetUp((p) => (p.id === "tof_sig0" ? { ...p, value: 4e4, initialValue: 4e4 } : p));
+    const edge = pattern.points[0]!.x;
+    const peak = placePeaks(pattern, applied, [{ d: 0.25, intensity: 1 }])[0]!;
+    expect(peak.tof!.gamma ?? 0).toBe(0);
+    expect(PEAK_WINDOW_FWHM * peak.fwhm).toBeGreaterThan(edge);
+    const r = reflectionRange(pattern, applied);
+    expect(r.stop).toBe("window");
+    expect(r.windowD).toBeCloseTo(0.25, 9);
+    // 0.5 × the edge's d, rounded down on the 10⁻⁴ grid in ln d.
+    expect(r.dMin).toBeLessThanOrEqual(0.5 * r.windowD);
+    expect(r.dMin).toBeGreaterThan(0.5 * r.windowD * (1 - 1e-4));
+    expect(r.fittedFrom).toBeUndefined();
+  });
+
   it("leaves no point of the window out when the list reaches it", () => {
     const { pattern, applied } = tofSetUp();
     expect(modelledFitRange(pattern, [applied], { min: DIFC * 0.3, max: DIFC * 3 })).toEqual({ min: DIFC * 0.3, max: DIFC * 3 });

@@ -118,7 +118,13 @@ export class ReflectionLimitError extends ModelDomainError {
  * listed before stopping (`count` > {@link MAX_REFLECTION_FAMILIES}).
  */
 export interface ReflectionLimitOver {
-  /** The list's short-d end (Å). */
+  /**
+   * The list's short-d end (Å), as generateReflections throws it. The powder
+   * page's reading (app/reflectionLimit.ts pageReflectionLimit) puts the d the
+   * data reach here instead, the fit window's short-d edge, which is what its
+   * sentence names; `count` stays the list's, which reaches one peak support
+   * below that d.
+   */
   readonly dMin: number;
   readonly limit: "scan" | "index" | "families";
   readonly count: number;
