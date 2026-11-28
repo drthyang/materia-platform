@@ -217,9 +217,10 @@ describe("MCP host — an LLM-sized powder loop over a real client", () => {
   it("export_bundle writes the refined model into outDir, safely", async () => {
     writeFileSync(join(dir, "powgen.prm"), "POWGEN instrument, verbatim\n");
     // The bundled pattern from d = 1 Å up (TOF ≥ difC · 1 Å): the same file, header and name, less its short-d rows.
-    // A model's reflections are calculated to the end of the pattern it is given (THY-90), and with the whole
-    // pattern (to 0.150 Å) that took this test 2.5–5.2 s on CI, against vitest's 5 s limit. The export does not
-    // depend on short d, and the loop test above refines the whole pattern through the host.
+    // build_refinement takes no window and works to the pattern's end (0.150 Å, THY-90); refine_powder lists
+    // reflections to the window's short-d edge, and part of its time still grows with the whole pattern. With the
+    // whole pattern this test took 2.5–5.2 s on CI, against vitest's 5 s limit. The export does not depend on
+    // short d, and the loop test above refines the whole pattern through the host.
     mkdirSync(join(dir, "long-d"), { recursive: true });
     const rows = readFileSync(join(DATASETS, MN3GA_DAT), "utf8").split("\n");
     const fromOneAngstrom = rows.filter((row) => !/^\s*\d/.test(row) || Number(row.trim().split(/\s+/)[0]) >= TOF.difC);
@@ -254,7 +255,7 @@ describe("MCP host — an LLM-sized powder loop over a real client", () => {
 
     // Without outDir the files come back as text, over budget as refs.
     const inline = await call("export_bundle", { ...args, target: "fullprof", outDir: undefined });
-    expect(inline.files.ref ?? inline.files[0]).toBeDefined();
+    expect(inline.files.ref).toMatch(/^#\d+\/files$/); // these are over budget: a ref, not the text
     for (const m of log.filter((x) => x.name === "export_bundle")) expect(m.response).toBeLessThanOrEqual(RESPONSE_LIMIT);
   });
 
