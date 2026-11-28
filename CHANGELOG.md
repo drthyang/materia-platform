@@ -7,7 +7,28 @@ release fixes bugs.
 
 ## [Unreleased]
 
+### Added
+
+- **A data file can store a fit window per bank.** A multi-bank data file's
+  record in a project may carry `bankWindows` (bank number → window, in the
+  data's unit). Choosing a bank in the Data card's chooser then sets the fit
+  window to that bank's, in the same History step ("Data bank 4 → 5,
+  refinement values kept, bank 5's fit window"), and Undo takes it back; a
+  bank without one gets the whole data, as before. The refinement values are
+  kept as before; the instrument follows the bank as before. Projects without
+  the map open and switch unchanged. The NOMAD example stores the owner's
+  windows: bank 1 1250–16400, bank 2 1400–17600, bank 3 2000–18500, bank 4
+  3000–16000, bank 5 4000–15300 µs.
+  A History step recorded as a window lands with new data now holds that
+  window (it held the one the page had before, so Undo from the next step
+  went to a mixed state).
+
 ### Changed
+
+- **The NOMAD example fits bank 4 over 3000–16000 µs** (d 0.331–1.773 Å, 1785
+  points), the owner's window, in place of 1137–16905 µs. Refitted with the
+  same recipe: wR 2.21 %, GoF 5.72, a = 10.3760(1) Å, converged, no near-null
+  direction (`examples/gata4se8-nomad-300k/README.md`).
 
 - **The Instrument card says one short line per item.** The title names the
   instrument and its cycle ("TOF · NOMAD 2023A", beside the "default file"

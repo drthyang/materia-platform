@@ -126,6 +126,13 @@ export interface RawFile {
    * such a data bank without it. Absent otherwise and in older projects.
    */
   readonly startingPointFor?: number;
+  /**
+   * Data files of several banks only: a fit window stored per bank, keyed by
+   * the bank number ("4"), in the data's native unit. A switch to a bank with
+   * a window here sets the page's fit window to it (app/bankKeep.ts); a bank
+   * without one gets the whole data, as before. Absent in older projects.
+   */
+  readonly bankWindows?: Readonly<Record<string, FitWindow>>;
 }
 
 // ---------------------------------------------------------------------------

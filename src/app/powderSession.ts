@@ -61,7 +61,7 @@ export interface Session {
   rawInstrument?: { name: string; text: string; bank?: number; bundledDefault?: string; startingPointFor?: number };
   /** The user's original data file, retained verbatim on load, shipped in bundles
    *  as the exact original alongside the portable re-serialized data. */
-  rawData?: { name: string; text: string; bank?: number };
+  rawData?: { name: string; text: string; bank?: number; bankWindows?: Readonly<Record<string, { readonly min: number; readonly max: number }>> };
   /** Optional magnetic model over `structure`, for magnetic reflection ticks. */
   magnetic?: MagneticModel;
   /** The B-at-0 proposals the user applied (core/diagnostics/zeroAdp.ts): the rows carry the tie or the held value; this says why. */

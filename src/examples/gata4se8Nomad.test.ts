@@ -53,7 +53,33 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     const l = landData(page, withPattern(page, bank3, { name: session.rawData!.name, text, bank: 3 }), "Loaded data, bank 3", "chooser");
     expect(l.kept).toEqual({ from: 4, to: 3 });
     expect(l.page.session.rawData?.bank).toBe(3);
+    expect(l.window).toEqual({ min: 2000, max: 18500 });
     for (const r of session.powderParams.filter((x) => !followsInstrument(x))) expect(l.page.session.powderParams.find((x) => x.id === r.id)?.value, r.id).toBe(r.value);
+  });
+
+  it("stores the owner's window for banks 1–5 and none for bank 6; 4 → 5 → 4 by the chooser gives them exactly, values kept", () => {
+    expect(session.rawData?.bankWindows).toEqual({
+      "1": { min: 1250, max: 16400 }, "2": { min: 1400, max: 17600 }, "3": { min: 2000, max: 18500 }, "4": { min: 3000, max: 16000 }, "5": { min: 4000, max: 15300 },
+    });
+    const text = session.rawData!.text;
+    // Every window lies inside its bank's data.
+    for (const [bank, w] of Object.entries(session.rawData!.bankWindows!)) {
+      const xs = parseGsasHistogramPattern(text, "x", "x", { radiation: { kind: "neutron-tof" }, bank: Number(bank) }).points.map((p) => p.x);
+      expect(w.min, bank).toBeGreaterThanOrEqual(xs[0]!);
+      expect(w.max, bank).toBeLessThanOrEqual(xs[xs.length - 1]!);
+    }
+    const toBank = (from: PowderPage, bank: number) => {
+      const p = parseGsasHistogramPattern(text, "gata4se8-powder", `bank ${bank}`, { radiation: { kind: "neutron-tof" }, bank });
+      return landData(from, withPattern(from, p, { name: session.rawData!.name, text, bank }), `Loaded data, bank ${bank}`, "chooser");
+    };
+    const to5 = toBank(page, 5);
+    expect(to5.window).toEqual({ min: 4000, max: 15300 });
+    expect(to5.label).toBe("Data bank 4 → 5, refinement values kept, bank 5's fit window");
+    const back = toBank(to5.page, 4);
+    expect(back.window).toEqual(demo.fitRange);
+    expect(back.page.session.rawData?.bank).toBe(4);
+    for (const r of session.powderParams.filter((x) => !followsInstrument(x))) expect(back.page.session.powderParams.find((x) => x.id === r.id)?.value, r.id).toBe(r.value);
+    expect(toBank(page, 6).window).toBeNull();
   });
 
   it("opens on the saved refinement: Chebyshev 7, the spec's free rows, every row with a saved value", () => {
@@ -64,15 +90,14 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     expect(session.powderParams.filter((p) => !p.fixed && !p.expression).map((p) => p.id)).toEqual(BASE);
   });
 
-  it("shows the recorded agreement on screen: wR 2.50 % over 2334 points in its window", () => {
+  it("shows the recorded agreement on screen: wR 2.21 % over 1785 points in its window", () => {
     const curves = powderPageCurves(session, demo.fitRange).curves;
-    // The window ends at 16905.49 µs (d 1.873 Å), below two peaks no phase explains; below d 0.209 Å the file's profile gives no peak, and those 545 points are left out (THY-90).
-    expect(demo.fitRange.max).toBe(16905.488658956);
-    expect(demo.fitRange.min).toBe(demo.pattern.points[0]!.x);
-    expect(observationsIn(curves, demo.fitRange, session)).toBe(2334);
-    expect((100 * weightedR(session, curves, demo.fitRange)).toFixed(2)).toBe("2.50");
-    // GoF over the nine rows the example opens with free (the refinement's own, with sixteen free, is 5.90: below).
-    expect(curvesGoodnessOfFit(session, curves, demo.fitRange).toFixed(2)).toBe("5.89");
+    // The owner's window, 3000–16000 µs (d 0.331–1.773 Å): above d 0.209 Å, where the file's profile stops giving a peak (THY-90), and below the two long-TOF peaks no phase explains.
+    expect(demo.fitRange).toEqual({ min: 3000, max: 16000 });
+    expect(observationsIn(curves, demo.fitRange, session)).toBe(1785);
+    expect((100 * weightedR(session, curves, demo.fitRange)).toFixed(2)).toBe("2.21");
+    // GoF over the nine rows the example opens with free (the refinement's own, with sixteen free, is 5.72: below).
+    expect(curvesGoodnessOfFit(session, curves, demo.fitRange).toFixed(2)).toBe("5.71");
   });
 
   it("refined from where it opens, with the structure rows free, converges in place with no near-null direction", async () => {
@@ -83,15 +108,15 @@ describe("the bundled GaTa₄Se₈ NOMAD example", () => {
     const r = sp.port.state().result!;
     expect(r.status).toBe("converged");
     expect(r.diagnostics?.svdZeroCount ?? 0).toBe(0);
-    expect((100 * r.agreement.rWeighted!).toFixed(2)).toBe("2.50");
-    expect(r.agreement.goodnessOfFit!.toFixed(2)).toBe("5.90");
+    expect((100 * r.agreement.rWeighted!).toFixed(2)).toBe("2.21");
+    expect(r.agreement.goodnessOfFit!.toFixed(2)).toBe("5.72");
     // Nothing moves by more than a tenth of its esd.
     for (const id of [...BASE, ...STRUCTURE]) {
       const esd = r.esd[id]!;
       expect(Math.abs(r.parameters[id]! - demo.refinedParams[id]!), id).toBeLessThan(0.1 * esd);
     }
-    // a = 10.3757(1) Å; B = 8π²U for U Ga 0.0044(6), Ta 0.0044(2), Se1 0.0058(4), Se2 0.0053(4) Å².
-    expect(r.parameters.cell_a!.toFixed(4)).toBe("10.3757");
+    // a = 10.3760(1) Å; B = 8π²U for U Ga 0.0039(6), Ta 0.0043(2), Se1 0.0056(4), Se2 0.0050(4) Å².
+    expect(r.parameters.cell_a!.toFixed(4)).toBe("10.3760");
     expect(r.esd.cell_a!).toBeLessThan(0.00015);
   }, 120_000);
 });

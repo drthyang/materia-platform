@@ -64,53 +64,59 @@ export interface GaTa4Se8NomadExample {
   readonly backgroundType: BackgroundType;
   readonly backgroundTerms: number;
   /** The two files as loaded (the whole six-bank data file), kept in the session as a loaded file's are. */
-  readonly rawData: { readonly name: string; readonly text: string; readonly bank: number };
+  readonly rawData: { readonly name: string; readonly text: string; readonly bank: number; readonly bankWindows: Readonly<Record<string, { readonly min: number; readonly max: number }>> };
   readonly rawInstrument: { readonly name: string; readonly text: string; readonly bank: number; readonly bundledDefault: string };
 }
 
-// TOF window: from the pattern's first point (d ≈ 0.13 Å at the file's difC) to
-// 16905.49 µs (d 1.873 Å). Below d 0.209 Å the file's profile gives no peak
-// (σ² ≤ 0), so the page leaves those 545 points out of the fit and of wR
-// (THY-90): the fit counts 2334 points. The long-TOF end is cut below two peaks
-// that no phase explains (check_fit_range, on the data: at 17209 and 17274 µs,
-// d ≈ 1.91 Å, the stronger 9σ; each one data point wide, narrower than a line
-// of this instrument there). The first rises from 17145 µs; the cut is one peak
-// support below that (2.3548σ + γ + 1/α + 1/β of the profile at that TOF, file
-// rows and the refined size: 231 µs), on the last data point below, 16905.49 µs.
-// It is clear of the nearest GaTa₄Se₈ lines (440 at 16553 µs, its support
-// ending at 16771 µs; 333/511 at 18013 µs, its support starting at 17764 µs).
-// The 27 points above it are left out. check_fit_range proposes a cut at
-// 4434 µs (d 0.49 Å), where the lines stop being resolved, to fit faster, and
-// calls it a large cut to put to the user first; the example keeps that end.
-const FIT_RANGE = { min: 1137.280204904, max: 16905.488658956 };
+// TOF window: 3000–16000 µs (d 0.331–1.773 Å), the owner's choice; 1785
+// points. It lies above d 0.209 Å, below which the file's profile gives no
+// peak (σ² ≤ 0, THY-90), so every point in it is fitted, and below the two
+// long-TOF peaks that no phase explains (17209 and 17274 µs, d ≈ 1.91 Å).
+// check_fit_range proposes a cut near 4600 µs (d 0.51 Å), where the lines stop
+// being resolved, to fit faster, and calls it a large cut to put to the user
+// first; the example keeps the owner's window.
+const FIT_RANGE = { min: 3000, max: 16000 };
+
+// The owner's fit window for each bank of the data file (TOF, µs), stored with
+// the file (rawData.bankWindows): choosing a bank in the Data card's chooser
+// sets the window to that bank's (app/bankKeep.ts). Each lies inside its
+// bank's data. Bank 6 has none: the instrument file has no bank 6, and the
+// page holds Refine there.
+const BANK_WINDOWS: Readonly<Record<string, { readonly min: number; readonly max: number }>> = {
+  "1": { min: 1250, max: 16400 },
+  "2": { min: 1400, max: 17600 },
+  "3": { min: 2000, max: 18500 },
+  "4": FIT_RANGE,
+  "5": { min: 4000, max: 15300 },
+};
 
 const BACKGROUND: { readonly type: BackgroundType; readonly terms: number } = { type: "chebyshev", terms: 7 };
 
-// Snapshot of a converged refinement inside FIT_RANGE: Rw 2.495 %, GoF 5.898
+// Snapshot of a converged refinement inside FIT_RANGE: Rw 2.208 %, GoF 5.718
 // with sixteen free rows (scale, seven Chebyshev terms, a, the four B_iso and the
-// three position modes), a = 10.37572(10) Å; status "converged", no near-null
-// SVD direction (the owner's 0.5.1 project, with ten background terms and a
-// narrower window, stalled with one). Made 2026-11-27 through the page's own
-// refine (headless, testSupport/agentHeadless.ts), from the model above with
-// the instrument file's bank-4 rows held: scale, background and a first; then
-// alternately the sample profile (Lorentzian microstrain and size; the
-// Gaussian microstrain held at 0, as it correlates with the background) and
-// the structure (B_iso, positions), each with scale, background and a, five
-// times each; the last structure stage moved nothing by more than 0.005 esd.
-// The profile stages put the Lorentzian microstrain at its lower bound, 0,
-// and the size at 0.0384(9) µm. The example opens with the rows the spec
-// frees (scale, background, a) free and the rest held at these values. Keyed
-// by parameter id, applied after the spec is rebuilt from the model.
+// three position modes), a = 10.37596(10) Å; status "converged", no near-null
+// SVD direction (the high correlations are among the background terms only).
+// Made 2026-11-28 through the page's own refine (headless,
+// testSupport/agentHeadless.ts), from the model above with the instrument
+// file's bank-4 rows held: scale, background and a first; then alternately the
+// sample profile (Lorentzian microstrain and size; the Gaussian microstrain
+// held at 0, as it correlates with the background) and the structure (B_iso,
+// positions), each with scale, background and a, fifteen times each; the last
+// structure stage moved nothing by more than 0.001 esd. The profile stages put
+// the Lorentzian microstrain at 424(79) and the size at 0.0464(15) µm. The
+// example opens with the rows the spec frees (scale, background, a) free and
+// the rest held at these values. Keyed by parameter id, applied after the spec
+// is rebuilt from the model.
 const REFINED_PARAMS: Record<string, number> = {
-  scale: 0.00003731959019619424,
-  bkg0: 0.47467845110001994,
-  bkg1: 0.12739806776741466,
-  bkg2: 0.02396065930480788,
-  bkg3: -0.0026104066912052792,
-  bkg4: 0.032566208897163135,
-  bkg5: 0.0071533371202941185,
-  bkg6: 0.013716532851531758,
-  cell_a: 10.375722843496254,
+  scale: 0.00003699290913148213,
+  bkg0: 0.548273074558259,
+  bkg1: 0.15094797516697686,
+  bkg2: 0.15120735872055202,
+  bkg3: 0.012034143396177952,
+  bkg4: 0.1114262911331799,
+  bkg5: 0.012893821227680813,
+  bkg6: 0.04315476222016007,
+  cell_a: 10.375964764591364,
   tof_difC: 9068.553459758095,
   tof_difA: -23.07639352718455,
   tof_difB: 0,
@@ -126,16 +132,16 @@ const REFINED_PARAMS: Record<string, number> = {
   tof_gamY: 6.397888325532403,
   tof_gamZ: 0,
   tofSampleGauss: 0,
-  tofSampleLorentz: 0,
-  tofSampleSize: 0.03844925775546365,
+  tofSampleLorentz: 423.8097118105326,
+  tofSampleSize: 0.046448604780985246,
   zero: -3.196819630450491,
-  B_Ga1: 0.3489573765820661,
-  B_Ta1: 0.3504330358174063,
-  B_Se1: 0.4601028444982398,
-  B_Se2: 0.4165920542781746,
-  pos_Ta1_0: -0.0001865511179297992,
-  pos_Se1_0: -0.00016481635772059558,
-  pos_Se2_0: 0.0004175746291828129,
+  B_Ga1: 0.3103685396674084,
+  B_Ta1: 0.343465076487938,
+  B_Se1: 0.44492811016940914,
+  B_Se2: 0.39307846732646057,
+  pos_Ta1_0: -0.00021716632322054744,
+  pos_Se1_0: -0.0004272710421696226,
+  pos_Se2_0: 0.0006012986590684235,
   occ_Ga1: 1,
   occ_Ta1: 1,
   occ_Se1: 1,
@@ -159,7 +165,7 @@ export function gata4se8NomadExample(): GaTa4Se8NomadExample {
     fitRange: FIT_RANGE,
     backgroundType: BACKGROUND.type,
     backgroundTerms: BACKGROUND.terms,
-    rawData: { name: NOMAD_DATA_NAME, text: patternText, bank: NOMAD_BANK },
+    rawData: { name: NOMAD_DATA_NAME, text: patternText, bank: NOMAD_BANK, bankWindows: BANK_WINDOWS },
     rawInstrument: { name: "NOMAD_2023A_five_banks_Shifter_Si_640e_instrument_file.instprm", text: instrumentText, bank: NOMAD_BANK, bundledDefault: "nomad-2023A" },
   };
   return cached;
