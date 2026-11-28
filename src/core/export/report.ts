@@ -372,11 +372,21 @@ const KIND_DECIMALS: Partial<Record<ParameterKind, number>> = {
 };
 
 /**
- * The unit of a row's value, by kind. The report prints it beside the value
- * as the row holds it, with no conversion, so each entry is the unit the fit
- * computes with:
- * - `sampleDisplacement`: degrees of 2θ, the s of Δ2θ = s·cosθ
- *   (core/diffraction/corrections.ts), not a height in µm;
+ * The unit of a row's value, by kind, for the kinds whose rows all share one
+ * unit ({@link parameterUnit} adds the two that do not). The report prints it
+ * beside the value as the row holds it, with no conversion, so each entry is
+ * the unit the fit computes with:
+ * - `sampleDisplacement`, `sampleTransparency`: degrees of 2θ, the s of
+ *   Δ2θ = s·cosθ and the t of Δ2θ = t·sin2θ (core/diffraction/corrections.ts,
+ *   added to the Bragg angle in workflow/powder.ts `placePeaks`); the
+ *   displacement is not a height in µm;
+ * - `profileU`, `profileV`, `profileW`: centidegrees², FWHM² = U·tan²θ +
+ *   V·tanθ + W (core/diffraction/profile.ts `cagliotiFwhm`; `placePeaks`
+ *   divides the FWHM by 100 to reach degrees);
+ * - `profileX`, `profileY`: centidegrees of 2θ, X/cosθ + Y·tanθ (profile.ts
+ *   `lorentzianFwhm`, divided by 100 in `placePeaks`);
+ * - `anisoSizePerp`, `anisoSizePar`: centidegrees of 2θ, X(hkl)/(100·cosθ)
+ *   degrees (core/diffraction/anisoSize.ts `uniaxialSizeFwhmDeg`);
  * - `stephensStrain`: Å⁻⁴, S_HKL in σ²(1/d²) = Σ S_HKL·hᴴkᴷlᴸ, with no 10⁻⁶
  *   factor (core/diffraction/anisoStrain.ts `strainVarianceM`);
  * - `mustrainPerp`, `mustrainPar`: centidegrees of 2θ, the Y of the Lorentzian
@@ -384,12 +394,18 @@ const KIND_DECIMALS: Partial<Record<ParameterKind, number>> = {
  *   microstrain in 10⁻⁶;
  * - `mustrainIso`, `tofSampleGauss`, `tofSampleLorentz`: 10⁶ times a strain
  *   (core/workflow/apply.ts `applyParameters`; docs/EQUATIONS.md §17).
+ * The Caglioti, Lorentzian and uniaxial rows are built and used on a 2θ
+ * pattern only (app/powderSpec.ts; `placePeaks`).
+ * Not exported: read a row's unit through {@link parameterUnit}, which also
+ * knows the zero and the time-of-flight calibration.
  */
-export const KIND_UNIT: Partial<Record<ParameterKind, string>> = {
+const KIND_UNIT: Partial<Record<ParameterKind, string>> = {
   cellLength: "Å", cellAngle: "°",
   positionShift: "shift (frac.)", bIso: "Å²", uAniso: "Å²", ridingTorsion: "°",
   momentX: "µB", momentY: "µB", momentZ: "µB", momentMode: "µB", propagationK: "(r.l.u.)",
-  zeroShift: "° 2θ", sampleDisplacement: "° 2θ",
+  sampleDisplacement: "° 2θ", sampleTransparency: "° 2θ",
+  profileU: "centidegrees²", profileV: "centidegrees²", profileW: "centidegrees²",
+  profileX: "centidegrees 2θ", profileY: "centidegrees 2θ", anisoSizePerp: "centidegrees 2θ", anisoSizePar: "centidegrees 2θ",
   qdamp: "Å⁻¹", qbroad: "Å⁻¹", delta1: "Å", delta2: "Å²", rcut: "Å", spdiameter: "Å", corrLength: "Å", mpdfPsigma: "Å",
   stephensStrain: "Å⁻⁴", mustrainIso: "×10⁻⁶", mustrainPar: "centidegrees 2θ", mustrainPerp: "centidegrees 2θ",
   tofSampleGauss: "×10⁻⁶", tofSampleLorentz: "×10⁻⁶", tofSampleSize: "µm",
@@ -399,19 +415,27 @@ export const KIND_UNIT: Partial<Record<ParameterKind, string>> = {
 const TOF_CALIBRATION_UNIT: Readonly<Record<string, string>> = { difC: "µs/Å", difA: "µs/Å²", difB: "µs·Å" };
 
 /**
- * The unit the report prints beside a row's value: {@link KIND_UNIT} by kind,
- * except for the two kinds whose rows do not share one unit.
- * - `tofCalibration`: the rows are difC, difA and difB (ids `tof_difC`, …,
- *   core/workflow/structureRefinement.ts), in µs/Å, µs/Å² and µs·Å
- *   (core/diffraction/instrument.ts). A row that is none of them gets no unit.
- * - `zeroShift`: the zero is added to the peak position in the data's unit.
- *   On a time-of-flight pattern that is µs (workflow/powder.ts: T = difC·d +
- *   difA·d² + difB/d + zero); such a fit always carries the calibration rows,
- *   so `all`, the report's whole parameter list, tells. Otherwise degrees of 2θ.
+ * The unit the report prints beside a row's value: by kind, except for the
+ * two kinds whose rows do not share one unit.
+ * - `tofCalibration`: the rows are difC, difA and difB (ids `tof_difC`,
+ *   `tof_difA`, `tof_difB`: core/workflow/structureRefinement.ts, read the
+ *   same way by visualization/axisUnits.ts `tofCalibrationOf`), in µs/Å,
+ *   µs/Å² and µs·Å (core/diffraction/instrument.ts). A row with any other id
+ *   gets no unit.
+ * - `zeroShift`: "µs" when `all`, the report's whole parameter list, holds a
+ *   `tofCalibration` row, and "° 2θ" otherwise. The unit is inferred from
+ *   those rows; the report is not told the data's unit. It is right where
+ *   the zero row is built by default: on a time-of-flight fit, which always
+ *   carries the calibration rows (structureRefinement.ts emits them whenever
+ *   its `tof` option is set, and the zero with them by default;
+ *   T = difC·d + difA·d² + difB/d + zero in workflow/powder.ts), and on a 2θ
+ *   pattern with a Caglioti profile. A zero on a pattern in d or Q, or on a
+ *   time-of-flight page with no calibration (view-only), still reads "° 2θ",
+ *   as it did before this function.
  */
 export function parameterUnit(p: RefinementParameter, all: readonly RefinementParameter[]): string {
-  if (p.kind === "tofCalibration") return TOF_CALIBRATION_UNIT[/(dif[CAB])$/.exec(p.id)?.[1] ?? ""] ?? "";
-  if (p.kind === "zeroShift" && all.some((q) => q.kind === "tofCalibration")) return "µs";
+  if (p.kind === "tofCalibration") return TOF_CALIBRATION_UNIT[/^tof_(difC|difA|difB)$/.exec(p.id)?.[1] ?? ""] ?? "";
+  if (p.kind === "zeroShift") return all.some((q) => q.kind === "tofCalibration") ? "µs" : "° 2θ";
   return KIND_UNIT[p.kind] ?? "";
 }
 

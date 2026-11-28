@@ -3,6 +3,10 @@ import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { exampleStructure } from "@/examples/mn3ga";
 import { buildSyntheticPowder } from "@/examples/synthetic";
 import { buildPowderSpec } from "@/app/powderSpec";
+import { parameterUnit } from "@/core/export/report";
+import { parseInstrumentParameters } from "@/parsers/instrument";
+import { SINGLE_BANK_INSTPRM } from "@/testSupport/instprmFixtures";
+import type { PowderPattern } from "@/core/diffraction/types";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { DEFAULT_STAGE_KINDS } from "@/core/workflow/structureRefinement";
 
@@ -100,6 +104,47 @@ describe("buildPowderSpec", () => {
     // One occupancy row per site, seeded from the model and fixed on load.
     expect(occ.map((p) => p.id).sort()).toEqual(["occ_Ga1", "occ_Mn1"]);
     expect(occ.every((p) => p.fixed)).toBe(true);
+  });
+});
+
+describe("the rows the report's units are read from (core/export/report.ts parameterUnit)", () => {
+  // parameterUnit is not told the data's unit: it reads "µs" for the zero when the rows hold the TOF calibration.
+  // That holds only if a time-of-flight spec always emits the three calibration rows beside its zero.
+  const tofPoints = Array.from({ length: 300 }, (_, i) => ({ x: 20000 + i * 300, yObs: 0, sigma: 1 }));
+  const tofPattern: PowderPattern = { id: "t", name: "t", xUnit: "tof", radiation: { kind: "neutron-tof" }, wavelength: 0, points: tofPoints };
+
+  it("time of flight: difC, difA and difB under those ids, with the zero, whatever the microstrain model or the instrument's profile", () => {
+    const plain: InstrumentParameters = { kind: "tof", difC: 22585.8, difA: -1.2, difB: 0.3, zero: -3.2 };
+    const fromFile = parseInstrumentParameters(SINGLE_BANK_INSTPRM);
+    expect(fromFile.kind).toBe("tof");
+    for (const instrument of [plain, fromFile]) {
+      for (const mustrain of ["isotropic", "uniaxial", "generalized"] as const) {
+        const { params } = buildPowderSpec(structure, tofPattern, instrument, true, 4, {}, mustrain);
+        expect(params.filter((p) => p.kind === "tofCalibration").map((p) => p.id)).toEqual(["tof_difC", "tof_difA", "tof_difB"]);
+        const zero = params.filter((p) => p.kind === "zeroShift");
+        expect(zero.map((p) => p.id)).toEqual(["zero"]);
+        expect(parameterUnit(zero[0]!, params)).toBe("µs");
+        expect(params.filter((p) => p.kind === "tofCalibration").map((p) => parameterUnit(p, params))).toEqual(["µs/Å", "µs/Å²", "µs·Å"]);
+        // No constant-wavelength width row on time of flight: their units (centidegrees) never label a TOF row.
+        expect(params.some((p) => ["profileU", "profileV", "profileW", "profileX", "profileY", "anisoSizePerp", "anisoSizePar", "mustrainPerp", "mustrainPar"].includes(p.kind))).toBe(false);
+      }
+    }
+    expect(buildPowderSpec(structure, tofPattern, plain).params.find((p) => p.id === "zero")!.value).toBe(-3.2);
+  });
+
+  it("constant wavelength: no calibration row, so the zero reads degrees of 2θ", () => {
+    const inst: InstrumentParameters = { kind: "constantWavelength", wavelength: 1.54, u: 27, v: -27, w: 27, x: 0, y: 5, zero: 0.02 };
+    const { params } = buildPowderSpec(structure, pattern, inst);
+    expect(params.some((p) => p.kind === "tofCalibration")).toBe(false);
+    expect(parameterUnit(params.find((p) => p.kind === "zeroShift")!, params)).toBe("° 2θ");
+    expect(parameterUnit(params.find((p) => p.kind === "profileY")!, params)).toBe("centidegrees 2θ");
+  });
+
+  it("time-of-flight data with no calibration (view-only) builds no calibration row: a zero there would still read ° 2θ", () => {
+    // The limit parameterUnit's comment states. Such a page is not refined, and by default has no zero row.
+    const { params } = buildPowderSpec(structure, tofPattern, { kind: "constantWavelength", wavelength: 1.54 });
+    expect(params.some((p) => p.kind === "tofCalibration")).toBe(false);
+    expect(params.some((p) => p.kind === "zeroShift")).toBe(false);
   });
 });
 

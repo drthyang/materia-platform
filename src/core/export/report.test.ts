@@ -455,6 +455,20 @@ describe("report helpers", () => {
     ]) expect(md, line).toContain(line);
     const shown = text(reportHtml(input));
     for (const cells of ["strain S4002.5000e-7Å⁻⁴", "mustrain Y⊥12.300centidegrees 2θ", "mustrain Y∥23.400centidegrees 2θ", "sample displ. (°·cosθ)0.045600° 2θ"]) expect(shown, cells).toContain(cells);
+    // The sibling rows, which had no unit: each is the unit placePeaks computes with (the widths divided by 100 to reach degrees).
+    const siblings = [
+      row("profU", "prof U", "profileU", 149.72), row("profV", "prof V", "profileV", -149.72), row("profW", "prof W", "profileW", 149.72),
+      row("profX", "size (Lorentzian X)", "profileX", 2.9), row("profY", "mustrain (Lorentzian Y)", "profileY", 17.05),
+      row("sizePerp", "size X⊥", "anisoSizePerp", 1.1), row("sizePar", "size X∥", "anisoSizePar", 2.2),
+      row("sampleTransp", "transparency (°·sin2θ)", "sampleTransparency", 0.0031),
+    ];
+    expect(siblings.map((p) => parameterUnit(p, siblings))).toEqual([
+      "centidegrees²", "centidegrees²", "centidegrees²", "centidegrees 2θ", "centidegrees 2θ", "centidegrees 2θ", "centidegrees 2θ", "° 2θ",
+    ]);
+    const mdSiblings = reportMarkdown({ ...powderInput(), parameters: [...powderInput().parameters, ...siblings] });
+    for (const line of ["| prof U | 149.72 | centidegrees² | refined |", "| mustrain (Lorentzian Y) | 17.050 | centidegrees 2θ | refined |", "| size X⊥ | 1.1000 | centidegrees 2θ | refined |", "| transparency (°·sin2θ) | 0.0031000 | ° 2θ | refined |"]) expect(mdSiblings, line).toContain(line);
+    // Rows with no single unit stay blank: a scale, a background term, an occupancy, the asymmetry, μR.
+    for (const kind of ["scale", "background", "occupancy", "asymSL", "asymHL", "absorption", "peakWidth"] as const) expect(parameterUnit(row("x", "x", kind, 1), siblings), kind).toBe("");
     // None of the four is a microstrain in 10⁻⁶ or a height in µm.
     for (const wrong of ["| strain S400 | 2.5000e-7 | ×10⁻⁶", "| mustrain Y⊥ | 12.300 | ×10⁻⁶", "| mustrain Y∥ | 23.400 | ×10⁻⁶", "| µm |"]) expect(md, wrong).not.toContain(wrong);
   });
@@ -468,8 +482,8 @@ describe("report helpers", () => {
     expect(tof.map((p) => parameterUnit(p, tof))).toEqual(["µs/Å", "µs/Å²", "µs·Å", "µs"]);
     // Constant wavelength: no calibration rows, the zero in degrees of 2θ, as before.
     expect(parameterUnit(zero, [zero])).toBe("° 2θ");
-    // A calibration row that is none of the three gets no unit, never a wrong one.
-    expect(parameterUnit(row("tof_other", "TOF other", "tofCalibration", 1, true), tof)).toBe("");
+    // A calibration row that is none of the three gets no unit, never a wrong one; the id is matched whole.
+    for (const id of ["tof_other", "x_tof_difC", "tof_difCx", "difC"]) expect(parameterUnit(row(id, "TOF other", "tofCalibration", 1, true), tof), id).toBe("");
     // Every other kind keeps its unit by kind.
     expect(parameterUnit(row("a", "a", "cellLength", 5, false), tof)).toBe("Å");
     expect(parameterUnit(row("scale", "scale", "scale", 1, false), tof)).toBe("");

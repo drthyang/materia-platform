@@ -17,7 +17,9 @@ describe("the Microstructure readout's hover text", () => {
   });
 
   it("time of flight: the microstrain row, with no Lorentzian X or Y and no π·Y/72000", () => {
-    expect(MICROSTRAIN_TITLE_TOF).toBe("Derived from the refined microstrain row (ε = Δd/d, a Gaussian standard deviation, × 10⁶), with the instrument seed deconvoluted in quadrature.");
+    expect(MICROSTRAIN_TITLE_TOF).toBe("Derived from the refined microstrain row (ε = Δd/d, a Gaussian standard deviation, × 10⁶), less the row's starting value in quadrature.");
     expect(MICROSTRAIN_TITLE_TOF).not.toMatch(/Lorentzian|72000|GSAS/);
+    // What is subtracted is the row's starting value (a flat seed or a saved fit's value), not an instrument's width.
+    expect(MICROSTRAIN_TITLE_TOF).not.toMatch(/instrument|deconvolut/);
   });
 });

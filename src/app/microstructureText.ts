@@ -16,7 +16,10 @@ export const MICROSTRAIN_TITLE_CW =
  * Time of flight: the readout is the isotropic microstrain row (10⁶·ε, with
  * ε = Δd/d the standard deviation of a Gaussian strain: docs/EQUATIONS.md
  * §17), less the row's starting value in quadrature. There is no Lorentzian X
- * or Y in it.
+ * or Y in it. The starting value is not an instrument's measured width: it is
+ * the flat 1500 × 10⁻⁶ `buildPowderSpec` seeds (app/powderSpec.ts), or the
+ * value a saved fit opens on (the bundled POWGEN example's 616.82), so the
+ * text says "the row's starting value" and not "the instrument seed".
  */
 export const MICROSTRAIN_TITLE_TOF =
-  "Derived from the refined microstrain row (ε = Δd/d, a Gaussian standard deviation, × 10⁶), with the instrument seed deconvoluted in quadrature.";
+  "Derived from the refined microstrain row (ε = Δd/d, a Gaussian standard deviation, × 10⁶), less the row's starting value in quadrature.";

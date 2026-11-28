@@ -1349,9 +1349,10 @@ export function PowderWorkbench({
   const mustrainFromTofRow = pattern.xUnit === "tof" || pattern.radiation.kind === "neutron-tof";
   const mustrainReadout = useMemo(() => {
     // TOF isotropic Mustrain: the `mustrainIso` parameter is µstrain (×10⁻⁶)
-    // directly. Deconvolute the instrument seed in *quadrature* — the TOF strain
-    // is Gaussian (variances add), unlike the CW Lorentzian (breadths add).
-    if (pattern.xUnit === "tof" || pattern.radiation.kind === "neutron-tof") {
+    // directly. The row's starting value (buildPowderSpec's flat seed, or a
+    // saved fit's value) is taken off in *quadrature* — the TOF strain is
+    // Gaussian (variances add), unlike the CW Lorentzian (breadths add).
+    if (mustrainFromTofRow) {
       const pm = powderParams.find((p) => p.kind === "mustrainIso");
       if (!pm) return null;
       const muSample = Math.sqrt(Math.max(pm.value * pm.value - pm.initialValue * pm.initialValue, 0));
@@ -1380,7 +1381,7 @@ export function PowderWorkbench({
       ...(yEsd !== undefined ? { yEsd } : {}),
       instrument: { x: px?.initialValue ?? 0, y: py?.initialValue ?? 0 },
     });
-  }, [powderParams, pattern.xUnit, pattern.radiation, powderResult]);
+  }, [powderParams, mustrainFromTofRow, pattern.xUnit, pattern.radiation, powderResult]);
   // A lab tube's second line, as the model draws it (from the pattern's radiation).
   const kAlpha2 = secondLine(pattern) ? (pattern.radiation as { kAlpha2?: { wavelength: number; ratio: number } }).kAlpha2 : undefined;
   const instParamMeta =

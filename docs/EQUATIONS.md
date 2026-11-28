@@ -809,14 +809,22 @@ text; no value changed):
   Stokes–Wilson ε and give GSAS-II's number (`app/microstructureText.ts`).
 - Found in the same pass: on time of flight the report gave the zero shift in
   "° 2θ" and difC, difA, difB in "µs". They are µs, and µs/Å, µs/Å², µs·Å
-  (`core/export/report.ts` `parameterUnit`).
+  (`core/export/report.ts` `parameterUnit`). The zero's unit is inferred from
+  the calibration rows, which a time-of-flight fit always carries; a zero on
+  a pattern in d or Q, or on a time-of-flight page with no calibration, still
+  reads "° 2θ".
+- The constant-wavelength width rows had no unit in the report. They now
+  have: U, V, W centidegrees² (FWHM² = U·tan²θ + V·tanθ + W); the Lorentzian
+  X, Y and the uniaxial size X_⊥, X_∥ centidegrees of 2θ; the transparency
+  degrees of 2θ (Δ2θ = t·sin2θ). `placePeaks` divides each width by 100.
 
 Not changed, and still as it was:
 
 - `core/export/reportMarkdownFrozen.ts` keeps its own copy of the unit table
-  with the earlier labels ("×10⁻⁶", "µm", "° 2θ" and "µs" as above). It is
-  frozen for the agent validation (its header): the number audit and the
-  evals read that text. The labels go when the frozen layout is retired.
+  with the earlier labels ("×10⁻⁶", "µm", "° 2θ" and "µs" as above, and no
+  unit for the width rows). It is frozen for the agent validation (its
+  header): the number audit and the evals read that text. The labels go when
+  the frozen layout is retired.
 - Both layouts print "shift (frac.)" for every `positionShift` row. A
   distortion-mode amplitude (ids `mode_…`, `core/crystal/distortionModes.ts`,
   `parsers/modeCif.ts`) is in Å over the conventional child cell, not a

@@ -49,11 +49,15 @@ release fixes bugs.
   of 2θ for Y⊥ and Y∥, degrees of 2θ for the displacement (Δ2θ = s·cosθ). On
   time of flight the report gave the zero in "° 2θ" and difC, difA and difB
   in "µs"; they are now µs for the zero, and µs/Å, µs/Å² and µs·Å. The
+  constant-wavelength width rows, which had no unit, now have theirs:
+  centidegrees² for U, V and W, centidegrees of 2θ for the Lorentzian X and Y
+  and the uniaxial size X⊥ and X∥, degrees of 2θ for the transparency. The
   Microstructure readout's hover text called its number GSAS-II's microstrain.
   It is the Stokes–Wilson strain ε = π·Y/72000 (× 10⁶); GSAS-II's Mustrain
   for the same Y is 10⁶·π·Y/18000, four times it. The text and
   docs/MICROSTRUCTURE.md now say so, and on time of flight the text describes
-  the microstrain row the readout comes from. The report text the Copilot's
+  the microstrain row the readout comes from, less that row's starting value
+  in quadrature. The report text the Copilot's
   number audit reads keeps its earlier labels until the validation freeze
   ends.
 - **The GSAS-II bundle carries the preferred orientation.** A textured fit's

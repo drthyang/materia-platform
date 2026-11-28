@@ -48,7 +48,8 @@ instrument deconvolution and esds
 - `williamsonHall`, the model-independent cross-check, fits
   β·cosθ = K·λ/D + 4·ε·sinθ to separately measured peak breadths and returns
   size, strain and R².
-- Checked against the GSAS-II constants and a synthetic Williamson–Hall recovery
+- Checked: the constants (ε = π·Y/72000, a quarter of GSAS-II's Mustrain; the
+  size constant 18000/π) and a synthetic Williamson–Hall recovery
   ([microstructure.test.ts](../src/core/diffraction/microstructure.test.ts)).
 
 ## 3. Generalized microstrain: Stephens (1999) ✅
