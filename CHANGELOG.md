@@ -41,6 +41,19 @@ release fixes bugs.
 
 ### Fixed
 
+- **The report's units for the broadening and displacement rows, and whose
+  microstrain the readout shows.** The report printed "×10⁻⁶" beside the
+  Stephens S_HKL and the uniaxial Y⊥, Y∥, and "µm" beside the sample
+  displacement, with the values as the fit holds them. The values are right
+  and unchanged; the labels are now their units: Å⁻⁴ for S_HKL, centidegrees
+  of 2θ for Y⊥ and Y∥, degrees of 2θ for the displacement (Δ2θ = s·cosθ). The
+  Microstructure readout's hover text called its number GSAS-II's microstrain.
+  It is the Stokes–Wilson strain ε = π·Y/72000 (× 10⁶); GSAS-II's Mustrain
+  for the same Y is 10⁶·π·Y/18000, four times it. The text and
+  docs/MICROSTRUCTURE.md now say so, and on time of flight the text describes
+  the microstrain row the readout comes from. The report text the Copilot's
+  number audit reads keeps its earlier labels until the validation freeze
+  ends.
 - **The GSAS-II bundle carries the preferred orientation.** A textured fit's
   March–Dollase ratio and axis were written to the FullProf `.pcr` but
   dropped from the GSAS-II bundle without a word. `build_gpx.py` now sets each

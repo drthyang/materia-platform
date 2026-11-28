@@ -371,13 +371,27 @@ const KIND_DECIMALS: Partial<Record<ParameterKind, number>> = {
   qdamp: 4, qbroad: 4, delta1: 4, delta2: 4, sratio: 4, rcut: 3, spdiameter: 2, corrLength: 2, mpdfPsigma: 4,
 };
 
+/**
+ * The unit of a row's value, by kind. The report prints it beside the value
+ * as the row holds it, with no conversion, so each entry is the unit the fit
+ * computes with:
+ * - `sampleDisplacement`: degrees of 2θ, the s of Δ2θ = s·cosθ
+ *   (core/diffraction/corrections.ts), not a height in µm;
+ * - `stephensStrain`: Å⁻⁴, S_HKL in σ²(1/d²) = Σ S_HKL·hᴴkᴷlᴸ, with no 10⁻⁶
+ *   factor (core/diffraction/anisoStrain.ts `strainVarianceM`);
+ * - `mustrainPerp`, `mustrainPar`: centidegrees of 2θ, the Y of the Lorentzian
+ *   width Y·tanθ/100 degrees (anisoStrain.ts `uniaxialStrainFwhmDeg`), not a
+ *   microstrain in 10⁻⁶;
+ * - `mustrainIso`, `tofSampleGauss`, `tofSampleLorentz`: 10⁶ times a strain
+ *   (core/workflow/apply.ts `applyParameters`; docs/EQUATIONS.md §17).
+ */
 export const KIND_UNIT: Partial<Record<ParameterKind, string>> = {
   cellLength: "Å", cellAngle: "°",
   positionShift: "shift (frac.)", bIso: "Å²", uAniso: "Å²", ridingTorsion: "°",
   momentX: "µB", momentY: "µB", momentZ: "µB", momentMode: "µB", propagationK: "(r.l.u.)",
-  zeroShift: "° 2θ", sampleDisplacement: "µm",
+  zeroShift: "° 2θ", sampleDisplacement: "° 2θ",
   qdamp: "Å⁻¹", qbroad: "Å⁻¹", delta1: "Å", delta2: "Å²", rcut: "Å", spdiameter: "Å", corrLength: "Å", mpdfPsigma: "Å",
-  tofCalibration: "µs", stephensStrain: "×10⁻⁶", mustrainIso: "×10⁻⁶", mustrainPar: "×10⁻⁶", mustrainPerp: "×10⁻⁶",
+  tofCalibration: "µs", stephensStrain: "Å⁻⁴", mustrainIso: "×10⁻⁶", mustrainPar: "centidegrees 2θ", mustrainPerp: "centidegrees 2θ",
   tofSampleGauss: "×10⁻⁶", tofSampleLorentz: "×10⁻⁶", tofSampleSize: "µm",
 };
 

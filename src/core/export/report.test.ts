@@ -432,6 +432,44 @@ describe("report helpers", () => {
     expect(formatParameterValue(p("momentMode", -0.0004))).toBe("0.000");
   });
 
+  it("prints a broadening or displacement row's unit as the fit computes with it, with no conversion", () => {
+    // Rows as structureRefinement.ts and corrections.ts emit them. The values go to the model as they are:
+    // S_HKL into σ²(1/d²) in Å⁻⁴, Y⊥ and Y∥ into Y·tanθ/100 degrees, s into Δ2θ = s·cosθ degrees.
+    const row = (id: string, label: string, kind: RefinementParameter["kind"], value: number): RefinementParameter =>
+      ({ id, label, kind, value, initialValue: value, fixed: false });
+    const rows = [
+      row("stephens_0", "strain S400", "stephensStrain", 2.5e-7),
+      row("mustrainPerp", "mustrain Y⊥", "mustrainPerp", 12.3),
+      row("mustrainPar", "mustrain Y∥", "mustrainPar", 23.4),
+      row("sampleDispl", "sample displ. (°·cosθ)", "sampleDisplacement", 0.0456),
+      row("mustrainIso", "mustrain (×10⁻⁶)", "mustrainIso", 1234),
+    ];
+    const input: ReportInput = { ...powderInput(), parameters: [...powderInput().parameters, ...rows] };
+    const md = reportMarkdown(input);
+    for (const line of [
+      "| strain S400 | 2.5000e-7 | Å⁻⁴ | refined |",
+      "| mustrain Y⊥ | 12.300 | centidegrees 2θ | refined |",
+      "| mustrain Y∥ | 23.400 | centidegrees 2θ | refined |",
+      "| sample displ. (°·cosθ) | 0.045600 | ° 2θ | refined |",
+      "| mustrain (×10⁻⁶) | 1234.0 | ×10⁻⁶ | refined |",
+    ]) expect(md, line).toContain(line);
+    const shown = text(reportHtml(input));
+    for (const cells of ["strain S4002.5000e-7Å⁻⁴", "mustrain Y⊥12.300centidegrees 2θ", "mustrain Y∥23.400centidegrees 2θ", "sample displ. (°·cosθ)0.045600° 2θ"]) expect(shown, cells).toContain(cells);
+    // None of the four is a microstrain in 10⁻⁶ or a height in µm.
+    for (const wrong of ["| strain S400 | 2.5000e-7 | ×10⁻⁶", "| mustrain Y⊥ | 12.300 | ×10⁻⁶", "| mustrain Y∥ | 23.400 | ×10⁻⁶", "| µm |"]) expect(md, wrong).not.toContain(wrong);
+  });
+
+  it("the frozen layout keeps the unit labels it had, while the validation freeze lasts", () => {
+    // reportMarkdownFrozen.ts must not move (its header); it still prints "×10⁻⁶" and "µm" for these rows.
+    // They are wrong there as they were here, and go when the frozen layout is retired.
+    const row = (id: string, label: string, kind: RefinementParameter["kind"], value: number): RefinementParameter =>
+      ({ id, label, kind, value, initialValue: value, fixed: false });
+    const input: ReportInput = { ...powderInput(), parameters: [...powderInput().parameters, row("mustrainPerp", "mustrain Y⊥", "mustrainPerp", 12.3), row("sampleDispl", "sample displ. (°·cosθ)", "sampleDisplacement", 0.0456)] };
+    const frozen = frozenReportMarkdown(input);
+    expect(frozen).toContain("| mustrain Y⊥ | 12.300 | ×10⁻⁶ | refined |");
+    expect(frozen).toContain("| sample displ. (°·cosθ) | 0.045600 | µm | refined |");
+  });
+
   it("picks nice axis ticks", () => {
     expect(niceTicks(0, 100, 5).ticks).toEqual([0, 20, 40, 60, 80, 100]);
     expect(niceTicks(1.2, 4.9, 7).step).toBe(0.5);

@@ -93,6 +93,7 @@ import { observedOnlyCurves, pageReflectionLimit, reflectionLimitSentence } from
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { fileProfileCardNote, tofNegativeGammaNote, tofWidthCardNote } from "@/app/tofWidthNote";
 import { calNumber } from "@/app/calibrationText";
+import { MICROSTRAIN_TITLE_CW, MICROSTRAIN_TITLE_TOF } from "@/app/microstructureText";
 import { scoredWindow, shortDNote, shortDReading, tickDRanges } from "@/app/shortD";
 import { defaultInstrumentInUse, defaultInstrumentOffer, defaultOfferDetail, defaultOfferLabel, defaultUncovered, instrumentCardChip } from "@/app/defaultInstruments";
 import { bankAdvice, currentDataBank, currentInstrumentBank, dataBankOptions, dataBankRef, dataBanksOf, instrumentBankOptions, instrumentFileOf, unusedNote, type BankOption } from "@/app/bankChoice";
@@ -1339,9 +1340,13 @@ export function PowderWorkbench({
     : `a ${cell.a.toFixed(4)} · b ${cell.b.toFixed(4)} · c ${cell.c.toFixed(4)} Å`;
   const isSynthetic = powderSource === SYNTHETIC_SOURCE;
 
-  // Microstructure readout (GSAS-II-style): crystallite size + microstrain from the
-  // refined Lorentzian X (size) and Y (strain), deconvoluting the instrument seed
-  // (the initial X/Y from the calibration). CW (2θ) only — needs a wavelength.
+  // Microstructure readout: crystallite size + microstrain from the refined
+  // Lorentzian X (size) and Y (strain), deconvoluting the instrument seed (the
+  // initial X/Y from the calibration); needs a wavelength, so CW (2θ). The
+  // microstrain is the Stokes–Wilson ε = π·Y/72000, a quarter of GSAS-II's
+  // Mustrain for the same Y (core/diffraction/microstructure.ts). On TOF the
+  // readout is the isotropic microstrain row instead (the first branch below).
+  const mustrainFromTofRow = pattern.xUnit === "tof" || pattern.radiation.kind === "neutron-tof";
   const mustrainReadout = useMemo(() => {
     // TOF isotropic Mustrain: the `mustrainIso` parameter is µstrain (×10⁻⁶)
     // directly. Deconvolute the instrument seed in *quadrature* — the TOF strain
@@ -1931,7 +1936,7 @@ export function PowderWorkbench({
                       </p>
                     )}
                     {!tofViewOnly && mustrainReadout && (mustrainReadout.strainPpm.value > 0 || mustrainReadout.sampleY !== 0) && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 14, rowGap: 5, marginTop: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, flexWrap: "wrap" }} title="Derived from the refined Lorentzian X (size) and Y (microstrain), with the instrument seed deconvoluted (GSAS-II microstrain = LY·π/72000·10⁶ ppm).">
+                      <div style={{ display: "flex", alignItems: "center", gap: 14, rowGap: 5, marginTop: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, flexWrap: "wrap" }} title={mustrainFromTofRow ? MICROSTRAIN_TITLE_TOF : MICROSTRAIN_TITLE_CW}>
                         <span style={themeLabel}>Microstructure</span>
                         <span>microstrain ≈ <b style={{ color: theme.ink }}>{mustrainReadout.strainPpm.value.toFixed(0)}</b>×10⁻⁶ ({mustrainReadout.strainPercent.value.toFixed(3)}%)
                           {mustrainReadout.strainPpm.esd !== undefined ? ` ± ${mustrainReadout.strainPpm.esd.toFixed(0)}` : ""}</span>
